@@ -67,6 +67,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .tpbtn{padding:1px 7px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-family:var(--font);font-size:9px;cursor:pointer;transition:all 0.1s;letter-spacing:0.5px;}
 .tpbtn:hover{color:var(--text);background:var(--bg3);}
 .tpbtn.active{background:var(--cyan);color:#000;border-color:var(--cyan);font-weight:700;}
+.vix-tfbtn{padding:2px 7px;border-radius:2px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:var(--font);font-size:9px;cursor:pointer;transition:all 0.1s;letter-spacing:0.4px;}
+.vix-tfbtn:hover{color:var(--text);border-color:var(--border2);}
+.vix-tfbtn.active{background:rgba(255,176,32,0.18);color:var(--amber);border-color:var(--amber);font-weight:700;}
 .tape-item{display:inline-flex;align-items:center;gap:5px;}
 .t-sym{font-weight:700;font-size:12px;color:var(--text);}
 .t-px{font-size:12px;font-weight:500;}
@@ -357,11 +360,22 @@ select option{background:var(--bg2);}
         <div class="vix-bar"><div class="vix-pin" id="vix-pin" style="left:50%"></div></div>
         <div class="vix-sc"><span>0</span><span>15</span><span>25</span><span>35</span><span>50+</span></div>
         <div style="margin-top:14px;">
-          <div style="font-size:9px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Last 10 Daily Candles</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;flex-wrap:wrap;">
+            <span style="font-size:9px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;margin-right:4px;">VIX</span>
+            <button class="vix-tfbtn" onclick="setVixTf('1',this)">1MIN</button>
+            <button class="vix-tfbtn" onclick="setVixTf('5',this)">5MIN</button>
+            <button class="vix-tfbtn" onclick="setVixTf('15',this)">15MIN</button>
+            <button class="vix-tfbtn" onclick="setVixTf('60',this)">1HR</button>
+            <button class="vix-tfbtn active" onclick="setVixTf('D',this)">1DAY</button>
+            <button class="vix-tfbtn" onclick="setVixTf('W',this)">1WK</button>
+          </div>
           <div style="position:relative;height:120px;"><canvas id="vix-candle-chart"></canvas></div>
-          <div style="display:flex;gap:10px;margin-top:6px;font-size:9px;color:var(--text2);">
-            <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--green);display:inline-block;border-radius:1px;"></span>VIX Down (less fear)</span>
-            <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--red);display:inline-block;border-radius:1px;"></span>VIX Up (more fear)</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+            <div style="display:flex;gap:10px;font-size:9px;color:var(--text2);">
+              <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--green);display:inline-block;border-radius:1px;"></span>VIX Down</span>
+              <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--red);display:inline-block;border-radius:1px;"></span>VIX Up</span>
+            </div>
+            <span id="vix-candle-updated" style="font-size:9px;color:var(--text3);">—</span>
           </div>
         </div>
       </div>
@@ -992,30 +1006,48 @@ function setRiskBanner(v){
 }
 
 // ============================================================
-// VIX CANDLE CHART — last 10 daily candles via Finnhub
+// VIX CANDLE CHART — multi-timeframe via Finnhub or mock
 // ============================================================
 let vixCandleChart = null;
-let vixCandles = []; // stores {date,o,h,l,c}
+let vixCandles = [];
+let vixTf = 'D'; // current timeframe: 1 5 15 60 D W
+
+// Finnhub resolution → look-back seconds and bar count
+const VIX_TF_CFG = {
+  '1':  {secs: 60*25,       bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
+  '5':  {secs: 60*5*25,     bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
+  '15': {secs: 60*15*25,    bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
+  '60': {secs: 3600*25,     bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
+  'D':  {secs: 86400*20,    bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'})},
+  'W':  {secs: 86400*7*14,  bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'})},
+};
+
+// Volatility per bar by timeframe — drives how much mock VIX moves each bar
+const VIX_TF_VOL = {'1':0.004,'5':0.008,'15':0.015,'60':0.025,'D':0.06,'W':0.12};
+
+function setVixTf(tf, btn){
+  vixTf = tf;
+  document.querySelectorAll('.vix-tfbtn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  fetchVixCandles();
+}
 
 async function fetchVixCandles(){
-  // Finnhub uses ^VIX for the CBOE Volatility Index
-  // Free tier: stock/candle endpoint, resolution D (daily)
   if(!finnhubKey){ renderVixMockCandles(); return; }
+  const cfg = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
   try {
     const to   = Math.floor(Date.now()/1000);
-    const from = to - 86400*20; // 20 days back to ensure 10 trading days
-    const url  = `https://finnhub.io/api/v1/stock/candle?symbol=VIX&resolution=D&from=${from}&to=${to}&token=${finnhubKey}`;
+    const from = to - cfg.secs;
+    const url  = `https://finnhub.io/api/v1/stock/candle?symbol=VIX&resolution=${vixTf}&from=${from}&to=${to}&token=${finnhubKey}`;
     const res  = await fetch(url);
     const d    = await res.json();
     if(d.s==='ok' && d.t && d.t.length){
       vixCandles = d.t.map((ts,i)=>({
-        date: new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+        date: cfg.fmt(ts),
         o: d.o[i], h: d.h[i], l: d.l[i], c: d.c[i]
-      })).slice(-10);
-      // Update live VIX value from latest close
+      })).slice(-cfg.bars);
       if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
-      const upd = document.getElementById('vix-last-update');
-      if(upd) upd.textContent = 'Updated '+new Date().toLocaleTimeString();
+      stampVixUpdate();
       renderVixCandleChart(vixCandles);
     } else {
       renderVixMockCandles();
@@ -1024,28 +1056,65 @@ async function fetchVixCandles(){
 }
 
 function renderVixMockCandles(){
+  const cfg  = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
+  const vol  = VIX_TF_VOL[vixTf] || 0.06;
+  const bars = cfg.bars;
   const base = vixValue || 18.4;
-  // Collect last 10 trading days by stepping backwards — avoids infinite loop on weekends
-  const tradingDays = [];
-  const today = new Date();
-  for(let offset=0; tradingDays.length<10 && offset<30; offset++){
-    const d = new Date(today);
-    d.setDate(today.getDate() - offset);
-    if(d.getDay()!==0 && d.getDay()!==6) tradingDays.push(d);
+  const now  = new Date();
+  let v = base * (1 - (bars * vol * 0.3)); // start below current so it trends toward base
+
+  // Generate bar timestamps working backwards, then reverse
+  const times = [];
+  if(vixTf === 'D'){
+    // Skip weekends
+    let offset = bars;
+    for(let i=0; times.length < bars && offset >= 0; offset--){
+      const d = new Date(now); d.setDate(now.getDate() - offset);
+      if(d.getDay() !== 0 && d.getDay() !== 6) times.push(d);
+    }
+  } else if(vixTf === 'W'){
+    for(let i=bars-1; i>=0; i--){
+      const d = new Date(now); d.setDate(now.getDate() - i*7);
+      times.push(d);
+    }
+  } else {
+    // Intraday — generate bars going back from now, skip non-market hours for realism
+    const secs = {'1':60,'5':300,'15':900,'60':3600}[vixTf] || 300;
+    for(let i=bars-1; i>=0; i--){
+      const d = new Date(now.getTime() - i*secs*1000);
+      times.push(d);
+    }
   }
-  tradingDays.reverse(); // oldest first
-  let v = base * 0.85;
-  const candles = tradingDays.map(d=>{
+
+  const fmtTime = (d) => {
+    if(vixTf === 'D') return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    if(vixTf === 'W') return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  };
+
+  const candles = times.map(d=>{
     const o = parseFloat(v.toFixed(2));
-    const c = parseFloat((v*(1+(Math.random()-0.47)*0.06)).toFixed(2));
-    const h = parseFloat((Math.max(o,c)*(1+Math.random()*0.02)).toFixed(2));
-    const l = parseFloat((Math.min(o,c)*(1-Math.random()*0.02)).toFixed(2));
+    // Mean-revert toward base so mock data looks realistic
+    const drift = (base - v) * 0.08;
+    const c = parseFloat((v * (1 + (Math.random()-0.47)*vol) + drift).toFixed(2));
+    const h = parseFloat((Math.max(o,c) * (1 + Math.random()*vol*0.4)).toFixed(2));
+    const l = parseFloat((Math.min(o,c) * (1 - Math.random()*vol*0.4)).toFixed(2));
     v = c;
-    return {date:d.toLocaleDateString('en-US',{month:'short',day:'numeric'}),o,h,l,c};
+    return {date: fmtTime(d), o, h, l, c};
   });
+
   vixCandles = candles;
   if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
-  try{renderVixCandleChart(vixCandles);}catch(e){console.warn('VIX chart error:',e);}
+  stampVixUpdate();
+  try{ renderVixCandleChart(vixCandles); }catch(e){ console.warn('VIX chart error:',e); }
+}
+
+function stampVixUpdate(){
+  const el = document.getElementById('vix-candle-updated');
+  if(el) el.textContent = 'Updated '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  // Keep the header pill in sync too
+  const hdr = document.getElementById('vix-last-update');
+  if(hdr) hdr.textContent = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 }
 
 function renderVixCandleChart(candles){
