@@ -835,6 +835,11 @@ function safeRegister(plugin){
   try{Chart.register(plugin);}catch(e){}
 }
 
+// Yield to browser between heavy operations so the main thread stays free
+const yieldFn = window.requestIdleCallback
+  ? (fn) => window.requestIdleCallback(fn, {timeout:200})
+  : (fn) => setTimeout(fn, 0);
+
 function initData(){
   applyTheme();
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
@@ -842,19 +847,27 @@ function initData(){
   updateClock();
   setInterval(updateClock,1000);
   updateMarketStatus();
+  // Render lightweight stuff immediately
   renderTape();
-  setInterval(()=>{jitterPrices();renderTape();renderWatchlist();renderMoverLists();},5000);
-  setInterval(renderTape,5000);
   updateVix(vixValue);
   updateStatBoxes();
-  renderSectors();
-  renderMoverLists();
-  renderWatchlist();
-  renderMorningPicks();
-  renderAlertsMini();
-  renderHistory();
-  updateStatusCounts();
   setRiskBanner(vixValue);
+  // Stagger heavy renders so they don't all block the thread at boot
+  yieldFn(()=>renderSectors());
+  yieldFn(()=>renderMoverLists());
+  yieldFn(()=>renderWatchlist());
+  yieldFn(()=>renderMorningPicks());
+  yieldFn(()=>renderAlertsMini());
+  yieldFn(()=>renderHistory());
+  yieldFn(()=>updateStatusCounts());
+  // Jitter interval: stagger each render so they don't all fire in one synchronous block
+  // (removed duplicate setInterval(renderTape,5000) that was here before)
+  setInterval(()=>{
+    jitterPrices();
+    setTimeout(renderTape, 0);
+    yieldFn(()=>renderWatchlist());
+    yieldFn(()=>renderMoverLists());
+  },5000);
 }
 function initCharts(){
   fetchVixCandles();
