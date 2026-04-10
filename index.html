@@ -178,7 +178,7 @@ select option{background:var(--bg2);}
 .btn-sm{padding:4px 10px;font-size:10px;}
 
 /* UPLOAD ZONE */
-.upload-zone{border:2px dashed var(--border2);border-radius:6px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.15s;}
+.upload-zone{border:2px dashed rgba(61,158,255,0.4);border-radius:6px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.15s;background:rgba(61,158,255,0.04);}
 .upload-zone:hover,.upload-zone.drag{border-color:var(--cyan);}
 .upload-icon{font-size:32px;margin-bottom:10px;}
 .upload-text{font-size:12px;color:var(--text2);line-height:1.7;}
@@ -836,9 +836,8 @@ function safeRegister(plugin){
 }
 
 // Yield to browser between heavy operations so the main thread stays free
-const yieldFn = window.requestIdleCallback
-  ? (fn) => window.requestIdleCallback(fn, {timeout:200})
-  : (fn) => setTimeout(fn, 0);
+// Use setTimeout(fn,0) — fires reliably as a macrotask before any network onload callback
+const yieldFn = (fn) => setTimeout(fn, 0);
 
 function initData(){
   applyTheme();
@@ -955,22 +954,26 @@ async function fetchVixCandles(){
 }
 
 function renderVixMockCandles(){
-  // Realistic VIX candle data around current vixValue
   const base = vixValue || 18.4;
-  const candles = [];
-  let v = base * 0.85;
+  // Collect last 10 trading days by stepping backwards — avoids infinite loop on weekends
+  const tradingDays = [];
   const today = new Date();
-  for(let i=9;i>=0;i--){
-    const d = new Date(today); d.setDate(d.getDate()-i);
-    if(d.getDay()===0||d.getDay()===6){i++;continue;}
+  for(let offset=0; tradingDays.length<10 && offset<30; offset++){
+    const d = new Date(today);
+    d.setDate(today.getDate() - offset);
+    if(d.getDay()!==0 && d.getDay()!==6) tradingDays.push(d);
+  }
+  tradingDays.reverse(); // oldest first
+  let v = base * 0.85;
+  const candles = tradingDays.map(d=>{
     const o = parseFloat(v.toFixed(2));
     const c = parseFloat((v*(1+(Math.random()-0.47)*0.06)).toFixed(2));
     const h = parseFloat((Math.max(o,c)*(1+Math.random()*0.02)).toFixed(2));
     const l = parseFloat((Math.min(o,c)*(1-Math.random()*0.02)).toFixed(2));
-    candles.push({date:d.toLocaleDateString('en-US',{month:'short',day:'numeric'}),o,h,l,c});
-    v=c;
-  }
-  vixCandles = candles.slice(-10);
+    v = c;
+    return {date:d.toLocaleDateString('en-US',{month:'short',day:'numeric'}),o,h,l,c};
+  });
+  vixCandles = candles;
   if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
   try{renderVixCandleChart(vixCandles);}catch(e){console.warn('VIX chart error:',e);}
 }
