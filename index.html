@@ -685,6 +685,22 @@ select option{background:var(--bg2);}
         </div>
         <button class="btn btn-red btn-sm" style="margin-top:12px;width:100%;" onclick="clearAll()">Clear All Data</button>
       </div>
+      <div class="card">
+        <div class="card-hd"><span class="card-title">Historical Baselines</span></div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:10px;line-height:1.6;">
+          Pre-fetch 1 year of daily OHLCV from Yahoo Finance (no API key needed).
+          Stores avg volume, avg price &amp; daily volatility per ticker for anomaly detection.
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <button class="btn btn-cyan btn-sm" style="flex:1;" onclick="startLoadHistory()">Load Top 20</button>
+          <button class="btn btn-sm" style="flex:1;background:var(--purple);color:white;border:none;" onclick="loadAllBaselines()">Load All 130</button>
+        </div>
+        <div id="hist-load-status" style="font-size:10px;color:var(--text2);min-height:16px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:8px;">
+          <span style="color:var(--text2);">Baselines cached</span>
+          <span id="st-baselines" style="color:var(--cyan)">0</span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -709,6 +725,7 @@ let vixValue = 18.4;
 let tapePeriod = '1d';
 let flowHistory = JSON.parse(localStorage.getItem('sp_flowHist') || '[]');
 let earningsCache = {};
+let histBaselines = JSON.parse(localStorage.getItem('sp_histBaselines') || '{}');
 
 // ============================================================
 // MASTER WATCHLIST — All 130 tickers by sector
@@ -876,6 +893,64 @@ const SECTORS = [
   {n:'Real Estate',p:-1.22},{n:'Materials',p:0.93},{n:'Utilities',p:-0.44},
   {n:'Comm Svcs',p:1.55},
 ];
+
+// ============================================================
+// COMPANY NAMES — full names for all watchlist tickers
+// ============================================================
+const COMPANY_NAMES = {
+  // Consumer Staples
+  CL:'Colgate-Palmolive', COST:'Costco', KO:'Coca-Cola', MDLZ:'Mondelez Intl',
+  MNST:'Monster Beverage', MO:'Altria Group', PEP:'PepsiCo', PG:'Procter & Gamble',
+  PM:'Philip Morris Intl', WMT:'Walmart',
+  // Technology
+  AAPL:'Apple', ADBE:'Adobe', AVGO:'Broadcom', CRM:'Salesforce',
+  GOOGL:'Alphabet', META:'Meta Platforms', MSFT:'Microsoft', NVDA:'NVIDIA',
+  ORCL:'Oracle', PLTR:'Palantir Technologies', RIVN:'Rivian Automotive',
+  SMCI:'Super Micro Computer', TSLA:'Tesla', MRVL:'Marvell Technology', TTD:'The Trade Desk',
+  // Semiconductors
+  AMD:'Advanced Micro Devices', INTC:'Intel', MU:'Micron Technology', QCOM:'Qualcomm',
+  // Utilities
+  AEP:'American Electric Power', CEG:'Constellation Energy', D:'Dominion Energy',
+  DUK:'Duke Energy', EXC:'Exelon', NEE:'NextEra Energy', SRE:'Sempra',
+  VST:'Vistra Energy', XEL:'Xcel Energy',
+  // Materials
+  AA:'Alcoa', APD:'Air Products', CENX:'Century Aluminum', CLF:'Cleveland-Cliffs',
+  CRH:'CRH plc', CSTM:'Constellium', CTVA:'Corteva', FCX:'Freeport-McMoRan',
+  FLNC:'Fluence Energy', FMC:'FMC Corporation', KALU:'Kaiser Aluminum', LIN:'Linde',
+  MLM:'Martin Marietta', NEM:'Newmont', NUE:'Nucor', RIO:'Rio Tinto', RS:'Reliance Steel',
+  // Financials
+  AXP:'American Express', BAC:'Bank of America', C:'Citigroup', JPM:'JPMorgan Chase',
+  SCHW:'Charles Schwab', V:'Visa', WFC:'Wells Fargo',
+  // Healthcare
+  A:'Agilent Technologies', CELH:'Celsius Holdings', CVS:'CVS Health', HUM:'Humana',
+  MRNA:'Moderna', PFE:'Pfizer', UNH:'UnitedHealth Group',
+  // Energy
+  BE:'Bloom Energy', CCJ:'Cameco', COP:'ConocoPhillips', CVX:'Chevron',
+  ET:'Energy Transfer', FANG:'Diamondback Energy', FSLR:'First Solar', KMI:'Kinder Morgan',
+  OXY:'Occidental Petroleum', PSX:'Phillips 66', RIG:'Transocean', SHEL:'Shell',
+  SLB:'Schlumberger', TTE:'TotalEnergies', WMB:'Williams Companies', XOM:'ExxonMobil',
+  // Consumer Disc.
+  AMZN:'Amazon', BABA:'Alibaba Group', CAR:'Avis Budget Group', CMG:'Chipotle Mexican Grill',
+  LEVI:'Levi Strauss', NFLX:'Netflix', NKE:'Nike', PTON:'Peloton Interactive', PYPL:'PayPal',
+  // Telecom
+  T:'AT&T', TMUS:'T-Mobile US', VZ:'Verizon Communications',
+  // Industrials
+  AAL:'American Airlines', B:'Barnes Group', DAL:'Delta Air Lines', R:'Ryder System',
+  UNF:'UniFirst', RR:'Rolls-Royce Holdings',
+  // Crypto / Digital Assets
+  BTDR:'Bitdeer Technologies', CIFR:'Cipher Mining', CLSK:'CleanSpark', COIN:'Coinbase',
+  CRCL:'Circle Internet Group', IBIT:'iShares Bitcoin Trust', IREN:'Iris Energy',
+  MARA:'MARA Holdings', MSTR:'Strategy (MicroStrategy)', WULF:'TeraWulf',
+  // Commodities
+  GDX:'VanEck Gold Miners ETF', GLD:'SPDR Gold Shares', HL:'Hecla Mining', SLV:'iShares Silver Trust',
+  // Special Situations
+  APLD:'Applied Digital', BMNR:'BitMiner', FNMA:'Fannie Mae', HOOD:'Robinhood Markets',
+  ONDS:'Ondas Holdings', PL:'Planet Labs', QBTS:'D-Wave Quantum', SOFI:'SoFi Technologies',
+  // Market References
+  EEM:'iShares MSCI Emerging Mkts', HYG:'iShares High Yield Bond', IWM:'iShares Russell 2000',
+  QQQ:'Invesco QQQ Trust', SPY:'SPDR S&P 500 ETF', XLE:'Energy Select Sector SPDR',
+  SOXL:'Direxion Daily Semis 3X ETF',
+};
 
 // ============================================================
 // THEME — light / dark
@@ -1568,12 +1643,13 @@ function renderWatchlist(){
   let html='';
   Object.entries(WATCHLIST).forEach(([sector,tickers])=>{
     if(currentWlFilter!=='all'&&sector!==currentWlFilter)return;
-    const rows=tickers.filter(s=>!search||s.includes(search)).map(sym=>{
+    const rows=tickers.filter(s=>{if(!search)return true;const name=(COMPANY_NAMES[s]||'').toUpperCase();return s.includes(search)||name.includes(search);}).map(sym=>{
       const q=getQ(sym);const u=q.dp>=0;
       const pats=quickPatterns(sym,q);
+      const coName=COMPANY_NAMES[sym]||sector;
       return `<div class="wl-row" onclick="showTickerDetail('${sym}')">
         <span class="wl-sym">${sym}</span>
-        <span class="wl-name">${sector}</span>
+        <span class="wl-name">${coName}</span>
         <span class="wl-px ${u?'up':'dn'}">${fmtPrice(sym,q.p)}</span>
         <span class="wl-chg ${u?'chg-up':'chg-dn'}">${u?'+':''}${q.dp.toFixed(2)}%</span>
         <span class="wl-pat">${pats[0]||''}</span>
@@ -1600,7 +1676,13 @@ function showTickerDetail(sym){
   const content=document.getElementById('ticker-popup-content');
   if(!modal||!content)return;
   modal.classList.add('open');
-  content.innerHTML=buildTickerPopup(sym);
+  const {html,convScore}=buildTickerPopup(sym);
+  content.innerHTML=html;
+  // Draw speedometer after DOM is set
+  setTimeout(()=>{
+    const canvas=document.getElementById('spd-'+sym);
+    if(canvas) drawSpeedometer(canvas, convScore);
+  }, 0);
   // Fetch earnings async if key available
   if(finnhubKey) fetchEarnings(sym).then(data=>{
     const el=document.getElementById('tm-earn-'+sym);
@@ -1631,6 +1713,45 @@ function getTickerFlowTrend(sym){
   }
   return{days,totalDays,bullDays,bearDays:totalDays-bullDays,trend};
 }
+// Draw a semi-circle speedometer gauge on a canvas element
+function drawSpeedometer(canvas, pct){
+  if(!canvas)return;
+  const W=canvas.width, H=canvas.height;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const cx=W/2, cy=H-14, r=Math.min(W,H*2)*0.42;
+  // Background arc
+  ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0,false);
+  ctx.lineWidth=14;ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.stroke();
+  // Gradient segments: red→amber→green
+  const segments=[
+    {start:Math.PI,  end:Math.PI*4/3, color:'#ff3d5a'},
+    {start:Math.PI*4/3,end:Math.PI*5/3,color:'#ffb020'},
+    {start:Math.PI*5/3,end:Math.PI*2,  color:'#00e5b0'},
+  ];
+  segments.forEach(seg=>{
+    ctx.beginPath();ctx.arc(cx,cy,r,seg.start,seg.end,false);
+    ctx.lineWidth=14;ctx.strokeStyle=seg.color;
+    ctx.lineCap='round';ctx.stroke();
+  });
+  // Needle
+  const angle=Math.PI+(pct/100)*Math.PI;
+  const nx=cx+r*0.82*Math.cos(angle), ny=cy+r*0.82*Math.sin(angle);
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(nx,ny);
+  ctx.lineWidth=3;ctx.strokeStyle='#ffffff';ctx.lineCap='round';ctx.stroke();
+  // Center dot
+  ctx.beginPath();ctx.arc(cx,cy,5,0,Math.PI*2);ctx.fillStyle='#ffffff';ctx.fill();
+  // Percent text
+  ctx.font='bold 22px JetBrains Mono,monospace';ctx.fillStyle='#ffffff';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(Math.round(pct)+'%',cx,cy-r*0.38);
+  // Label
+  const lbl=pct>=60?'BULLISH':pct<=40?'BEARISH':'NEUTRAL';
+  const lblClr=pct>=60?'#00e5b0':pct<=40?'#ff3d5a':'#ffb020';
+  ctx.font='bold 9px JetBrains Mono,monospace';ctx.fillStyle=lblClr;
+  ctx.fillText(lbl,cx,cy-r*0.10);
+}
+
 function buildTickerPopup(sym){
   const q=getQ(sym);
   const isUp=q.dp>=0;
@@ -1666,7 +1787,7 @@ function buildTickerPopup(sym){
   }
   // Bull/bear conviction from current flowData
   const myFlows=flowData.filter(r=>r.symbol===sym);
-  let convHtml='';
+  let convHtml='', convScore=50;
   if(myFlows.length){
     const calls=myFlows.filter(r=>r.cp.toLowerCase().includes('call')).length;
     const puts=myFlows.length-calls;
@@ -1676,8 +1797,9 @@ function buildTickerPopup(sym){
     const bull=signals.filter(s=>s.lbl==='BULL').length;
     const strongBear=signals.filter(s=>s.lbl==='STRONG BEAR').length;
     const bear=signals.filter(s=>s.lbl==='BEAR').length;
-    const convScore=Math.round(((calls+sweeps*1.5+strongBull*2+bull)/(myFlows.length||1))*100);
-    convHtml=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:10px;margin:10px 0;">
+    convScore=Math.min(100,Math.round(((calls+sweeps*1.5+strongBull*2+bull)/(myFlows.length||1))*100));
+    convHtml=`<div style="display:flex;justify-content:center;margin:8px 0 4px;"><canvas id="spd-${sym}" width="200" height="110" style="display:block;"></canvas></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:10px;margin:10px 0;">
       <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Calls</div><div style="color:var(--green);font-weight:700;">${calls}</div></div>
       <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Puts</div><div style="color:var(--red);font-weight:700;">${puts}</div></div>
       <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Sweeps</div><div style="color:var(--amber);font-weight:700;">${sweeps}</div></div>
@@ -1690,9 +1812,13 @@ function buildTickerPopup(sym){
       ${bear?`<span class="signal-bear">${bear}× BEAR</span>`:''}
     </div>`;
   }
-  return `
+  const coName=COMPANY_NAMES[sym]||'';
+  const html=`
     <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);">
-      <span style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:${clr};">${sym}</span>
+      <div>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:${clr};">${sym}</span>
+        ${coName?`<div style="font-size:10px;color:var(--text2);letter-spacing:0.5px;margin-top:-4px;">${coName}</div>`:''}
+      </div>
       <span style="font-size:18px;font-weight:600;">${fmtPrice(sym,q.p)}</span>
       <span style="font-size:14px;color:${clr};">${isUp?'+':''}${q.dp.toFixed(2)}%</span>
     </div>
@@ -1702,6 +1828,7 @@ function buildTickerPopup(sym){
     <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Last 4 Quarters Earnings ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key in Settings)</span>'}</div>
     <div id="tm-earn-${sym}">${finnhubKey?'<div style="color:var(--text2);font-size:10px;">Loading…</div>':renderEarningsTable([])}</div>
   `;
+  return {html, convScore};
 }
 async function fetchEarnings(sym){
   if(earningsCache[sym])return earningsCache[sym];
@@ -2171,27 +2298,39 @@ function renderPredictions(){
   body.innerHTML=predictions.map((p,i)=>{
     const clr=p.dir==='bull'?'var(--green)':p.dir==='bear'?'var(--red)':'var(--amber)';
     const q=getQ(p.sym);
+    // Map finalScore to gauge pct: bull=50+score/2, bear=50-score/2, neutral=50
+    const gaugePct=p.dir==='bull'?Math.min(100,50+p.finalScore/2):p.dir==='bear'?Math.max(0,50-p.finalScore/2):50;
     return `<div class="pred-card ${p.dir}" style="background:var(--bg2);">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
         <span class="pred-rank">#${i+1}</span>
         <div style="flex:1;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="pred-sym" style="color:${clr}">${p.sym}</span>
+            <span style="font-size:9px;color:var(--text2);">${COMPANY_NAMES[p.sym]||''}</span>
             <span class="score-pill" style="background:${p.dir==='bull'?'rgba(0,229,176,0.12)':'rgba(255,61,90,0.12)'};color:${clr};">${p.finalScore}% confidence</span>
             <span style="margin-left:auto;font-size:11px;color:var(--text2);">${fmtPrice(p.sym,q.p)} <span class="${q.dp>=0?'up':'dn'}">${q.dp>=0?'+':''}${q.dp.toFixed(2)}%</span></span>
           </div>
           <div class="pred-score-bar" style="background:${clr}${Math.round(p.finalScore*2.55).toString(16).padStart(2,'0')};width:${p.finalScore}%;"></div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;font-size:10px;">
-        <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Calls</div><div style="font-weight:600;color:var(--green);">${p.calls} / $${fmtM(p.callPrem)}</div></div>
-        <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Puts</div><div style="font-weight:600;color:var(--red);">${p.puts} / $${fmtM(p.putPrem)}</div></div>
-        <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">C/P Ratio</div><div style="font-weight:600;color:${p.cpRatio>1.2?'var(--green)':p.cpRatio<0.8?'var(--red)':'var(--amber)'};">${p.cpRatio.toFixed(2)}x</div></div>
-        <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Sweeps</div><div style="font-weight:600;color:var(--amber);">${p.sweeps}</div></div>
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:8px;">
+        <canvas id="pred-spd-${i}" width="160" height="90" style="flex-shrink:0;"></canvas>
+        <div style="flex:1;display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:10px;">
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Calls</div><div style="font-weight:600;color:var(--green);">${p.calls} / $${fmtM(p.callPrem)}</div></div>
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Puts</div><div style="font-weight:600;color:var(--red);">${p.puts} / $${fmtM(p.putPrem)}</div></div>
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">C/P Ratio</div><div style="font-weight:600;color:${p.cpRatio>1.2?'var(--green)':p.cpRatio<0.8?'var(--red)':'var(--amber)'};">${p.cpRatio.toFixed(2)}x</div></div>
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Sweeps</div><div style="font-weight:600;color:var(--amber);">${p.sweeps}</div></div>
+        </div>
       </div>
       <div class="signal-row">${p.signals.map(s=>`<span class="signal-tag st-${s.t}">${s.l}</span>`).join('')}</div>
     </div>`;
   }).join('');
+  // Draw speedometers after DOM is set
+  predictions.forEach((p,i)=>{
+    const gaugePct=p.dir==='bull'?Math.min(100,50+p.finalScore/2):p.dir==='bear'?Math.max(0,50-p.finalScore/2):50;
+    const canvas=document.getElementById('pred-spd-'+i);
+    if(canvas) drawSpeedometer(canvas, gaugePct);
+  });
 }
 
 function renderMorningPicks(){
@@ -2270,6 +2409,64 @@ async function reqPush(){
 }
 
 // ============================================================
+// HISTORICAL BASELINES — Yahoo Finance proxy (no API key)
+// ============================================================
+async function fetchYahooHistory(sym){
+  // Yahoo Finance v8 — no API key required, CORS allowed from browser
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1y`;
+  try{
+    const res=await fetch(url,{headers:{'Accept':'application/json'}});
+    if(!res.ok)return null;
+    const json=await res.json();
+    const result=json?.chart?.result?.[0];
+    if(!result)return null;
+    const quotes=result.indicators?.quote?.[0];
+    const timestamps=result.timestamp||[];
+    if(!quotes||!timestamps.length)return null;
+    const volumes=quotes.volume.filter(v=>v!=null&&v>0);
+    const closes=quotes.close.filter(c=>c!=null&&c>0);
+    const avgVol=volumes.reduce((a,b)=>a+b,0)/(volumes.length||1);
+    const avgClose=closes.reduce((a,b)=>a+b,0)/(closes.length||1);
+    // Simple volatility: avg of abs daily returns
+    let sumRet=0,retCount=0;
+    for(let i=1;i<closes.length;i++){
+      sumRet+=Math.abs((closes[i]-closes[i-1])/closes[i-1]);retCount++;
+    }
+    const avgDailyMove=retCount>0?(sumRet/retCount)*100:0;
+    return{sym,avgVol,avgClose,avgDailyMove,days:timestamps.length,updated:Date.now()};
+  }catch(e){return null;}
+}
+
+async function loadHistoricalBaselines(tickers,statusEl){
+  if(statusEl){statusEl.textContent='Fetching baselines…';statusEl.style.color='var(--text2)';}
+  let done=0,failed=0;
+  for(const sym of tickers){
+    const data=await fetchYahooHistory(sym);
+    if(data){histBaselines[sym]=data;done++;}
+    else failed++;
+    if(statusEl) statusEl.textContent=`Fetching… ${done+failed}/${tickers.length} (${done} ok, ${failed} failed)`;
+    await sleep(120); // ~8/sec, well inside Yahoo rate limit
+  }
+  localStorage.setItem('sp_histBaselines',JSON.stringify(histBaselines));
+  const msg=`✓ Loaded ${done} baselines (${failed} failed)`;
+  if(statusEl){statusEl.textContent=msg;statusEl.style.color='var(--green)';}
+  showToast('HIST',msg,'info');
+}
+
+function startLoadHistory(){
+  // Pre-fetch top 20 most actively-traded tickers (by typical volume profile)
+  const TOP20=['SPY','QQQ','AAPL','NVDA','TSLA','AMZN','META','MSFT','AMD','GOOGL',
+               'PLTR','COIN','MSTR','MARA','IBIT','SOFI','SOXL','IWM','BAC','JPM'];
+  const statusEl=document.getElementById('hist-load-status');
+  loadHistoricalBaselines(TOP20,statusEl);
+}
+
+function loadAllBaselines(){
+  const statusEl=document.getElementById('hist-load-status');
+  loadHistoricalBaselines(ALL_TICKERS,statusEl);
+}
+
+// ============================================================
 // SETTINGS / KEYS
 // ============================================================
 function saveKey(type){
@@ -2321,6 +2518,7 @@ function updateStatusCounts(){
   const sn=document.getElementById('st-news');if(sn)sn.textContent=newsData.length;
   const sf=document.getElementById('st-flow');if(sf)sf.textContent=flowData.length;
   const sh=document.getElementById('st-hist');if(sh)sh.textContent=historyData.length;
+  const sb=document.getElementById('st-baselines');if(sb)sb.textContent=Object.keys(histBaselines).length;
 }
 
 // ============================================================
