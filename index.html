@@ -398,7 +398,8 @@ select option{background:var(--bg2);}
         <span style="color:var(--text3);font-size:10px;">Export from OMEN → Download CSV button</span></div>
       </div>
       <input type="file" id="csv-input" accept=".csv" style="display:none" onchange="handleCSV(this.files[0])"/>
-      <div style="margin-top:10px;font-size:10px;color:var(--text2);" id="csv-status">No file loaded</div>
+      <div style="margin-top:8px;font-size:10px;color:var(--text2);" id="csv-status">No file loaded</div>
+      <div style="margin-top:3px;font-size:9px;color:var(--text3);" id="flow-last-update"></div>
     </div>
     <div class="g2" style="gap:8px;">
       <div class="stat-box"><div class="stat-lbl">Total Trades</div><div class="stat-val" id="flow-total" style="color:var(--blue)">0</div></div>
@@ -407,6 +408,22 @@ select option{background:var(--bg2);}
       <div class="stat-box"><div class="stat-lbl">C/P Ratio</div><div class="stat-val" id="flow-ratio" style="color:var(--amber)">—</div></div>
       <div class="stat-box"><div class="stat-lbl">Sweeps</div><div class="stat-val" id="flow-sweeps" style="color:var(--red)">0</div></div>
       <div class="stat-box"><div class="stat-lbl">At Ask</div><div class="stat-val" id="flow-atask" style="color:var(--green)">0</div></div>
+    </div>
+  </div>
+
+  <!-- Bull / Bear flow sentiment summary -->
+  <div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;">Flow Sentiment</span>
+      <span id="flow-sentiment-signal" style="font-size:12px;font-weight:700;letter-spacing:0.5px;">—</span>
+    </div>
+    <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bg3);">
+      <div id="flow-bull-bar" style="height:100%;background:var(--green);transition:width 0.5s ease;width:0%;"></div>
+      <div id="flow-bear-bar" style="height:100%;background:var(--red);transition:width 0.5s ease;width:0%;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:7px;font-size:10px;">
+      <span style="color:var(--green);">▲ CALLS &nbsp;<span id="flow-bull-pct" style="font-weight:700;">—</span>&nbsp; · &nbsp;<span id="flow-bull-dollar">$0</span></span>
+      <span style="color:var(--red);"><span id="flow-bear-dollar">$0</span>&nbsp; · &nbsp;<span id="flow-bear-pct" style="font-weight:700;">—</span>&nbsp; PUTS ▼</span>
     </div>
   </div>
 
@@ -1466,6 +1483,8 @@ function handleCSV(file){
         flowData=rows;
         localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
         if(statusEl){statusEl.textContent=`✓ Loaded ${rows.length} rows from ${file.name}`;statusEl.style.color='var(--green)';}
+        const upd=document.getElementById('flow-last-update');
+        if(upd) upd.textContent='Uploaded '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' at '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
         renderFlowStats();
         renderFlowBody();
         updateStatusCounts();
@@ -1483,28 +1502,37 @@ function handleCSV(file){
 
 function parseOMENcsv(text){
   if(!text)return[];
-  // Handle both \r\n (Windows) and \n (Unix) line endings
   const lines=text.trim().split(/\r?\n/);
   if(lines.length<2)return[];
-  // Strip ALL non-letter chars from headers — "Call/Put" → "callput", "Exp. Date" → "expdate"
+  // Strip all non-letter chars so "Call/Put"→"callput", "Expiration Date"→"expirationdate", "Implied Vol."→"impliedvol"
   const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/[^a-z]/g,''));
   return lines.slice(1).filter(l=>l.trim()).map(line=>{
     const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
     const obj={};
     headers.forEach((h,i)=>{obj[h]=vals[i]||'';});
+    // Exact OMEN export column mappings (after header cleaning):
+    // Score, Alerts, Flags, Time, Symbol, Expiration Date→expirationdate,
+    // Strike, Call/Put→callput, Price, Trade Spread→tradespread,
+    // Premium, Stock Last→stocklast, Trade Size→tradesize,
+    // Open Interest→openinterest, Stock Cnt.→stockcnt,
+    // Option Cnt.→optioncnt, Implied Vol.→impliedvol, Earnings Date→earningsdate
     return {
+      score:    obj['score']||'',
+      alerts:   obj['alerts']||'',
       flag:     obj['flags']||obj['flag']||'B',
       time:     obj['time']||'',
-      symbol:   (obj['symbol']||obj['ticker']||obj['sym']||'').toUpperCase(),
-      expiry:   obj['expirationdate']||obj['expdate']||obj['expiration']||obj['expiry']||obj['exp']||'',
+      symbol:   (obj['symbol']||obj['ticker']||'').toUpperCase(),
+      expiry:   obj['expirationdate']||obj['expiry']||obj['exp']||'',
       strike:   obj['strike']||'',
-      // "Call/Put" header → "callput" after stripping non-letters
-      cp:       obj['callput']||obj['cp']||obj['type']||obj['side']||'',
+      cp:       obj['callput']||obj['cp']||obj['type']||'',
       price:    obj['price']||'',
       spread:   obj['tradespread']||obj['spread']||'',
-      premium:  obj['premium']||obj['prempaid']||obj['totalpremium']||'',
-      stocklast:obj['stocklast']||obj['stockprice']||obj['stock']||obj['underlying']||'',
-      size:     obj['tradesize']||obj['size']||obj['qty']||obj['quantity']||'',
+      premium:  obj['premium']||'',
+      stocklast:obj['stocklast']||'',
+      size:     obj['tradesize']||obj['size']||'',
+      oi:       obj['openinterest']||'',
+      iv:       obj['impliedvol']||'',
+      earnings: obj['earningsdate']||'',
     };
   }).filter(r=>r.symbol&&r.cp);
 }
@@ -1512,12 +1540,24 @@ function parseOMENcsv(text){
 function renderFlowStats(){
   const calls=flowData.filter(r=>r.cp.toLowerCase().includes('call'));
   const puts=flowData.filter(r=>r.cp.toLowerCase().includes('put'));
-  const parsePrem=s=>{if(!s)return 0;const n=parseFloat(s.replace(/[$,kmb]/gi,''));const m=s.toLowerCase().includes('m')?1e6:s.toLowerCase().includes('k')?1e3:1;return n*m;};
+  const parsePrem=s=>{
+    if(!s)return 0;
+    const clean=s.replace(/[$, ]/g,'');
+    const n=parseFloat(clean);
+    if(isNaN(n))return 0;
+    const lo=clean.toLowerCase();
+    return lo.includes('m')?n*1e6:lo.includes('k')?n*1e3:n;
+  };
   const callPrem=calls.reduce((a,r)=>a+parsePrem(r.premium),0);
   const putPrem=puts.reduce((a,r)=>a+parsePrem(r.premium),0);
+  const total=callPrem+putPrem;
+  const bullPct=total>0?Math.round(callPrem/total*100):50;
+  const bearPct=100-bullPct;
   const ratio=putPrem>0?(callPrem/putPrem):0;
-  const sweeps=flowData.filter(r=>r.flag==='S').length;
+  const sweeps=flowData.filter(r=>(r.flag||'').toUpperCase().includes('S')).length;
   const atask=flowData.filter(r=>(r.spread||'').toLowerCase().includes('ask')).length;
+
+  // Stat boxes
   document.getElementById('flow-total').textContent=flowData.length;
   document.getElementById('flow-call-$').textContent='$'+fmtM(callPrem);
   document.getElementById('flow-put-$').textContent='$'+fmtM(putPrem);
@@ -1525,6 +1565,28 @@ function renderFlowStats(){
   document.getElementById('flow-ratio').style.color=ratio>1.2?'var(--green)':ratio<0.8?'var(--red)':'var(--amber)';
   document.getElementById('flow-sweeps').textContent=sweeps;
   document.getElementById('flow-atask').textContent=atask;
+
+  // Bull/bear sentiment bar
+  const bullBar=document.getElementById('flow-bull-bar');
+  const bearBar=document.getElementById('flow-bear-bar');
+  const signal=document.getElementById('flow-sentiment-signal');
+  const bullPctEl=document.getElementById('flow-bull-pct');
+  const bearPctEl=document.getElementById('flow-bear-pct');
+  const bullDolEl=document.getElementById('flow-bull-dollar');
+  const bearDolEl=document.getElementById('flow-bear-dollar');
+  if(bullBar) bullBar.style.width=bullPct+'%';
+  if(bearBar) bearBar.style.width=bearPct+'%';
+  if(bullPctEl) bullPctEl.textContent=bullPct+'%';
+  if(bearPctEl) bearPctEl.textContent=bearPct+'%';
+  if(bullDolEl) bullDolEl.textContent='$'+fmtM(callPrem);
+  if(bearDolEl) bearDolEl.textContent='$'+fmtM(putPrem);
+  if(signal){
+    if(bullPct>=65){signal.textContent='BULLISH';signal.style.color='var(--green)';}
+    else if(bearPct>=65){signal.textContent='BEARISH';signal.style.color='var(--red)';}
+    else if(bullPct>=55){signal.textContent='LEANING BULLISH';signal.style.color='var(--green)';}
+    else if(bearPct>=55){signal.textContent='LEANING BEARISH';signal.style.color='var(--red)';}
+    else{signal.textContent='NEUTRAL';signal.style.color='var(--amber)';}
+  }
 }
 function fmtM(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(0)+'K';return n.toFixed(0);}
 
@@ -1536,12 +1598,12 @@ function renderFlowBody(){
   const wlAll=Object.values(WATCHLIST).flat();
   if(currentFlowFilter==='Call')rows=rows.filter(r=>r.cp.toLowerCase().includes('call'));
   else if(currentFlowFilter==='Put')rows=rows.filter(r=>r.cp.toLowerCase().includes('put'));
-  else if(currentFlowFilter==='sweep')rows=rows.filter(r=>r.flag==='S');
+  else if(currentFlowFilter==='sweep')rows=rows.filter(r=>(r.flag||'').toUpperCase().includes('S'));
   else if(currentFlowFilter==='atask')rows=rows.filter(r=>(r.spread||'').toLowerCase().includes('ask'));
   else if(currentFlowFilter==='watchlist')rows=rows.filter(r=>wlAll.includes(r.symbol));
   body.innerHTML=rows.slice(0,200).map(r=>{
     const isCall=r.cp.toLowerCase().includes('call');
-    const isSweep=r.flag==='S';
+    const isSweep=(r.flag||'').toUpperCase().includes('S');
     const spread=(r.spread||'').toLowerCase();
     const spreadBadge=spread.includes('ask')?`<span class="at-ask">At Ask</span>`:spread.includes('bid')?`<span class="at-bid">At Bid</span>`:`<span class="at-mid">Mid</span>`;
     const premNum=parseFloat((r.premium||'0').replace(/[$,kmb]/gi,''));
