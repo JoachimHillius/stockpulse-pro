@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockPulse PRO</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Bebas+Neue&display=swap');
 :root {
@@ -609,6 +608,7 @@ select option{background:var(--bg2);}
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 // ============================================================
 // STATE
@@ -979,7 +979,7 @@ function renderVixCandleChart(candles){
 
   // Destroy previous chart
   if(vixCandleChart) vixCandleChart.destroy();
-  if(!Chart.registry.plugins.get('vixCandles'))Chart.register(candlePlugin);
+  Chart.register(candlePlugin);
 
   const prices = candles.map(c=>c.c);
   const labels = candles.map(c=>c.date);
@@ -1207,8 +1207,8 @@ function renderMktChart(range,sym){
       }
     }
   };
-  if(!Chart.registry.plugins.get('prevLine'))Chart.register(prevLinePlugin);
-  if(!Chart.registry.plugins.get('xh'))Chart.register(xhPlugin);
+  Chart.register(prevLinePlugin);
+  Chart.register(xhPlugin);
   mktChart=new Chart(ctx,{
     type:'line',
     data:{labels,datasets:[{data:prices,borderColor:clr,backgroundColor:clr+'12',fill:true,tension:0.3,pointRadius:0,pointHoverRadius:5,pointHoverBackgroundColor:clr,pointHoverBorderColor:'#060912',pointHoverBorderWidth:2,borderWidth:1.8}]},
@@ -1315,8 +1315,8 @@ function renderIntradayChart(sym){
     }
   };
 
-  if(!Chart.registry.plugins.get('zones'))Chart.register(zonePlugin);
-  if(!Chart.registry.plugins.get('xh2'))Chart.register(xh2Plugin);
+  Chart.register(zonePlugin);
+  Chart.register(xh2Plugin);
   mktChart=new Chart(ctx,{
     type:'line',
     data:{
