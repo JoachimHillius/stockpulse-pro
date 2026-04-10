@@ -1453,47 +1453,58 @@ function showTickerDetail(sym){
 function handleDrop(e){e.preventDefault();document.getElementById('drop-zone').classList.remove('drag');const f=e.dataTransfer.files[0];if(f)handleCSV(f);}
 function handleCSV(file){
   if(!file)return;
+  const statusEl=document.getElementById('csv-status');
+  if(statusEl){statusEl.textContent='Reading '+file.name+'…';statusEl.style.color='var(--text2)';}
   const reader=new FileReader();
+  reader.onerror=()=>{
+    if(statusEl){statusEl.textContent='⚠ Could not read file';statusEl.style.color='var(--red)';}
+  };
   reader.onload=e=>{
-    const rows=parseOMENcsv(e.target.result);
-    if(rows.length){
-      flowData=rows;
-      localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
-      document.getElementById('csv-status').textContent=`✓ Loaded ${rows.length} rows from ${file.name}`;
-      document.getElementById('csv-status').style.color='var(--green)';
-      renderFlowStats();
-      renderFlowBody();
-      updateStatusCounts();
-      showToast('OMEN',`${rows.length} options trades loaded`,`info`);
-    }else{
-      document.getElementById('csv-status').textContent='⚠ Could not parse CSV — check format';
-      document.getElementById('csv-status').style.color='var(--red)';
+    try{
+      const rows=parseOMENcsv(e.target.result);
+      if(rows.length){
+        flowData=rows;
+        localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
+        if(statusEl){statusEl.textContent=`✓ Loaded ${rows.length} rows from ${file.name}`;statusEl.style.color='var(--green)';}
+        renderFlowStats();
+        renderFlowBody();
+        updateStatusCounts();
+        showToast('OMEN',`${rows.length} options trades loaded`,'info');
+      }else{
+        if(statusEl){statusEl.textContent='⚠ 0 rows matched — verify CSV has Symbol and Call/Put columns';statusEl.style.color='var(--red)';}
+      }
+    }catch(err){
+      console.error('CSV parse error:',err);
+      if(statusEl){statusEl.textContent='⚠ Parse error: '+err.message;statusEl.style.color='var(--red)';}
     }
   };
   reader.readAsText(file);
 }
 
 function parseOMENcsv(text){
-  const lines=text.trim().split('\n');
+  if(!text)return[];
+  // Handle both \r\n (Windows) and \n (Unix) line endings
+  const lines=text.trim().split(/\r?\n/);
   if(lines.length<2)return[];
-  const headers=lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/[^a-z\/]/g,''));
-  return lines.slice(1).map(line=>{
+  // Strip ALL non-letter chars from headers — "Call/Put" → "callput", "Exp. Date" → "expdate"
+  const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/[^a-z]/g,''));
+  return lines.slice(1).filter(l=>l.trim()).map(line=>{
     const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
     const obj={};
     headers.forEach((h,i)=>{obj[h]=vals[i]||'';});
-    // Normalize common column name variations
     return {
-      flag: obj['flags']||obj['flag']||'B',
-      time: obj['time']||'',
-      symbol: (obj['symbol']||obj['ticker']||'').toUpperCase(),
-      expiry: obj['expirationdate']||obj['expiry']||obj['exp']||'',
-      strike: obj['strike']||'',
-      cp: obj['callput']||obj['cp']||obj['type']||'',
-      price: obj['price']||'',
-      spread: obj['tradespread']||obj['spread']||'',
-      premium: obj['premium']||'',
-      stocklast: obj['stocklast']||obj['stock']||'',
-      size: obj['tradesize']||obj['size']||'',
+      flag:     obj['flags']||obj['flag']||'B',
+      time:     obj['time']||'',
+      symbol:   (obj['symbol']||obj['ticker']||obj['sym']||'').toUpperCase(),
+      expiry:   obj['expirationdate']||obj['expdate']||obj['expiration']||obj['expiry']||obj['exp']||'',
+      strike:   obj['strike']||'',
+      // "Call/Put" header → "callput" after stripping non-letters
+      cp:       obj['callput']||obj['cp']||obj['type']||obj['side']||'',
+      price:    obj['price']||'',
+      spread:   obj['tradespread']||obj['spread']||'',
+      premium:  obj['premium']||obj['prempaid']||obj['totalpremium']||'',
+      stocklast:obj['stocklast']||obj['stockprice']||obj['stock']||obj['underlying']||'',
+      size:     obj['tradesize']||obj['size']||obj['qty']||obj['quantity']||'',
     };
   }).filter(r=>r.symbol&&r.cp);
 }
