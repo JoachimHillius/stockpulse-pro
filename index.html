@@ -178,8 +178,10 @@ select option{background:var(--bg2);}
 .btn-sm{padding:4px 10px;font-size:10px;}
 
 /* UPLOAD ZONE */
-.upload-zone{border:2px dashed var(--border2);border-radius:6px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.15s;}
-.upload-zone:hover,.upload-zone.drag{border-color:var(--cyan);}
+.upload-zone{border:2px dashed rgba(255,255,255,0.35);border-radius:6px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.15s,background 0.15s;background:rgba(255,255,255,0.03);min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--cyan);background:rgba(0,212,255,0.05);}
+body.light-mode .upload-zone{border-color:rgba(0,0,0,0.3);background:rgba(0,0,0,0.03);}
+body.light-mode .upload-zone:hover{border-color:var(--cyan);background:rgba(0,153,204,0.05);}
 .upload-icon{font-size:32px;margin-bottom:10px;}
 .upload-text{font-size:12px;color:var(--text2);line-height:1.7;}
 
@@ -244,13 +246,13 @@ select option{background:var(--bg2);}
 <div class="header">
   <div class="brand">STOCKPULSE<span> PRO</span></div>
   <nav class="nav">
-    <button class="nav-btn active" onclick="goPage('morning',this)">Morning Brief</button>
-    <button class="nav-btn" onclick="goPage('watchlist',this)">Watchlist</button>
-    <button class="nav-btn" onclick="goPage('flow',this)">Options Flow</button>
-    <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
-    <button class="nav-btn" onclick="goPage('predictor',this)">Predictor</button>
-    <button class="nav-btn" onclick="goPage('history',this)">History</button>
-    <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
+    <button type="button" class="nav-btn active" onclick="goPage('morning',this)">Morning Brief</button>
+    <button type="button" class="nav-btn" onclick="goPage('watchlist',this)">Watchlist</button>
+    <button type="button" class="nav-btn" onclick="goPage('flow',this)">Options Flow</button>
+    <button type="button" class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
+    <button type="button" class="nav-btn" onclick="goPage('predictor',this)">Predictor</button>
+    <button type="button" class="nav-btn" onclick="goPage('history',this)">History</button>
+    <button type="button" class="nav-btn" onclick="goPage('settings',this)">Settings</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -472,9 +474,9 @@ select option{background:var(--bg2);}
       <div style="margin-top:10px;">
         <div style="font-size:10px;color:var(--text2);margin-bottom:6px;">Notifications</div>
         <div style="display:flex;flex-direction:column;gap:6px;">
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">In-app toasts<label class="toggle"><input type="checkbox" id="n-inapp" checked><span class="tslider"></span></label></label>
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">Browser push<label class="toggle"><input type="checkbox" id="n-push" onchange="reqPush()"><span class="tslider"></span></label></label>
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">Sound alert<label class="toggle"><input type="checkbox" id="n-sound" checked><span class="tslider"></span></label></label>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">In-app toasts<label class="toggle"><input type="checkbox" id="n-inapp" checked><span class="tslider"></span></label></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">Browser push<label class="toggle"><input type="checkbox" id="n-push" onchange="reqPush()"><span class="tslider"></span></label></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">Sound alert<label class="toggle"><input type="checkbox" id="n-sound" checked><span class="tslider"></span></label></div>
         </div>
       </div>
     </div>
@@ -582,8 +584,8 @@ select option{background:var(--bg2);}
       <div class="card">
         <div class="card-hd"><span class="card-title">Alert Settings</span></div>
         <div style="display:flex;flex-direction:column;gap:8px;">
-          <label style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Bullish signals only<label class="toggle"><input type="checkbox" id="s-bullonly"><span class="tslider"></span></label></label>
-          <label style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Market hours only<label class="toggle"><input type="checkbox" id="s-mktonly" checked><span class="tslider"></span></label></label>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Bullish signals only<label class="toggle"><input type="checkbox" id="s-bullonly"><span class="tslider"></span></label></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Market hours only<label class="toggle"><input type="checkbox" id="s-mktonly" checked><span class="tslider"></span></label></div>
           <div style="font-size:10px;color:var(--text2);margin-top:4px;">Min confidence to alert</div>
           <select id="s-threshold">
             <option value="0.2">Any signal (20%+)</option>
@@ -1886,11 +1888,15 @@ async function fetchLiveAll(){
 // NAVIGATION
 // ============================================================
 function goPage(name,btn){
+  const target=document.getElementById('page-'+name);
+  if(!target){console.warn('goPage: no page found for',name);return;}
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
+  target.classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
   else document.querySelectorAll('.nav-btn').forEach(b=>{if(b.onclick?.toString().includes(name))b.classList.add('active');});
+  // Re-render chart if switching back to morning and chart exists
+  if(name==='morning'&&mktChart){try{renderMktChart('1D');}catch(e){}}
 }
 
 // ============================================================
