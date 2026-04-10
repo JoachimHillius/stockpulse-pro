@@ -608,7 +608,6 @@ select option{background:var(--bg2);}
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 // ============================================================
 // STATE
@@ -1907,12 +1906,51 @@ function updateStatusCounts(){
 }
 
 // ============================================================
-// BOOT
+// BOOT — two-phase init
+// Phase 1: data-only, no Chart.js needed — runs immediately
+// Phase 2: charts — runs once Chart.js finishes loading
 // ============================================================
-init();
-if(finnhubKey)setTimeout(fetchLiveAll,1000);
-setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
-setInterval(()=>fetchVixCandles(),300000);
+function initData(){
+  applyTheme();
+  if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
+  if(avKey) document.getElementById('s-av').value='••••••••';
+  updateClock();
+  setInterval(updateClock,1000);
+  updateMarketStatus();
+  renderTape();
+  setInterval(()=>{jitterPrices();renderTape();renderWatchlist();renderMoverLists();},5000);
+  updateVix(vixValue);
+  updateStatBoxes();
+  renderSectors();
+  renderMoverLists();
+  renderWatchlist();
+  renderMorningPicks();
+  renderAlertsMini();
+  renderHistory();
+  updateStatusCounts();
+  setRiskBanner(vixValue);
+}
+
+function initCharts(){
+  fetchVixCandles();
+  try{renderMktChart('1D');}catch(e){console.warn('Chart init:',e);}
+  if(finnhubKey)setTimeout(fetchLiveAll,1000);
+  setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
+  setInterval(()=>fetchVixCandles(),300000);
+}
+
+// Phase 1 runs immediately — DOM is ready since this script is at end of body
+initData();
+
+// Phase 2: load Chart.js dynamically so it never blocks data rendering
+(function(){
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  s.onload=function(){initCharts();};
+  s.onerror=function(){console.warn('Chart.js failed to load — charts unavailable');};
+  document.head.appendChild(s);
+})();
+
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 </script>
 </body>
