@@ -608,7 +608,6 @@ select option{background:var(--bg2);}
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 // ============================================================
 // STATE
@@ -836,7 +835,7 @@ function safeRegister(plugin){
   try{Chart.register(plugin);}catch(e){}
 }
 
-function init(){
+function initData(){
   applyTheme();
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
@@ -848,10 +847,8 @@ function init(){
   setInterval(renderTape,5000);
   updateVix(vixValue);
   updateStatBoxes();
-  fetchVixCandles();
   renderSectors();
   renderMoverLists();
-  try{renderMktChart('1D');}catch(e){console.warn('Chart init failed:',e);}
   renderWatchlist();
   renderMorningPicks();
   renderAlertsMini();
@@ -859,6 +856,12 @@ function init(){
   updateStatusCounts();
   setRiskBanner(vixValue);
 }
+function initCharts(){
+  fetchVixCandles();
+  try{renderMktChart('1D');}catch(e){console.warn('Chart init failed:',e);}
+}
+// keep legacy name in case anything calls it
+function init(){ initData(); }
 
 // ============================================================
 // CLOCK & MARKET
@@ -1909,11 +1912,20 @@ function updateStatusCounts(){
 // ============================================================
 // BOOT
 // ============================================================
-init();
+// Render all mock data immediately — no CDN dependency
+initData();
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>fetchVixCandles(),300000);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
+// Load Chart.js async so CDN latency never blocks the page
+(function(){
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  s.onload=function(){initCharts();};
+  s.onerror=function(){console.warn('Chart.js failed to load — charts unavailable');};
+  document.head.appendChild(s);
+})();
 </script>
 </body>
 </html>
