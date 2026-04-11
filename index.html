@@ -524,13 +524,20 @@ select option{background:var(--bg2);}
             <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
             <div id="mkt-chart-date" style="font-size:12px;font-weight:600;color:var(--text);margin-top:3px;letter-spacing:0.3px;"></div>
           </div>
-          <div style="display:flex;gap:6px;align-items:center;">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <!-- Symbol input -->
             <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
               <input id="mkt-sym-input" type="text" value="SPY" maxlength="8"
                 style="width:56px;background:var(--bg3);border:none;color:var(--text);padding:3px 6px;font-family:var(--font);font-size:11px;font-weight:700;text-transform:uppercase;outline:none;"
                 onkeydown="if(event.key==='Enter')switchMktSym()"
                 oninput="this.value=this.value.toUpperCase()"/>
               <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-size:10px;font-weight:700;">GO</button>
+            </div>
+            <!-- Date picker -->
+            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;" title="Select trading date">
+              <input id="mkt-date-input" type="date"
+                style="background:var(--bg3);border:none;color:var(--text);padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:120px;color-scheme:dark;"
+                onchange="switchMktDate()"/>
             </div>
             <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
             <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
@@ -1219,6 +1226,22 @@ function initData(){
     const _titleEl=document.getElementById('mkt-chart-title');
     if(_titleEl) _titleEl.textContent='Market Chart — '+_savedSym;
   }
+  // Restore saved market date — set input and update the date label
+  const _savedDate=localStorage.getItem('sp_mkt_date')||'';
+  _mktDate=_savedDate;
+  const _dateInp=document.getElementById('mkt-date-input');
+  if(_dateInp){
+    // Set max to today so future dates can't be selected
+    _dateInp.max=new Date().toISOString().slice(0,10);
+    if(_savedDate) _dateInp.value=_savedDate;
+  }
+  if(_savedDate){
+    const _mcdEl2=document.getElementById('mkt-chart-date');
+    if(_mcdEl2){
+      const _d=new Date(_savedDate+'T00:00:00');
+      _mcdEl2.textContent=_d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+    }
+  }
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
   updateClock();
@@ -1643,18 +1666,28 @@ function smartStep(minVal,maxVal){
 
 // Returns stable mock intraday data — generated once per session+day, not on every render
 function getMockIntraday(sym){
-  const todayKey=new Date().toISOString().slice(0,10);
-  if(_intradayMockCache&&_intradayMockCache.sym===sym&&_intradayMockCache.date===todayKey){
+  // Use selected date if set, otherwise today — so different dates give different mock data
+  const dateKey = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : new Date().toISOString().slice(0,10);
+  const cacheKey = sym + '|' + dateKey;
+  if(_intradayMockCache && _intradayMockCache.key === cacheKey){
     return _intradayMockCache;
   }
+  // Seed the random-ish variance from the date string so each date is deterministic + different
+  const dateSeed = dateKey.replace(/-/g,'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
   const base=(liveData[sym]||MOCK[sym])?.p||680;
-  const prev=parseFloat((base*(1+(Math.random()-0.5)*0.010)).toFixed(2));
-  const{prices,times}=genIntradayPrices(base,prev);
-  _intradayMockCache={sym,date:todayKey,prices,times,prev};
+  const prevOffset = ((dateSeed % 100) / 100 - 0.5) * 0.018;
+  const prev=parseFloat((base*(1+prevOffset)).toFixed(2));
+  const{prices,times}=genIntradayPrices(base,prev,dateSeed);
+  _intradayMockCache={key:cacheKey,sym,date:dateKey,prices,times,prev};
   return _intradayMockCache;
 }
 
-function genIntradayPrices(base,prev){
+function genIntradayPrices(base,prev,seed){
+  // Simple deterministic-ish seeded LCG so different dates produce different shapes
+  seed = seed || 42;
+  let s = seed;
+  function rand(){ s=(s*1664525+1013904223)&0x7fffffff; return s/0x7fffffff; }
+
   const BARS=192,prices=[],times=[];
   function volAt(i){
     if(i<33)return 0.35;if(i<44)return 1.5;if(i<70)return 2.8;
@@ -1665,8 +1698,8 @@ function genIntradayPrices(base,prev){
   for(let i=0;i<BARS;i++){
     const mins=4*60+i*5,hh=Math.floor(mins/60),mm=mins%60;
     const ampm=hh<12?'AM':'PM',h12=hh===0?12:hh>12?hh-12:hh;
-    times.push(`${h12}:${mm.toString().padStart(2,'0')} ${ampm}`);
-    p=p*(1+(Math.random()-0.488)*bv*volAt(i))+(base-p)*0.004;
+    times.push(h12+':'+(mm.toString().padStart(2,'0'))+' '+ampm);
+    p=p*(1+(rand()-0.488)*bv*volAt(i))+(base-p)*0.004;
     prices.push(parseFloat(p.toFixed(2)));
   }
   prices[144]=base; // anchor 4pm close
@@ -1955,7 +1988,7 @@ async function renderIntradayChart(sym){
 
 function refreshMktChart(){
   _intradayMockCache=null; // clear mock cache so it regenerates fresh
-  renderMktChart('1D');
+  renderMktChart('1D', typeof _mktSym!=='undefined'?_mktSym:'SPY');
   // re-activate 1D button
   document.querySelectorAll('#page-morning .fbtn').forEach(b=>b.classList.remove('active'));
   const btn1d=document.querySelector('#page-morning .fbtn');
@@ -3665,6 +3698,8 @@ async function saveFlowToSupabase(rows){
 // ============================================================
 let _mktSym = localStorage.getItem('sp_mkt_sym') || 'SPY';
 
+let _mktDate = localStorage.getItem('sp_mkt_date') || ''; // YYYY-MM-DD or '' = today
+
 function switchMktSym(){
   const input = document.getElementById('mkt-sym-input');
   const sym = (input?.value || 'SPY').toUpperCase().trim();
@@ -3674,6 +3709,28 @@ function switchMktSym(){
   const titleEl = document.getElementById('mkt-chart-title');
   if(titleEl) titleEl.textContent = 'Market Chart — ' + sym;
   renderMktChart('1D', sym);
+}
+
+function switchMktDate(){
+  const input = document.getElementById('mkt-date-input');
+  const dateVal = input?.value || ''; // YYYY-MM-DD
+  _mktDate = dateVal;
+  localStorage.setItem('sp_mkt_date', dateVal);
+
+  // Update the date label
+  const dateEl = document.getElementById('mkt-chart-date');
+  if(dateEl){
+    if(dateVal){
+      const d = new Date(dateVal + 'T00:00:00');
+      dateEl.textContent = d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+    } else {
+      dateEl.textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+    }
+  }
+
+  // Clear intraday cache so the new date's mock data is generated fresh
+  _intradayMockCache = null;
+  renderMktChart('1D', _mktSym);
 }
 
 // ============================================================
@@ -3709,89 +3766,93 @@ function getSymbolFlowDir(sym){
 
 function renderPositions(){
   const tbody = document.getElementById('pos-tbody');
-  const empty = document.getElementById('pos-empty');
-  const countEl = document.getElementById('pos-count');
-  const totalPnlEl = document.getElementById('pos-total-pnl');
+  if(!tbody){ return; } // panel HTML not yet parsed — DOMContentLoaded will call us again
 
-  // DOM not ready yet — silently skip (happens if called before positions panel HTML is parsed)
-  if(!tbody){
-    console.warn('[Positions] renderPositions called but #pos-tbody not in DOM yet');
-    return;
-  }
-
-  console.log('[Positions] renderPositions — count:', positions.length);
+  const empty    = document.getElementById('pos-empty');
+  const countEl  = document.getElementById('pos-count');
+  const totalEl  = document.getElementById('pos-total-pnl');
 
   if(!positions.length){
     tbody.innerHTML = '';
-    if(empty) empty.style.display = 'block';
-    if(countEl) countEl.textContent = '0';
-    if(totalPnlEl) totalPnlEl.textContent = '';
+    if(empty)   empty.style.display   = 'block';
+    if(countEl) countEl.textContent   = '0';
+    if(totalEl) totalEl.textContent   = '';
     return;
   }
 
-  if(empty) empty.style.display = 'none';
-  if(countEl) countEl.textContent = positions.length;
+  if(empty)   empty.style.display   = 'none';
+  if(countEl) countEl.textContent   = positions.length;
 
-  let totalPnlDollar = 0;
   const today = new Date();
+  let totalPnl = 0;
+  const html = [];
 
-  let rows = '';
-  positions.forEach((p, idx) => {
-    try{
-      const entry = parseFloat(p.entry) || 0;
-      const current = parseFloat(p.current) || 0; // default 0, not entry — matches save logic
-      const qty = parseInt(p.contracts) || 1;
-      const pnlPerContract = (current - entry) * 100;
-      const pnlTotal = pnlPerContract * qty;
-      const pnlPct = entry > 0 ? ((current - entry) / entry * 100) : 0;
-      totalPnlDollar += pnlTotal;
+  for(let idx = 0; idx < positions.length; idx++){
+    const p = positions[idx];
 
-      const expDate = p.expiry ? new Date(p.expiry + 'T00:00:00') : null;
-      const daysNum = expDate && !isNaN(expDate) ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : null;
-      const daysLeft = daysNum !== null ? daysNum : '—';
-      const pnlClr = pnlTotal >= 0 ? 'var(--green)' : 'var(--red)';
-      const pnlSign = pnlTotal >= 0 ? '+' : '';
+    const entry     = parseFloat(p.entry)     || 0;
+    const current   = parseFloat(p.current);         // may be 0 or NaN
+    const qty       = parseInt(p.contracts)   || 1;
+    const hasCurrent = !isNaN(current) && current > 0;
 
-      const flowDir = getSymbolFlowDir(p.symbol || '');
-      const flowClr = flowDir === 'BULL' ? 'var(--green)' : flowDir === 'BEAR' ? 'var(--red)' : 'var(--text3)';
-      const cpClr = (p.cp||'').toLowerCase() === 'call' ? 'var(--green)' : 'var(--red)';
-
-      const strikeNum = parseFloat(p.strike);
-      const strikeStr = !isNaN(strikeNum) ? '$' + strikeNum.toFixed(0) : (p.strike || '—');
-
-      rows += `<tr>
-        <td style="font-weight:700;color:var(--text);">${p.symbol || '—'}</td>
-        <td><span style="color:${cpClr};font-weight:700;font-size:10px;">${p.cp || '—'}</span></td>
-        <td>${strikeStr}</td>
-        <td style="font-size:9px;color:var(--text2);">${p.expiry || '—'}</td>
-        <td>${qty}</td>
-        <td>$${entry.toFixed(2)}</td>
-        <td>
-          $${current.toFixed(2)}
-          <button onclick="refreshPosPrice(${idx})" title="Refresh price" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 2px;">↻</button>
-        </td>
-        <td style="color:${pnlClr};font-weight:700;">${pnlSign}$${pnlTotal.toFixed(0)}</td>
-        <td style="color:${pnlClr};">${pnlSign}${pnlPct.toFixed(1)}%</td>
-        <td style="color:${typeof daysLeft==='number'&&daysLeft<=5?'var(--red)':'var(--text2)'};">${daysLeft}</td>
-        <td style="color:${flowClr};font-weight:700;font-size:9px;">${flowDir}</td>
-        <td><button onclick="removePosition(${idx})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px;" title="Remove">×</button></td>
-      </tr>`;
-    }catch(rowErr){
-      console.error('[Positions] Error rendering row', idx, p, rowErr);
+    // P&L = (Current - Entry) x Contracts x 100
+    // Only calculate when a real current price exists
+    let pnlDollar = 0, pnlPct = 0, pnlStr = '—', pctStr = '—', pnlClr = 'var(--text3)';
+    if(hasCurrent){
+      pnlDollar = (current - entry) * qty * 100;
+      pnlPct    = entry > 0 ? ((current - entry) / entry * 100) : 0;
+      const sign = pnlDollar >= 0 ? '+' : '';
+      pnlStr = sign + '$' + Math.abs(pnlDollar).toFixed(0);
+      pctStr = sign + pnlPct.toFixed(1) + '%';
+      pnlClr = pnlDollar >= 0 ? 'var(--green)' : 'var(--red)';
+      totalPnl += pnlDollar;
     }
-  });
 
-  tbody.innerHTML = rows;
+    const currentStr = hasCurrent ? '$' + current.toFixed(2) : '$0.00';
 
-  if(totalPnlEl){
-    const sign = totalPnlDollar >= 0 ? '+' : '';
-    totalPnlEl.style.color = totalPnlDollar >= 0 ? 'var(--green)' : 'var(--red)';
-    totalPnlEl.textContent = `${sign}$${totalPnlDollar.toFixed(0)}`;
+    const expDate  = p.expiry ? new Date(p.expiry + 'T00:00:00') : null;
+    const daysNum  = (expDate && !isNaN(expDate)) ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : null;
+    const daysStr  = daysNum !== null ? String(daysNum) : '—';
+    const daysClr  = (daysNum !== null && daysNum <= 5) ? 'var(--red)' : 'var(--text2)';
+
+    const strikeNum = parseFloat(p.strike);
+    const strikeStr = !isNaN(strikeNum) ? '$' + strikeNum.toFixed(0) : (p.strike || '—');
+
+    const cpLower  = (p.cp || '').toLowerCase();
+    const cpClr    = cpLower === 'call' ? 'var(--green)' : 'var(--red)';
+
+    const flowDir  = getSymbolFlowDir(p.symbol || '');
+    const flowClr  = flowDir === 'BULL' ? 'var(--green)' : flowDir === 'BEAR' ? 'var(--red)' : 'var(--text3)';
+
+    html.push(
+      '<tr>' +
+      '<td style="font-weight:700;color:var(--text);">'                               + (p.symbol || '—')                                                                    + '</td>' +
+      '<td><span style="color:' + cpClr + ';font-weight:700;font-size:10px;">'        + (p.cp || '—')                                                                        + '</span></td>' +
+      '<td>'                                                                            + strikeStr                                                                            + '</td>' +
+      '<td style="font-size:9px;color:var(--text2);">'                                + (p.expiry || '—')                                                                    + '</td>' +
+      '<td>'                                                                            + qty                                                                                  + '</td>' +
+      '<td>$'                                                                           + entry.toFixed(2)                                                                     + '</td>' +
+      '<td>' + currentStr + ' <button onclick="refreshPosPrice(' + idx + ')" title="Refresh" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 2px;">↻</button></td>' +
+      '<td style="color:' + pnlClr + ';font-weight:700;">'                            + pnlStr                                                                               + '</td>' +
+      '<td style="color:' + pnlClr + ';">'                                            + pctStr                                                                               + '</td>' +
+      '<td style="color:' + daysClr + ';">'                                           + daysStr                                                                              + '</td>' +
+      '<td style="color:' + flowClr + ';font-weight:700;font-size:9px;">'             + flowDir                                                                              + '</td>' +
+      '<td><button onclick="removePosition(' + idx + ')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px;" title="Remove">&#215;</button></td>' +
+      '</tr>'
+    );
   }
 
-  // Scroll table into view so new row is visible
-  const body = document.getElementById('pos-panel-body');
-  if(body) body.scrollTop = body.scrollHeight;
+  tbody.innerHTML = html.join('');
+
+  if(totalEl){
+    const sign = totalPnl >= 0 ? '+' : '';
+    totalEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    totalEl.textContent = totalPnl !== 0 ? sign + '$' + Math.abs(totalPnl).toFixed(0) : '';
+  }
+
+  // Scroll body so the newest row is visible
+  const panelBody = document.getElementById('pos-panel-body');
+  if(panelBody) panelBody.scrollTop = panelBody.scrollHeight;
 }
 
 function removePosition(idx){
@@ -3965,8 +4026,8 @@ function _initPosPanel(){
 // ============================================================
 // Render all mock data immediately — no CDN dependency
 initData();
-// _initPosPanel deferred — #pos-panel HTML comes after </script>, so DOM isn't ready yet when
-// this script runs. DOMContentLoaded fires after the browser finishes parsing the full document.
+// _initPosPanel deferred — panel HTML is after the script block, so DOM is not ready at boot.
+// DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
