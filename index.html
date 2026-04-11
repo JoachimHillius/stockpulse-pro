@@ -9,7 +9,7 @@
 :root {
   --bg:#060912;--bg2:#0d1420;--bg3:#141e2e;--bg4:#1a2640;
   --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
-  --text:#dde3f0;--text2:#7a8899;--text3:#3a4a5e;
+  --text:#ffffff;--text2:#c0cfe0;--text3:#8090a8;
   --green:#00e5b0;--red:#ff3d5a;--blue:#3d9eff;--amber:#ffb020;
   --purple:#9d7dea;--cyan:#00d4ff;--pink:#ff4d9d;
   --font:'JetBrains Mono',monospace;
@@ -536,7 +536,7 @@ select option{background:var(--bg2);}
             <!-- Date picker -->
             <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;" title="Select trading date">
               <input id="mkt-date-input" type="date"
-                style="background:var(--bg3);border:none;color:var(--text);padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:120px;color-scheme:dark;"
+                style="background:var(--bg3);border:none;color:#ffffff;padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:130px;color-scheme:dark;"
                 onchange="switchMktDate()"/>
             </div>
             <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
@@ -1232,9 +1232,10 @@ function initData(){
   _mktDate=_savedDate;
   const _dateInp=document.getElementById('mkt-date-input');
   if(_dateInp){
-    // Set max to today so future dates can't be selected
-    _dateInp.max=new Date().toISOString().slice(0,10);
-    if(_savedDate) _dateInp.value=_savedDate;
+    const _todayISO=new Date().toISOString().slice(0,10);
+    _dateInp.max=_todayISO;
+    // Always show a date — saved date or today
+    _dateInp.value=_savedDate||_todayISO;
   }
   if(_savedDate){
     const _mcdEl2=document.getElementById('mkt-chart-date');
@@ -1836,7 +1837,7 @@ async function renderIntradayChart(sym, requestedDateStr){
     const c=canvas.getContext('2d');
     c.clearRect(0,0,canvas.width,canvas.height);
     c.font='11px JetBrains Mono,monospace';
-    c.fillStyle='#7a8899';
+    c.fillStyle='#c0cfe0';
     c.textAlign='center';
     c.textBaseline='middle';
     // Wrap long messages
@@ -1863,33 +1864,42 @@ async function renderIntradayChart(sym, requestedDateStr){
   let foundISO=null, foundData=null;
 
   for(let back=0; back<MAX_BACK; back++){
-    const d=new Date(startISO+'T00:00:00');
-    d.setDate(d.getDate()-back);
-    const iso=d.toISOString().slice(0,10);
+    // Build ISO date string by pure arithmetic to avoid local-TZ shifts from toISOString()
+    const parts=startISO.split('-').map(Number); // [YYYY, MM, DD]
+    const d=new Date(Date.UTC(parts[0],parts[1]-1,parts[2]));
+    d.setUTCDate(d.getUTCDate()-back);
+    const iso=d.toISOString().slice(0,10); // always YYYY-MM-DD in UTC
 
-    // Skip future dates (e.g., user selected tomorrow)
-    if(iso>todayISO) continue;
+    if(iso>todayISO) continue; // skip future dates
 
     const fromTs=Math.floor(new Date(iso+'T00:00:00Z').getTime()/1000);
     const toTs  =Math.floor(new Date(iso+'T23:59:59Z').getTime()/1000);
-    // For today: cap 'to' at now so we don't ask for future bars
-    const effectiveTo = iso===todayISO ? Math.floor(Date.now()/1000) : toTs;
+    const effectiveTo=iso===todayISO?Math.floor(Date.now()/1000):toTs;
 
     try{
       const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+effectiveTo+'&token='+finnhubKey;
       const r=await fetch(url);
-      const data=await r.json();
-      if(data.s==='ok'&&data.t&&data.t.length>0){
+
+      // 401/403 = bad API key — stop immediately
+      if(r.status===401||r.status===403){
+        showMsg('Invalid Finnhub API key — update it in Settings');
+        return;
+      }
+      // 429 rate limit or server error — skip this date, try next
+      if(!r.ok) continue;
+
+      let data;
+      try{ data=await r.json(); }catch(parseErr){ continue; }
+
+      if(data.s==='ok'&&Array.isArray(data.t)&&data.t.length>0){
         foundISO=iso;
         foundData=data;
         break;
       }
-      // s==='no_data' → weekend/holiday → try previous day
+      // s==='no_data' → weekend/holiday → loop continues to previous day
     }catch(e){
-      console.warn('[MktChart] Finnhub error for',iso,e);
-      // Network error — stop rather than burning all 7 retries
-      showMsg('Failed to fetch data — check your connection and try again');
-      return;
+      console.warn('[MktChart] fetch error for',iso,':',e.message);
+      // Transient network error — try next date rather than aborting
     }
   }
 
@@ -1977,6 +1987,14 @@ async function renderIntradayChart(sym, requestedDateStr){
         c2.fillText('Open $'+prev.toFixed(2),xs.left+4,py-4);
         c2.restore();
       }
+      // Active date — large and white, top-left of chart area
+      c2.save();
+      c2.font='bold 14px JetBrains Mono,monospace';
+      c2.fillStyle='#ffffff';
+      c2.textAlign='left';
+      c2.textBaseline='top';
+      c2.fillText(displayDate,xs.left+10,top+30);
+      c2.restore();
     }
   };
 
@@ -3816,91 +3834,153 @@ function getSymbolFlowDir(sym){
 
 function renderPositions(){
   const tbody = document.getElementById('pos-tbody');
-  if(!tbody){ return; } // panel HTML not yet parsed — DOMContentLoaded will call us again
+  if(!tbody) return; // panel HTML not yet in DOM
 
-  const empty    = document.getElementById('pos-empty');
-  const countEl  = document.getElementById('pos-count');
-  const totalEl  = document.getElementById('pos-total-pnl');
+  const empty   = document.getElementById('pos-empty');
+  const countEl = document.getElementById('pos-count');
+  const totalEl = document.getElementById('pos-total-pnl');
+
+  // Remove all existing rows without touching innerHTML
+  while(tbody.firstChild) tbody.removeChild(tbody.firstChild);
 
   if(!positions.length){
-    tbody.innerHTML = '';
-    if(empty)   empty.style.display   = 'block';
-    if(countEl) countEl.textContent   = '0';
-    if(totalEl) totalEl.textContent   = '';
+    if(empty)   empty.style.display = 'block';
+    if(countEl) countEl.textContent = '0';
+    if(totalEl) totalEl.textContent = '';
     return;
   }
 
-  if(empty)   empty.style.display   = 'none';
-  if(countEl) countEl.textContent   = positions.length;
+  if(empty)   empty.style.display = 'none';
+  if(countEl) countEl.textContent = String(positions.length);
 
   const today = new Date();
   let totalPnl = 0;
-  const html = [];
 
   for(let idx = 0; idx < positions.length; idx++){
     const p = positions[idx];
 
-    const entry     = parseFloat(p.entry)     || 0;
-    const current   = parseFloat(p.current);         // may be 0 or NaN
-    const qty       = parseInt(p.contracts)   || 1;
-    const hasCurrent = !isNaN(current) && current > 0;
+    // --- compute values ---
+    const entry      = parseFloat(p.entry) || 0;
+    const currentRaw = parseFloat(p.current);
+    const hasCurrent = !isNaN(currentRaw) && currentRaw > 0;
+    const current    = hasCurrent ? currentRaw : 0;
+    const qty        = parseInt(p.contracts) || 1;
 
-    // P&L = (Current - Entry) x Contracts x 100
-    // Only calculate when a real current price exists
-    let pnlDollar = 0, pnlPct = 0, pnlStr = '—', pctStr = '—', pnlClr = 'var(--text3)';
+    // P&L = (Current − Entry) × Contracts × 100
+    let pnlDollar = 0, pnlPct = 0;
+    let pnlStr = '—', pctStr = '—', pnlClr = '#ffffff';
     if(hasCurrent){
       pnlDollar = (current - entry) * qty * 100;
       pnlPct    = entry > 0 ? ((current - entry) / entry * 100) : 0;
       const sign = pnlDollar >= 0 ? '+' : '';
       pnlStr = sign + '$' + Math.abs(pnlDollar).toFixed(0);
       pctStr = sign + pnlPct.toFixed(1) + '%';
-      pnlClr = pnlDollar >= 0 ? 'var(--green)' : 'var(--red)';
+      pnlClr = pnlDollar >= 0 ? '#00e5b0' : '#ff3d5a';
       totalPnl += pnlDollar;
     }
 
-    const currentStr = hasCurrent ? '$' + current.toFixed(2) : '$0.00';
-
     const expDate  = p.expiry ? new Date(p.expiry + 'T00:00:00') : null;
-    const daysNum  = (expDate && !isNaN(expDate)) ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : null;
+    const daysNum  = (expDate && !isNaN(expDate.getTime())) ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : null;
     const daysStr  = daysNum !== null ? String(daysNum) : '—';
-    const daysClr  = (daysNum !== null && daysNum <= 5) ? 'var(--red)' : 'var(--text2)';
+    const daysClr  = (daysNum !== null && daysNum <= 5) ? '#ff3d5a' : '#ffffff';
 
     const strikeNum = parseFloat(p.strike);
     const strikeStr = !isNaN(strikeNum) ? '$' + strikeNum.toFixed(0) : (p.strike || '—');
 
-    const cpLower  = (p.cp || '').toLowerCase();
-    const cpClr    = cpLower === 'call' ? 'var(--green)' : 'var(--red)';
+    const cpLower = (p.cp || '').toLowerCase();
+    const cpClr   = cpLower === 'call' ? '#00e5b0' : '#ff3d5a';
 
-    const flowDir  = getSymbolFlowDir(p.symbol || '');
-    const flowClr  = flowDir === 'BULL' ? 'var(--green)' : flowDir === 'BEAR' ? 'var(--red)' : 'var(--text3)';
+    const flowDir = getSymbolFlowDir(p.symbol || '');
+    const flowClr = flowDir === 'BULL' ? '#00e5b0' : flowDir === 'BEAR' ? '#ff3d5a' : '#ffffff';
 
-    html.push(
-      '<tr>' +
-      '<td style="font-weight:700;color:var(--text);">'                               + (p.symbol || '—')                                                                    + '</td>' +
-      '<td><span style="color:' + cpClr + ';font-weight:700;font-size:10px;">'        + (p.cp || '—')                                                                        + '</span></td>' +
-      '<td>'                                                                            + strikeStr                                                                            + '</td>' +
-      '<td style="font-size:9px;color:var(--text2);">'                                + (p.expiry || '—')                                                                    + '</td>' +
-      '<td>'                                                                            + qty                                                                                  + '</td>' +
-      '<td>$'                                                                           + entry.toFixed(2)                                                                     + '</td>' +
-      '<td>' + currentStr + ' <button onclick="refreshPosPrice(' + idx + ')" title="Refresh" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 2px;">↻</button></td>' +
-      '<td style="color:' + pnlClr + ';font-weight:700;">'                            + pnlStr                                                                               + '</td>' +
-      '<td style="color:' + pnlClr + ';">'                                            + pctStr                                                                               + '</td>' +
-      '<td style="color:' + daysClr + ';">'                                           + daysStr                                                                              + '</td>' +
-      '<td style="color:' + flowClr + ';font-weight:700;font-size:9px;">'             + flowDir                                                                              + '</td>' +
-      '<td><button onclick="removePosition(' + idx + ')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px;" title="Remove">&#215;</button></td>' +
-      '</tr>'
-    );
+    // --- build row using DOM (no innerHTML) ---
+    const tr = document.createElement('tr');
+
+    function td(text, color, bold, small){
+      const el = document.createElement('td');
+      el.textContent = String(text);
+      el.style.color = color || '#ffffff';
+      if(bold)  el.style.fontWeight = '700';
+      if(small) el.style.fontSize = '9px';
+      return el;
+    }
+
+    // Symbol
+    tr.appendChild(td(p.symbol || '—', '#ffffff', true));
+
+    // C/P colored span
+    const tdCp = document.createElement('td');
+    const cpSpan = document.createElement('span');
+    cpSpan.textContent = p.cp || '—';
+    cpSpan.style.color = cpClr;
+    cpSpan.style.fontWeight = '700';
+    cpSpan.style.fontSize = '10px';
+    tdCp.appendChild(cpSpan);
+    tr.appendChild(tdCp);
+
+    // Strike
+    tr.appendChild(td(strikeStr, '#ffffff'));
+
+    // Expiry
+    tr.appendChild(td(p.expiry || '—', '#ffffff', false, true));
+
+    // Qty
+    tr.appendChild(td(String(qty), '#ffffff'));
+
+    // Entry $
+    tr.appendChild(td('$' + entry.toFixed(2), '#ffffff'));
+
+    // Current $ + refresh button
+    const tdCur = document.createElement('td');
+    tdCur.style.color = '#ffffff';
+    const curSpan = document.createElement('span');
+    curSpan.textContent = hasCurrent ? '$' + current.toFixed(2) : '$0.00';
+    const rrBtn = document.createElement('button');
+    rrBtn.textContent = '↻';
+    rrBtn.title = 'Refresh price';
+    rrBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#8090a8;font-size:9px;padding:0 2px;margin-left:2px;';
+    rrBtn.addEventListener('click', (function(i){ return function(){ refreshPosPrice(i); }; })(idx));
+    tdCur.appendChild(curSpan);
+    tdCur.appendChild(rrBtn);
+    tr.appendChild(tdCur);
+
+    // P&L $
+    tr.appendChild(td(pnlStr, pnlClr, true));
+
+    // P&L %
+    tr.appendChild(td(pctStr, pnlClr));
+
+    // Days to expiry
+    tr.appendChild(td(daysStr, daysClr));
+
+    // Flow direction
+    tr.appendChild(td(flowDir, flowClr, true, true));
+
+    // Remove button
+    const tdX = document.createElement('td');
+    const xBtn = document.createElement('button');
+    xBtn.textContent = '×';
+    xBtn.title = 'Remove position';
+    xBtn.style.cssText = 'background:none;border:none;color:#8090a8;cursor:pointer;font-size:13px;padding:0 2px;';
+    xBtn.addEventListener('click', (function(i){ return function(){ removePosition(i); }; })(idx));
+    tdX.appendChild(xBtn);
+    tr.appendChild(tdX);
+
+    tbody.appendChild(tr);
   }
 
-  tbody.innerHTML = html.join('');
-
+  // Update total P&L in panel header
   if(totalEl){
-    const sign = totalPnl >= 0 ? '+' : '';
-    totalEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
-    totalEl.textContent = totalPnl !== 0 ? sign + '$' + Math.abs(totalPnl).toFixed(0) : '';
+    if(totalPnl !== 0){
+      const sign = totalPnl >= 0 ? '+' : '';
+      totalEl.style.color = totalPnl >= 0 ? '#00e5b0' : '#ff3d5a';
+      totalEl.textContent = sign + '$' + Math.abs(totalPnl).toFixed(0);
+    } else {
+      totalEl.textContent = '';
+    }
   }
 
-  // Scroll body so the newest row is visible
+  // Scroll to bottom so newest row is visible
   const panelBody = document.getElementById('pos-panel-body');
   if(panelBody) panelBody.scrollTop = panelBody.scrollHeight;
 }
