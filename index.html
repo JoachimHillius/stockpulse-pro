@@ -573,7 +573,10 @@ select option{background:var(--bg2);}
 <div id="page-flow" class="page">
   <div class="g2" style="margin-bottom:14px;">
     <div class="card">
-      <div class="card-hd"><span class="card-title">Upload OMEN CSV</span></div>
+      <div class="card-hd">
+        <span class="card-title">Upload OMEN CSV</span>
+        <span id="db-status" style="font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.06);color:var(--text3);letter-spacing:0.5px;">● DB connecting…</span>
+      </div>
       <div class="upload-zone" id="drop-zone" onclick="document.getElementById('csv-input').click()"
         ondragover="event.preventDefault();this.classList.add('drag')"
         ondragleave="this.classList.remove('drag')"
@@ -1138,6 +1141,9 @@ const yieldFn = (fn) => setTimeout(fn, 0);
 
 function initData(){
   applyTheme();
+  // Prime the flow status — Supabase will overwrite once it loads
+  const _fsSt=document.getElementById('csv-status');
+  if(_fsSt){_fsSt.textContent='Connecting to database…';_fsSt.style.color='var(--text2)';}
   // Set market chart date immediately — visible before chart renders
   const _mcdEl=document.getElementById('mkt-chart-date');
   if(_mcdEl) _mcdEl.textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
@@ -2538,6 +2544,10 @@ async function handleMultipleCSV(files){
   flowHistory=flowHistory.sort((a,b)=>a.date>b.date?1:-1).slice(-90);
   localStorage.setItem('sp_flowHist',JSON.stringify(flowHistory));
 
+  // Save all newly-added rows to Supabase (fire-and-forget — don't block UI)
+  const allNewRows=Object.values(rawByDate).flat();
+  saveFlowToSupabase(allNewRows).catch(e=>console.warn('Supabase save:',e));
+
   // Update live flowData: merge new rows for the most recent date into existing
   if(rawByDate[mostRecentDate]){
     const existingRaw=JSON.parse(localStorage.getItem('sp_flow')||'[]');
@@ -3409,6 +3419,95 @@ function keepHoverPopup(){
 }
 
 // ============================================================
+// SUPABASE — persistent OMEN flow storage
+// ============================================================
+const SUPA_URL='https://krtyvidclkoucskelcrs.supabase.co';
+const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtydHl2aWRjbGtvdWNza2VsY3JzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5OTQxMjIsImV4cCI6MjA4MzU3MDEyMn0.fynqjSFPjH-Ujss7Z9rh-X3mWGjWhpltpCKK1VvJBwM';
+let _supa=null;
+
+function getSupabase(){
+  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  return _supa;
+}
+
+// Map Supabase omen_flow row → internal flowData format
+function _supaRowToFlow(r){
+  const row={
+    score:r.score||'',alerts:'',flag:r.flag||'B',time:r.time||'',
+    symbol:(r.symbol||'').toUpperCase(),expiry:r.expiry||'',strike:r.strike||'',
+    cp:r.cp||'',price:'',spread:r.spread||'',premium:r.premium||'',
+    stocklast:r.stocklast||'',size:r.size||'',oi:'',iv:r.iv||'',earnings:'',
+  };
+  row.id=makeTradeId(row);
+  // Fix swapped strike/expiry (same validation as CSV parser)
+  if(row.strike&&/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(row.strike.trim())){
+    const tmp=row.strike;row.strike=row.expiry;row.expiry=tmp;
+  }
+  return row;
+}
+
+function _setDbStatus(text,color){
+  const el=document.getElementById('db-status');
+  if(el){el.textContent=text;el.style.color=color;el.style.background=color==='#00e5b0'?'rgba(0,229,176,0.1)':color==='#ff3d5a'?'rgba(255,61,90,0.1)':'rgba(255,255,255,0.06)';}
+}
+
+async function loadFlowFromSupabase(){
+  const supa=getSupabase();
+  if(!supa){_setDbStatus('● DB unavailable','#ff3d5a');return;}
+  const statusEl=document.getElementById('csv-status');
+  const updEl=document.getElementById('flow-last-update');
+  try{
+    const since=new Date(Date.now()-30*86400000).toISOString();
+    const{data,error}=await supa
+      .from('omen_flow')
+      .select('*')
+      .gte('upload_date',since)
+      .order('upload_date',{ascending:false})
+      .limit(2000);
+    if(error)throw error;
+    _setDbStatus('● DB connected','#00e5b0');
+    if(!data||!data.length){
+      if(statusEl){statusEl.textContent='No flow data yet — upload a CSV to get started';statusEl.style.color='var(--text3)';}
+      return;
+    }
+    flowData=data.map(_supaRowToFlow).filter(r=>r.symbol&&r.cp);
+    // Cache locally as offline fallback
+    localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
+    const lastUpload=new Date(data[0].upload_date);
+    const lastStr=lastUpload.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' at '+lastUpload.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+    if(statusEl){statusEl.textContent=`✓ ${flowData.length} trades loaded from database`;statusEl.style.color='var(--green)';}
+    if(updEl)updEl.textContent='Last upload: '+lastStr;
+    renderFlowStats();renderFlowBody();updateStatusCounts();
+  }catch(err){
+    console.warn('Supabase load failed:',err);
+    _setDbStatus('● DB error','#ff3d5a');
+    if(statusEl){statusEl.textContent='⚠ Database unavailable — using cached local data';statusEl.style.color='var(--amber)';}
+    // Fall back to localStorage cache
+    const cached=JSON.parse(localStorage.getItem('sp_flow')||'[]');
+    if(cached.length){
+      flowData=cached;
+      renderFlowStats();renderFlowBody();updateStatusCounts();
+    }
+  }
+}
+
+async function saveFlowToSupabase(rows){
+  const supa=getSupabase();
+  if(!supa||!rows.length)return;
+  const uploadDate=new Date().toISOString();
+  // Map to exact Supabase table columns
+  const payload=rows.map(r=>({
+    upload_date:uploadDate,
+    symbol:r.symbol,expiry:r.expiry,strike:r.strike,cp:r.cp,
+    flag:r.flag,time:r.time,spread:r.spread,premium:r.premium,
+    stocklast:r.stocklast,size:r.size,score:r.score,iv:r.iv,
+  }));
+  const{error}=await supa.from('omen_flow').insert(payload);
+  if(error)throw error;
+  console.log('[Supabase] Inserted',rows.length,'rows');
+}
+
+// ============================================================
 // BOOT
 // ============================================================
 // Render all mock data immediately — no CDN dependency
@@ -3423,6 +3522,20 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
   s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
   s.onload=function(){initCharts();};
   s.onerror=function(){console.warn('Chart.js failed to load — charts unavailable');};
+  document.head.appendChild(s);
+})();
+// Load Supabase client async — then pull flow data from DB
+(function(){
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+  s.onload=function(){loadFlowFromSupabase();};
+  s.onerror=function(){
+    console.warn('Supabase CDN failed — using local cache');
+    _setDbStatus('● DB unavailable','#ff3d5a');
+    const cached=JSON.parse(localStorage.getItem('sp_flow')||'[]');
+    if(cached.length){flowData=cached;renderFlowStats();renderFlowBody();updateStatusCounts();}
+    else{const st=document.getElementById('csv-status');if(st){st.textContent='Upload a CSV to load flow data';st.style.color='var(--text3)';}}
+  };
   document.head.appendChild(s);
 })();
 </script>
