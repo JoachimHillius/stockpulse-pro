@@ -407,7 +407,7 @@ select option{background:var(--bg2);}
             <button class="vix-tfbtn active" onclick="setVixTf('D',this)">1DAY</button>
             <button class="vix-tfbtn" onclick="setVixTf('W',this)">1WK</button>
           </div>
-          <div style="position:relative;height:120px;"><canvas id="vix-candle-chart"></canvas></div>
+          <div style="position:relative;height:180px;"><canvas id="vix-candle-chart"></canvas></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
             <div style="display:flex;gap:10px;font-size:9px;color:var(--text2);">
               <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--green);display:inline-block;border-radius:1px;"></span>VIX Down</span>
@@ -1167,11 +1167,11 @@ let vixTf = 'D'; // current timeframe: 1 5 15 60 D W
 
 // Finnhub resolution → look-back seconds and bar count
 const VIX_TF_CFG = {
-  '1':  {secs: 60*25,       bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
-  '5':  {secs: 60*5*25,     bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
-  '15': {secs: 60*15*25,    bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
-  '60': {secs: 3600*25,     bars:20, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})},
-  'D':  {secs: 86400*20,    bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'})},
+  '1':  {secs: 60*14,       bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
+  '5':  {secs: 60*5*14,     bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
+  '15': {secs: 60*15*14,    bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
+  '60': {secs: 3600*14,     bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
+  'D':  {secs: 86400*14,    bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'})},
   'W':  {secs: 86400*7*14,  bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'})},
 };
 
@@ -1211,16 +1211,16 @@ async function fetchVixCandles(){
 function renderVixMockCandles(){
   const cfg  = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
   const vol  = VIX_TF_VOL[vixTf] || 0.06;
-  const bars = cfg.bars;
+  const bars = 10; // always exactly 10 candles
   const base = vixValue || 18.4;
   const now  = new Date();
-  let v = base * (1 - (bars * vol * 0.3)); // start below current so it trends toward base
+  let v = base * (1 - (bars * vol * 0.3));
 
   // Generate bar timestamps working backwards, then reverse
   const times = [];
   if(vixTf === 'D'){
-    // Skip weekends
-    let offset = bars;
+    // Skip weekends — step calendar days back until we have 10 trading days
+    let offset = bars + 4; // extra headroom for weekends
     for(let i=0; times.length < bars && offset >= 0; offset--){
       const d = new Date(now); d.setDate(now.getDate() - offset);
       if(d.getDay() !== 0 && d.getDay() !== 6) times.push(d);
@@ -1231,7 +1231,6 @@ function renderVixMockCandles(){
       times.push(d);
     }
   } else {
-    // Intraday — generate bars going back from now, skip non-market hours for realism
     const secs = {'1':60,'5':300,'15':900,'60':3600}[vixTf] || 300;
     for(let i=bars-1; i>=0; i--){
       const d = new Date(now.getTime() - i*secs*1000);
@@ -1242,7 +1241,7 @@ function renderVixMockCandles(){
   const fmtTime = (d) => {
     if(vixTf === 'D') return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     if(vixTf === 'W') return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+    return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
   };
 
   const candles = times.map(d=>{
@@ -1270,28 +1269,53 @@ function stampVixUpdate(){
   if(hdr) hdr.textContent = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 }
 
-function renderVixCandleChart(candles){
+function renderVixCandleChart(rawCandles){
   const canvas = document.getElementById('vix-candle-chart');
   if(!canvas) return;
+
+  // Always show exactly 10 candles — slice to last 10
+  const candles = rawCandles.slice(-10);
+  if(!candles.length) return;
+
   const ctx = canvas.getContext('2d');
 
-  // Custom candle plugin — draws real OHLC candles
+  // Destroy previous chart first so canvas is clean
+  if(vixCandleChart){ vixCandleChart.destroy(); vixCandleChart = null; }
+
+  const prices = candles.map(c=>c.c);
+  const labels = candles.map(c=>c.date);
+  const minP   = Math.min(...candles.map(c=>c.l)) * 0.994;
+  const maxP   = Math.max(...candles.map(c=>c.h)) * 1.006;
+
+  // Inline plugin — new closure each call so candles reference is always fresh.
+  // NOT registered globally (avoids stale closure bug with safeRegister).
   const candlePlugin = {
-    id:'vixCandles',
+    id: 'vixCandlesInline',
     afterDatasetsDraw(chart){
-      const {ctx:c2, chartArea:{top,bottom,left,right}, scales:{x,y}} = chart;
-      const barW = Math.max(4, (right-left)/candles.length*0.55);
-      candles.forEach((candle,i)=>{
-        const xPos = x.getPixelForValue(i);
-        const oY   = y.getPixelForValue(candle.o);
-        const cY   = y.getPixelForValue(candle.c);
-        const hY   = y.getPixelForValue(candle.h);
-        const lY   = y.getPixelForValue(candle.l);
-        const isUp = candle.c <= candle.o; // VIX DOWN = green (less fear), UP = red
-        const clr  = isUp ? '#00e5b0' : '#ff3d5a';
+      const {ctx:c2, chartArea} = chart;
+      if(!chartArea) return;
+      const {top, bottom, left, right} = chartArea;
+      const xScale = chart.scales.x;
+      const yScale = chart.scales.y;
+
+      // Fixed divisor of 10 so bar width is consistent regardless of actual candle count
+      const barW = (right - left) / 10 * 0.6;
+
+      candles.forEach((candle, i)=>{
+        const xPos = xScale.getPixelForValue(i);
+        const oY   = yScale.getPixelForValue(candle.o);
+        const cY   = yScale.getPixelForValue(candle.c);
+        const hY   = yScale.getPixelForValue(candle.h);
+        const lY   = yScale.getPixelForValue(candle.l);
+
+        // VIX: close < open means fear FELL → green; close > open means fear ROSE → red
+        const isDown = candle.c <= candle.o;
+        const clr    = isDown ? '#00e5b0' : '#ff3d5a';
 
         c2.save();
-        // Wick (high-low line)
+        c2.lineCap = 'round';
+
+        // High-Low wick
         c2.beginPath();
         c2.moveTo(xPos, hY);
         c2.lineTo(xPos, lY);
@@ -1299,28 +1323,20 @@ function renderVixCandleChart(candles){
         c2.lineWidth   = 1.5;
         c2.stroke();
 
-        // Body (open-close rectangle)
-        const bodyTop = Math.min(oY,cY);
-        const bodyH   = Math.max(2, Math.abs(oY-cY));
+        // Open-Close body
+        const bodyTop = Math.min(oY, cY);
+        const bodyH   = Math.max(2, Math.abs(oY - cY));
         c2.fillStyle = clr;
-        c2.fillRect(xPos-barW/2, bodyTop, barW, bodyH);
+        c2.fillRect(xPos - barW / 2, bodyTop, barW, bodyH);
+
         c2.restore();
       });
     }
   };
 
-  // Destroy previous chart
-  if(vixCandleChart) vixCandleChart.destroy();
-  safeRegister(candlePlugin);
-
-  const prices = candles.map(c=>c.c);
-  const labels = candles.map(c=>c.date);
-  const minP   = Math.min(...candles.map(c=>c.l))*0.995;
-  const maxP   = Math.max(...candles.map(c=>c.h))*1.005;
-
   vixCandleChart = new Chart(ctx, {
-    type:'line',
-    data:{
+    type: 'line',
+    data: {
       labels,
       datasets:[{
         data: prices,
@@ -1330,31 +1346,36 @@ function renderVixCandleChart(candles){
         borderWidth: 0,
       }]
     },
+    plugins: [candlePlugin],   // inline — not globally registered
     options:{
-      responsive:true, maintainAspectRatio:false, animation:false,
-      interaction:{mode:'index',intersect:false},
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: {
+        padding: { left: 20, right: 20 }  // prevent edge candles from clipping
+      },
+      interaction: { mode:'index', intersect:false },
       plugins:{
-        legend:{display:false},
-        vixCandles:{},
+        legend: { display:false },
         tooltip:{
-          enabled:true,
-          backgroundColor:'#0d1420',
-          borderColor:'rgba(255,255,255,0.15)',
-          borderWidth:1,
-          titleColor:'#7a8899',
-          bodyColor:'#dde3f0',
-          padding:8,
-          displayColors:false,
+          enabled: true,
+          backgroundColor: '#0d1420',
+          borderColor: 'rgba(255,255,255,0.15)',
+          borderWidth: 1,
+          titleColor: '#7a8899',
+          bodyColor: '#dde3f0',
+          padding: 8,
+          displayColors: false,
           callbacks:{
             title: items => `VIX — ${candles[items[0].dataIndex].date}`,
             label: item => {
               const c = candles[item.dataIndex];
-              const isUp = c.c > c.o;
+              const dir = c.c > c.o ? '▲ Fear Rising' : '▼ Fear Falling';
               return [
-                `  Open:   ${c.o.toFixed(2)}`,
-                `  High:   ${c.h.toFixed(2)}`,
-                `  Low:    ${c.l.toFixed(2)}`,
-                `  Close:  ${c.c.toFixed(2)}  ${isUp?'▲ Fear Rising':'▼ Fear Falling'}`,
+                `  Open:  ${c.o.toFixed(2)}`,
+                `  High:  ${c.h.toFixed(2)}`,
+                `  Low:   ${c.l.toFixed(2)}`,
+                `  Close: ${c.c.toFixed(2)}  ${dir}`,
               ];
             }
           }
@@ -1362,16 +1383,18 @@ function renderVixCandleChart(candles){
       },
       scales:{
         x:{
-          grid:{color:'rgba(255,255,255,0.04)',drawBorder:false},
-          ticks:{color:'#7a8899',font:{size:8},maxRotation:30,minRotation:30},
-          border:{display:false},
+          grid: { color:'rgba(255,255,255,0.04)', drawBorder:false },
+          ticks: { color:'#7a8899', font:{ size:9 }, maxRotation:0, minRotation:0,
+                   maxTicksLimit:10 },
+          border: { display:false },
         },
         y:{
-          min:minP, max:maxP,
-          position:'right',
-          grid:{color:'rgba(255,255,255,0.05)',drawBorder:false},
-          ticks:{color:'#7a8899',font:{size:8},callback:v=>v.toFixed(1)},
-          border:{display:false},
+          min: minP,
+          max: maxP,
+          position: 'right',
+          grid: { color:'rgba(255,255,255,0.05)', drawBorder:false },
+          ticks: { color:'#7a8899', font:{ size:9 }, callback: v => v.toFixed(1) },
+          border: { display:false },
         }
       }
     }
