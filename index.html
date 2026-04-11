@@ -128,28 +128,60 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .wl-pat{font-size:9px;color:var(--amber);}
 
 /* WATCHLIST — dense single-line layout */
-.wl-col-hdr{display:grid;grid-template-columns:52px 1fr 66px 56px 44px 44px 46px 46px 46px 50px 50px 52px 52px 20px;gap:4px;padding:4px 8px;font-size:9px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;border-bottom:1px solid var(--border);position:sticky;top:48px;background:var(--bg);z-index:10;}
-.wl-dense-row{display:grid;grid-template-columns:52px 1fr 66px 56px 44px 44px 46px 46px 46px 50px 50px 52px 52px 20px;gap:4px;padding:3px 8px;border-radius:2px;cursor:pointer;transition:background 0.08s;align-items:center;}
-.wl-dense-row:hover{background:var(--bg3);}
-body.light-mode .wl-dense-row:hover{background:var(--bg3);}
-.wl-sector-hd-dense{display:flex;align-items:center;gap:6px;padding:6px 8px 4px;font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;cursor:pointer;user-select:none;border-top:1px solid var(--border);margin-top:4px;transition:color 0.1s;}
+/* 14 columns: SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | Bull | Bear | dots */
+:root{--wl-grid:64px minmax(160px,1fr) 72px 62px 46px 46px 50px 50px 50px 52px 52px 58px 58px 22px;}
+.wl-col-hdr{
+  display:grid;grid-template-columns:var(--wl-grid);gap:4px;
+  padding:7px 12px;
+  font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;
+  color:var(--text);                          /* bright white in dark mode */
+  background:var(--bg2);
+  border-bottom:2px solid var(--border2);
+  position:sticky;top:48px;z-index:10;
+  border-radius:4px 4px 0 0;
+}
+body.light-mode .wl-col-hdr{color:#1a2235;background:#dde3ef;}
+.wl-dense-row{
+  display:grid;grid-template-columns:var(--wl-grid);gap:4px;
+  padding:8px 12px;
+  border-radius:2px;cursor:pointer;
+  transition:background 0.08s;align-items:center;
+  border-bottom:1px solid var(--border);
+}
+.wl-dense-row:hover{background:rgba(255,255,255,0.04);}
+body.light-mode .wl-dense-row:hover{background:rgba(0,0,0,0.04);}
+.wl-sym-cell{font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;}
+body.light-mode .wl-sym-cell{color:#0d1420;}
+.wl-name-cell{font-size:11px;color:#8899aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+body.light-mode .wl-name-cell{color:#4a5a70;}
+.wl-price-cell{font-size:12px;font-weight:700;color:var(--text);text-align:right;white-space:nowrap;}
+body.light-mode .wl-price-cell{color:#0d1420;}
+.wl-sector-hd-dense{
+  display:flex;align-items:center;gap:6px;
+  padding:8px 12px 5px;
+  font-size:10px;font-weight:700;letter-spacing:1.5px;
+  color:var(--cyan);text-transform:uppercase;
+  cursor:pointer;user-select:none;
+  border-top:1px solid var(--border);margin-top:6px;
+  transition:opacity 0.1s;
+}
 .wl-sector-hd-dense:first-child{border-top:none;margin-top:0;}
-.wl-sector-hd-dense:hover{color:var(--text);}
-.wl-chevron{font-size:10px;display:inline-block;transition:transform 0.15s;}
+.wl-sector-hd-dense:hover{opacity:0.8;}
+.wl-chevron{font-size:11px;display:inline-block;transition:transform 0.15s;}
 .wl-chevron.closed{transform:rotate(-90deg);}
 .wl-sector-rows{overflow:hidden;}
 .wl-sector-rows.collapsed{display:none;}
-.pct-cell{font-size:10px;text-align:right;font-weight:600;white-space:nowrap;}
+.pct-cell{font-size:12px;text-align:right;font-weight:600;white-space:nowrap;}
 .pct-pos{color:var(--green);}
 .pct-neg{color:var(--red);}
-.pct-zero{color:var(--text3);font-weight:400;}
-.pct-na{color:var(--text3);font-weight:400;}
+.pct-zero{color:var(--text3);font-weight:400;font-size:11px;}
+.pct-na{color:var(--text3);font-weight:400;font-size:11px;}
 .wl-dot-wrap{display:flex;gap:2px;align-items:center;justify-content:flex-end;}
-.wl-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+.wl-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
 .dot-earn{background:var(--amber);}
 .dot-opts{background:var(--purple);}
 .bb-tf-bar{display:flex;gap:4px;align-items:center;}
-.bb-tf-btn{padding:2px 8px;border:1px solid var(--border2);border-radius:3px;font-size:10px;font-family:var(--font);background:transparent;color:var(--text2);cursor:pointer;transition:all 0.1s;}
+.bb-tf-btn{padding:3px 10px;border:1px solid var(--border2);border-radius:3px;font-size:11px;font-family:var(--font);background:transparent;color:var(--text2);cursor:pointer;transition:all 0.1s;}
 .bb-tf-btn:hover{color:var(--text);border-color:var(--cyan);}
 .bb-tf-btn.active{background:var(--cyan);color:var(--bg);border-color:var(--cyan);font-weight:700;}
 /* expandable detail (used only in ticker popup now) */
@@ -498,16 +530,22 @@ select option{background:var(--bg2);}
   </div>
   <!-- Column header (sticky) -->
   <div class="wl-col-hdr">
-    <span>Symbol</span><span>Name</span><span style="text-align:right;">Price</span>
-    <span style="text-align:right;">Net$</span>
-    <span style="text-align:right;">5m%</span><span style="text-align:right;">1h%</span>
-    <span style="text-align:right;">1D%</span><span style="text-align:right;">1W%</span>
-    <span style="text-align:right;">1M%</span><span style="text-align:right;">6M%</span>
+    <span>Symbol</span>
+    <span>Company</span>
+    <span style="text-align:right;">Price</span>
+    <span style="text-align:right;">Net $</span>
+    <span style="text-align:right;">5m%</span>
+    <span style="text-align:right;">1h%</span>
+    <span style="text-align:right;">1D%</span>
+    <span style="text-align:right;">1W%</span>
+    <span style="text-align:right;">1M%</span>
+    <span style="text-align:right;">6M%</span>
     <span style="text-align:right;">1Y%</span>
-    <span style="text-align:right;">AvgBull</span><span style="text-align:right;">AvgBear</span>
+    <span style="text-align:right;">AvgBull</span>
+    <span style="text-align:right;">AvgBear</span>
     <span></span>
   </div>
-  <div id="watchlist-body"></div>
+  <div id="watchlist-body" style="border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;overflow:hidden;"></div>
 </div>
 
 <!-- ============ PAGE: OPTIONS FLOW ============ -->
@@ -1970,9 +2008,9 @@ function renderWatchlist(){
       if(chain?.pcRatio!=null&&(chain.pcRatio<0.5||chain.pcRatio>1.5))
         dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C '+chain.pcRatio+'"></span>');
       return`<div class="wl-dense-row" onclick="showTickerDetail('${sym}')">
-        <span class="wl-sym" style="font-size:11px;">${sym}</span>
-        <span class="wl-name" style="font-size:10px;">${COMPANY_NAMES[sym]||sector}</span>
-        <span class="pct-cell ${priceClr}" style="font-size:11px;font-weight:700;text-align:right;">${fmtPrice(sym,q.p)}</span>
+        <span class="wl-sym-cell">${sym}</span>
+        <span class="wl-name-cell">${COMPANY_NAMES[sym]||sector}</span>
+        <span class="wl-price-cell">${fmtPrice(sym,q.p)}</span>
         <span class="pct-cell ${netClr}" style="text-align:right;">${q.d>=0?'+':''}${q.d.toFixed(2)}</span>
         ${pctCell(m5)}
         ${pctCell(h1)}
