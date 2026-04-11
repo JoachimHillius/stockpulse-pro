@@ -129,7 +129,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 
 /* WATCHLIST — expandable rows */
 .wl-item{margin-bottom:1px;}
-.wl-item-hd{display:grid;grid-template-columns:16px 52px 1fr 72px 58px 90px 72px;align-items:center;gap:6px;padding:5px 6px;border-radius:3px;cursor:pointer;transition:background 0.1s;}
+.wl-item-hd{display:grid;grid-template-columns:16px 50px 1fr 68px 50px 50px 50px 82px 66px;align-items:center;gap:5px;padding:5px 6px;border-radius:3px;cursor:pointer;transition:background 0.1s;}
 .wl-item-hd:hover{background:var(--bg3);}
 body.light-mode .wl-item-hd:hover{background:var(--bg3);}
 .wl-toggle{font-size:9px;color:var(--text3);user-select:none;transition:color 0.15s;}
@@ -144,6 +144,10 @@ body.light-mode .wl-item-hd:hover{background:var(--bg3);}
 .streak-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;font-size:10px;}
 .streak-box{background:var(--bg3);border-radius:3px;padding:5px 8px;}
 .wl-sector-sum{display:flex;gap:16px;padding:5px 8px;font-size:10px;color:var(--text2);border-top:1px solid var(--border);margin-top:2px;}
+/* SYNC PROGRESS */
+.sync-progress-outer{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:6px 0;}
+.sync-progress-inner{height:100%;background:var(--cyan);border-radius:3px;transition:width 0.3s;width:0%;}
+.sync-phase{font-size:10px;color:var(--cyan);letter-spacing:0.5px;margin-bottom:2px;}
 
 /* TICKER POPUP */
 .ticker-modal{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.72);backdrop-filter:blur(4px);}
@@ -704,18 +708,27 @@ select option{background:var(--bg2);}
         <button class="btn btn-red btn-sm" style="margin-top:12px;width:100%;" onclick="clearAll()">Clear All Data</button>
       </div>
       <div class="card">
-        <div class="card-hd"><span class="card-title">Historical Baselines</span></div>
+        <div class="card-hd"><span class="card-title">Data Sync</span></div>
         <div style="font-size:10px;color:var(--text2);margin-bottom:10px;line-height:1.6;">
-          Pre-fetch 1 year of daily OHLCV from Yahoo Finance (no API key needed).
-          Stores avg volume, avg price &amp; daily volatility per ticker for anomaly detection.
+          Phase 1: Yahoo Finance prices (no key) — ~40s<br>
+          Phase 2: Finnhub earnings 8Q (needs key) — ~5m<br>
+          Phase 3: Finnhub options chain (needs key) — ~5m
         </div>
+        <button class="btn btn-cyan" id="sync-btn" style="width:100%;margin-bottom:8px;" onclick="syncAllData()">↻ Sync All Data</button>
+        <div id="sync-progress-wrap" style="display:none;margin-bottom:6px;">
+          <div class="sync-phase" id="sync-phase"></div>
+          <div class="sync-progress-outer"><div class="sync-progress-inner" id="sync-progress-bar"></div></div>
+          <div id="sync-status" style="font-size:10px;color:var(--text2);margin-top:3px;"></div>
+        </div>
+        <div id="sync-last" style="font-size:10px;color:var(--text3);margin-bottom:10px;"></div>
+        <div style="font-size:9px;color:var(--text2);margin-bottom:6px;letter-spacing:0.5px;">QUICK LOAD (Yahoo Finance prices only)</div>
         <div style="display:flex;gap:6px;margin-bottom:8px;">
-          <button class="btn btn-cyan btn-sm" style="flex:1;" onclick="startLoadHistory()">Load Top 20</button>
-          <button class="btn btn-sm" style="flex:1;background:var(--purple);color:white;border:none;" onclick="loadAllBaselines()">Load All 130</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="startLoadHistory()">Top 20</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="loadAllBaselines()">All 130</button>
         </div>
-        <div id="hist-load-status" style="font-size:10px;color:var(--text2);min-height:16px;"></div>
+        <div id="hist-load-status" style="font-size:10px;color:var(--text2);min-height:14px;"></div>
         <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:8px;">
-          <span style="color:var(--text2);">Baselines cached</span>
+          <span style="color:var(--text2);">Price baselines cached</span>
           <span id="st-baselines" style="color:var(--cyan)">0</span>
         </div>
       </div>
@@ -744,6 +757,8 @@ let tapePeriod = '1d';
 let flowHistory = JSON.parse(localStorage.getItem('sp_flowHist') || '[]');
 let earningsCache = {};
 let histBaselines = JSON.parse(localStorage.getItem('sp_histBaselines') || '{}');
+let optionsCache = JSON.parse(localStorage.getItem('sp_optChain') || '{}');
+let syncRunning = false;
 const expandedTickers = new Set();
 
 // ============================================================
@@ -1745,12 +1760,15 @@ function buildWlDetail(sym){
         <div style="font-weight:700;margin-top:2px;color:var(--red)">${fa.maxBear} day${fa.maxBear!==1?'s':''}</div></div>
     </div>`;
   }
+  // Options chain (from cache)
+  const chain=optionsCache[sym];
+  const chainHtml=chain?`<div style="font-size:9px;letter-spacing:1px;color:var(--text2);margin:8px 0 4px;">OPTIONS CHAIN (Finnhub)</div>`+renderOptionsChainData(chain):'';
   // Sparkline
   const sparkHtml=recent20?.length?
     `<div style="margin-top:8px;"><div style="font-size:9px;color:var(--text2);margin-bottom:3px;">20-DAY PRICE TREND</div>
     <canvas id="wl-spark-${sym}" width="240" height="40" style="display:block;"></canvas></div>`:
-    `<div style="margin-top:6px;font-size:10px;color:var(--text3);">No sparkline — load history in Settings</div>`;
-  return perfHtml+flowHtml+sparkHtml;
+    `<div style="margin-top:6px;font-size:10px;color:var(--text3);">No sparkline — run Sync in Settings</div>`;
+  return perfHtml+flowHtml+chainHtml+sparkHtml;
 }
 
 function toggleWlRow(sym,event){
@@ -1811,9 +1829,15 @@ function renderWatchlist(){
       const coName=COMPANY_NAMES[sym]||sector;
       const fa=getFlowAnalytics(sym);
       const perf=histBaselines[sym]?.perf;
-      // Use Yahoo perf d1 if available, else mock dp
+      // Use Yahoo perf values if available, else mock
       const d1=perf?.d1??q.dp;
-      const d1Cls=d1>=0?'chg-up':'chg-dn';
+      const w1=perf?.w1??null;
+      const m1=perf?.m1??null;
+      const mkPill=(lbl,val)=>{
+        if(val==null)return`<span class="perf-pill perf-na" style="font-size:9px;padding:1px 5px;">${lbl} —</span>`;
+        const cls=val>=0?'perf-up':'perf-dn';
+        return`<span class="perf-pill ${cls}" style="font-size:9px;padding:1px 5px;">${lbl} ${val>=0?'+':''}${val.toFixed(1)}%</span>`;
+      };
       // Flow badge
       let flowBadge;
       if(fa){
@@ -1834,7 +1858,9 @@ function renderWatchlist(){
           <span class="wl-sym">${sym}</span>
           <span class="wl-name">${coName}</span>
           <span class="wl-px ${u?'up':'dn'}">${fmtPrice(sym,q.p)}</span>
-          <span class="wl-chg ${d1Cls}">${d1>=0?'+':''}${d1.toFixed(2)}%</span>
+          ${mkPill('1D',d1)}
+          ${mkPill('1W',w1)}
+          ${mkPill('1M',m1)}
           <span>${flowBadge}</span>
           <span>${streakBadge}</span>
         </div>
@@ -1895,11 +1921,17 @@ function showTickerDetail(sym){
     const canvas=document.getElementById('spd-'+sym);
     if(canvas) drawSpeedometer(canvas, convScore);
   }, 0);
-  // Fetch earnings async if key available
-  if(finnhubKey) fetchEarnings(sym).then(data=>{
-    const el=document.getElementById('tm-earn-'+sym);
-    if(el) el.innerHTML=renderEarningsTable(data);
-  });
+  // Fetch earnings + options chain async if key available
+  if(finnhubKey){
+    fetchEarnings(sym).then(data=>{
+      const el=document.getElementById('tm-earn-'+sym);
+      if(el) el.innerHTML=renderEarningsTable(data);
+    });
+    fetchOptionsChain(sym).then(data=>{
+      const el=document.getElementById('tm-chain-'+sym);
+      if(el) el.innerHTML=renderOptionsChainData(data);
+    });
+  }
 }
 function getTickerFlowTrend(sym){
   // Returns last N days of flow data for this ticker from flowHistory
@@ -2037,7 +2069,9 @@ function buildTickerPopup(sym){
     <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px;">5-Day Flow History</div>
     ${flowBar}
     ${convHtml?`<div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:12px 0 6px;">Today's Flow Signals</div>${convHtml}`:''}
-    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Last 4 Quarters Earnings ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key in Settings)</span>'}</div>
+    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Options Chain ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key)</span>'}</div>
+    <div id="tm-chain-${sym}">${finnhubKey?'<div style="color:var(--text2);font-size:10px;">Loading…</div>':renderOptionsChainData(optionsCache[sym]||null)}</div>
+    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Last 8 Quarters Earnings ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key in Settings)</span>'}</div>
     <div id="tm-earn-${sym}">${finnhubKey?'<div style="color:var(--text2);font-size:10px;">Loading…</div>':renderEarningsTable([])}</div>
   `;
   return {html, convScore};
@@ -2047,14 +2081,34 @@ async function fetchEarnings(sym){
   try{
     const url=`https://finnhub.io/api/v1/stock/earnings?symbol=${sym}&token=${finnhubKey}`;
     const res=await fetch(url);const d=await res.json();
-    const data=(Array.isArray(d)?d:[]).slice(0,4).reverse();
+    // Get up to 8 quarters, oldest first
+    const data=(Array.isArray(d)?d:[]).slice(0,8).reverse();
     earningsCache[sym]=data;
     return data;
   }catch(e){return[];}
 }
+function getEarningsStats(data){
+  if(!data?.length)return null;
+  const withSurp=data.filter(e=>e.surprisePercent!=null);
+  if(!withSurp.length)return null;
+  const beats=withSurp.filter(e=>e.surprisePercent>=0).length;
+  const avgSurp=withSurp.reduce((a,e)=>a+e.surprisePercent,0)/withSurp.length;
+  return{beats,total:withSurp.length,beatRate:Math.round(beats/withSurp.length*100),avgSurp};
+}
 function renderEarningsTable(data){
   if(!data||!data.length)return`<div style="color:var(--text3);font-size:10px;padding:8px 0;">No earnings data — add Finnhub key in Settings</div>`;
-  return`<div class="earn-row earn-hd"><span>Quarter</span><span>Estimate</span><span>Actual</span><span>Surprise</span><span>Result</span></div>`+
+  const stats=getEarningsStats(data);
+  let statsHtml='';
+  if(stats){
+    const sClr=stats.beatRate>=60?'var(--green)':stats.beatRate<=40?'var(--red)':'var(--amber)';
+    const aClr=stats.avgSurp>=0?'var(--green)':'var(--red)';
+    statsHtml=`<div style="display:flex;gap:12px;font-size:10px;margin-bottom:8px;padding:6px 8px;background:var(--bg3);border-radius:4px;">
+      <span>Beat rate: <span style="font-weight:700;color:${sClr}">${stats.beats}/${stats.total} (${stats.beatRate}%)</span></span>
+      <span>Avg surprise: <span style="font-weight:700;color:${aClr}">${stats.avgSurp>=0?'+':''}${stats.avgSurp.toFixed(1)}%</span></span>
+    </div>`;
+  }
+  return statsHtml+
+  `<div class="earn-row earn-hd"><span>Quarter</span><span>Estimate</span><span>Actual</span><span>Surprise</span><span>Result</span></div>`+
   data.map(e=>{
     const surp=e.surprisePercent||0;
     const beat=surp>=0;
@@ -2652,6 +2706,7 @@ async function fetchYahooHistory(sym){
       d1:closes.length>=2?(closes.at(-1)-closes.at(-2))/closes.at(-2)*100:null,
       w1:closes.length>=6?(closes.at(-1)-closes.at(-6))/closes.at(-6)*100:null,
       m1:closes.length>=22?(closes.at(-1)-closes.at(-22))/closes.at(-22)*100:null,
+      m3:closes.length>=63?(closes.at(-1)-closes.at(-63))/closes.at(-63)*100:null,
       m6:closes.length>=126?(closes.at(-1)-closes.at(-126))/closes.at(-126)*100:null,
       y1:closes.length>=2?(closes.at(-1)-closes.at(0))/closes.at(0)*100:null,
     };
@@ -2687,6 +2742,129 @@ function startLoadHistory(){
 function loadAllBaselines(){
   const statusEl=document.getElementById('hist-load-status');
   loadHistoricalBaselines(ALL_TICKERS,statusEl);
+}
+
+// ============================================================
+// OPTIONS CHAIN — Finnhub
+// ============================================================
+async function fetchOptionsChain(sym){
+  if(!finnhubKey||optionsCache[sym])return optionsCache[sym]||null;
+  try{
+    const res=await fetch(`https://finnhub.io/api/v1/stock/option-chain?symbol=${encodeURIComponent(sym)}&token=${finnhubKey}`);
+    if(!res.ok)return null;
+    const d=await res.json();
+    if(!d?.data?.length)return null;
+    // Aggregate across all expiries
+    let callOI=0,putOI=0,callIV=0,putIV=0,callVol=0,putVol=0,callIVn=0,putIVn=0;
+    d.data.forEach(exp=>{
+      (exp.options?.CALL||[]).forEach(o=>{
+        callOI+=(o.openInterest||0);callVol+=(o.volume||0);
+        if(o.impliedVolatility){callIV+=o.impliedVolatility;callIVn++;}
+      });
+      (exp.options?.PUT||[]).forEach(o=>{
+        putOI+=(o.openInterest||0);putVol+=(o.volume||0);
+        if(o.impliedVolatility){putIV+=o.impliedVolatility;putIVn++;}
+      });
+    });
+    const result={
+      sym, updated:Date.now(),
+      callOI, putOI,
+      callVol, putVol,
+      pcRatio:callOI>0?+(putOI/callOI).toFixed(3):null,
+      pcVolRatio:callVol>0?+(putVol/callVol).toFixed(3):null,
+      avgCallIV:callIVn?+(callIV/callIVn*100).toFixed(1):null,
+      avgPutIV:putIVn?+(putIV/putIVn*100).toFixed(1):null,
+    };
+    optionsCache[sym]=result;
+    return result;
+  }catch(e){return null;}
+}
+function renderOptionsChainData(data){
+  if(!data)return`<div style="color:var(--text3);font-size:10px;padding:4px 0;">No options chain data — add Finnhub key or run Sync</div>`;
+  const pcClr=data.pcRatio!=null?(data.pcRatio<0.7?'var(--green)':data.pcRatio>1.3?'var(--red)':'var(--amber)'):'var(--text2)';
+  const pcLbl=data.pcRatio!=null?(data.pcRatio<0.7?'Bullish':data.pcRatio>1.3?'Bearish':'Neutral'):'—';
+  const fmtOI=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'K':String(n);
+  return`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:10px;">
+    <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;">
+      <div style="color:var(--text2);">P/C OI Ratio</div>
+      <div style="font-weight:700;margin-top:2px;color:${pcClr};">${data.pcRatio??'—'} <span style="font-size:9px;font-weight:400;">${pcLbl}</span></div>
+    </div>
+    <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;">
+      <div style="color:var(--text2);">Call OI / Put OI</div>
+      <div style="margin-top:2px;"><span style="color:var(--green);">${fmtOI(data.callOI)}</span> / <span style="color:var(--red);">${fmtOI(data.putOI)}</span></div>
+    </div>
+    <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;">
+      <div style="color:var(--text2);">Avg IV (C / P)</div>
+      <div style="margin-top:2px;">${data.avgCallIV??'—'}% / ${data.avgPutIV??'—'}%</div>
+    </div>
+  </div>`;
+}
+
+// ============================================================
+// SYNC ALL DATA
+// ============================================================
+async function syncAllData(){
+  if(syncRunning){showToast('SYS','Sync already running','info');return;}
+  syncRunning=true;
+  const progWrap=document.getElementById('sync-progress-wrap');
+  const progBar=document.getElementById('sync-progress-bar');
+  const phaseEl=document.getElementById('sync-phase');
+  const statusEl=document.getElementById('sync-status');
+  const btn=document.getElementById('sync-btn');
+  if(progWrap)progWrap.style.display='block';
+  if(btn){btn.disabled=true;btn.textContent='Syncing…';}
+  const tickers=ALL_TICKERS;
+  const total=tickers.length;
+  let done=0;
+  const setProg=(pct,phase,msg)=>{
+    if(progBar)progBar.style.width=pct+'%';
+    if(phaseEl)phaseEl.textContent=phase;
+    if(statusEl)statusEl.textContent=msg;
+  };
+  // Phase 1: Yahoo Finance price history (no rate limit concern)
+  const phase1Weight=0.5; // 50% of progress bar
+  for(const sym of tickers){
+    done++;
+    setProg(Math.round((done/total)*100*phase1Weight),`PHASE 1/3 — Yahoo Finance`,`Fetching ${sym}… ${done}/${total}`);
+    const data=await fetchYahooHistory(sym);
+    if(data)histBaselines[sym]=data;
+    await sleep(140);
+  }
+  localStorage.setItem('sp_histBaselines',JSON.stringify(histBaselines));
+  updateStatusCounts();
+  // Phase 2: Finnhub earnings (if key)
+  if(finnhubKey){
+    done=0;
+    const phase2Start=50,phase2Weight=25;
+    for(const sym of tickers){
+      done++;
+      setProg(phase2Start+Math.round((done/total)*phase2Weight),`PHASE 2/3 — Finnhub Earnings`,`Fetching ${sym}… ${done}/${total}`);
+      if(!earningsCache[sym])await fetchEarnings(sym);
+      await sleep(250); // Finnhub free: ~60 req/min
+    }
+  }
+  // Phase 3: Finnhub options chain (if key)
+  if(finnhubKey){
+    done=0;
+    const phase3Start=75,phase3Weight=25;
+    for(const sym of tickers){
+      done++;
+      setProg(phase3Start+Math.round((done/total)*phase3Weight),`PHASE 3/3 — Finnhub Options Chain`,`Fetching ${sym}… ${done}/${total}`);
+      if(!optionsCache[sym])await fetchOptionsChain(sym);
+      await sleep(250);
+    }
+    localStorage.setItem('sp_optChain',JSON.stringify(optionsCache));
+  }
+  // Done
+  const syncTime=new Date().toLocaleString();
+  localStorage.setItem('sp_lastSync',syncTime);
+  const lastEl=document.getElementById('sync-last');
+  if(lastEl)lastEl.textContent='Last sync: '+syncTime;
+  setProg(100,'SYNC COMPLETE','✓ All data synced');
+  if(btn){btn.disabled=false;btn.textContent='↻ Sync All Data';}
+  syncRunning=false;
+  renderWatchlist();
+  showToast('SYS','Sync complete — all data updated','info');
 }
 
 // ============================================================
@@ -2742,6 +2920,9 @@ function updateStatusCounts(){
   const sf=document.getElementById('st-flow');if(sf)sf.textContent=flowData.length;
   const sh=document.getElementById('st-hist');if(sh)sh.textContent=historyData.length;
   const sb=document.getElementById('st-baselines');if(sb)sb.textContent=Object.keys(histBaselines).length;
+  const lastSync=localStorage.getItem('sp_lastSync');
+  const lastEl=document.getElementById('sync-last');
+  if(lastEl&&lastSync)lastEl.textContent='Last sync: '+lastSync;
 }
 
 // ============================================================
