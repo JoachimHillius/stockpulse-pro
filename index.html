@@ -3798,21 +3798,39 @@ function submitPosition(){
   const expiry = document.getElementById('pf-expiry')?.value || '';
   const contracts = parseInt(document.getElementById('pf-contracts')?.value) || 1;
   const entry = parseFloat(document.getElementById('pf-entry')?.value);
-  const current = parseFloat(document.getElementById('pf-current')?.value);
+  const currentRaw = document.getElementById('pf-current')?.value;
+  const currentParsed = parseFloat(currentRaw);
+  // Never block save — default current to 0 if blank or unparseable
+  const current = isNaN(currentParsed) ? 0 : currentParsed;
+  const userTypedCurrent = currentRaw && currentRaw.trim() !== '' && !isNaN(currentParsed);
 
   if(!sym || isNaN(entry)){
     showToast('Symbol and Entry price are required', 'error');
     return;
   }
 
-  const pos = { symbol: sym, cp, strike, expiry, contracts, entry, current: isNaN(current) ? entry : current };
+  const pos = { symbol: sym, cp, strike, expiry, contracts, entry, current };
   positions.push(pos);
   savePositions();
-  renderPositions();
-  toggleAddPosForm();
 
-  // Auto-fetch price if Finnhub key set and current wasn't provided manually
-  if(finnhubKey && isNaN(current)){
+  // Clear form fields immediately before closing
+  ['pf-sym','pf-strike','pf-expiry','pf-entry','pf-current'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+  const contractsEl = document.getElementById('pf-contracts');
+  if(contractsEl) contractsEl.value = '1';
+  const cpEl = document.getElementById('pf-cp');
+  if(cpEl) cpEl.selectedIndex = 0;
+
+  renderPositions();
+  // Close form without toggling _posAddOpen back through the clear-on-open path
+  _posAddOpen = false;
+  const form = document.getElementById('pos-add-form');
+  if(form) form.style.display = 'none';
+
+  // Auto-fetch current price from Finnhub if key set and user didn't type one
+  if(finnhubKey && !userTypedCurrent){
     refreshPosPrice(positions.length - 1);
   }
 }
@@ -3957,13 +3975,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
         <label>Expiry<input id="pf-expiry" type="date" style="width:110px;"/></label>
         <label>Contracts<input id="pf-contracts" type="number" value="1" min="1" style="width:58px;"/></label>
         <label>Entry $<input id="pf-entry" type="number" placeholder="3.50" step="0.01" style="width:68px;"/></label>
-        <label>Current $<input id="pf-current" type="number" placeholder="auto" step="0.01" style="width:68px;"/></label>
+        <label>Current $<input id="pf-current" type="number" placeholder="0.00" step="0.01" style="width:68px;"/></label>
         <div style="display:flex;gap:6px;align-items:flex-end;padding-bottom:1px;">
           <button onclick="submitPosition()" style="background:var(--green);border:none;color:#000;border-radius:3px;padding:5px 14px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">Save</button>
           <button onclick="toggleAddPosForm()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:5px 10px;font-size:10px;cursor:pointer;font-family:var(--font);">Cancel</button>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Current price auto-fetched from Finnhub if API key is set — or enter manually</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Current $ defaults to 0 — type a price manually, or set a Finnhub API key to auto-fetch</div>
     </div>
     <!-- Positions table -->
     <table class="pos-tbl">
