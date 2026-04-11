@@ -3712,7 +3712,14 @@ function renderPositions(){
   const empty = document.getElementById('pos-empty');
   const countEl = document.getElementById('pos-count');
   const totalPnlEl = document.getElementById('pos-total-pnl');
-  if(!tbody) return;
+
+  // DOM not ready yet — silently skip (happens if called before positions panel HTML is parsed)
+  if(!tbody){
+    console.warn('[Positions] renderPositions called but #pos-tbody not in DOM yet');
+    return;
+  }
+
+  console.log('[Positions] renderPositions — count:', positions.length);
 
   if(!positions.length){
     tbody.innerHTML = '';
@@ -3721,54 +3728,70 @@ function renderPositions(){
     if(totalPnlEl) totalPnlEl.textContent = '';
     return;
   }
+
   if(empty) empty.style.display = 'none';
   if(countEl) countEl.textContent = positions.length;
 
   let totalPnlDollar = 0;
   const today = new Date();
-  tbody.innerHTML = positions.map((p, idx) => {
-    const entry = parseFloat(p.entry) || 0;
-    const current = parseFloat(p.current) || entry;
-    const qty = parseInt(p.contracts) || 1;
-    const pnlPerContract = (current - entry) * 100;
-    const pnlTotal = pnlPerContract * qty;
-    const pnlPct = entry > 0 ? ((current - entry) / entry * 100) : 0;
-    totalPnlDollar += pnlTotal;
 
-    const expDate = p.expiry ? new Date(p.expiry) : null;
-    const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : '—';
-    const pnlClr = pnlTotal >= 0 ? 'var(--green)' : 'var(--red)';
-    const pnlSign = pnlTotal >= 0 ? '+' : '';
+  let rows = '';
+  positions.forEach((p, idx) => {
+    try{
+      const entry = parseFloat(p.entry) || 0;
+      const current = parseFloat(p.current) || 0; // default 0, not entry — matches save logic
+      const qty = parseInt(p.contracts) || 1;
+      const pnlPerContract = (current - entry) * 100;
+      const pnlTotal = pnlPerContract * qty;
+      const pnlPct = entry > 0 ? ((current - entry) / entry * 100) : 0;
+      totalPnlDollar += pnlTotal;
 
-    const flowDir = getSymbolFlowDir(p.symbol);
-    const flowClr = flowDir === 'BULL' ? 'var(--green)' : flowDir === 'BEAR' ? 'var(--red)' : 'var(--text3)';
+      const expDate = p.expiry ? new Date(p.expiry + 'T00:00:00') : null;
+      const daysNum = expDate && !isNaN(expDate) ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : null;
+      const daysLeft = daysNum !== null ? daysNum : '—';
+      const pnlClr = pnlTotal >= 0 ? 'var(--green)' : 'var(--red)';
+      const pnlSign = pnlTotal >= 0 ? '+' : '';
 
-    const cpClr = (p.cp||'').toLowerCase() === 'call' ? 'var(--green)' : 'var(--red)';
+      const flowDir = getSymbolFlowDir(p.symbol || '');
+      const flowClr = flowDir === 'BULL' ? 'var(--green)' : flowDir === 'BEAR' ? 'var(--red)' : 'var(--text3)';
+      const cpClr = (p.cp||'').toLowerCase() === 'call' ? 'var(--green)' : 'var(--red)';
 
-    return `<tr>
-      <td style="font-weight:700;color:var(--text);">${p.symbol}</td>
-      <td><span style="color:${cpClr};font-weight:700;font-size:10px;">${p.cp}</span></td>
-      <td>$${parseFloat(p.strike).toFixed(0)}</td>
-      <td style="font-size:9px;color:var(--text2);">${p.expiry || '—'}</td>
-      <td>${qty}</td>
-      <td>$${entry.toFixed(2)}</td>
-      <td>
-        $${current.toFixed(2)}
-        <button onclick="refreshPosPrice(${idx})" title="Refresh" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 2px;">↻</button>
-      </td>
-      <td style="color:${pnlClr};font-weight:700;">${pnlSign}$${pnlTotal.toFixed(0)}</td>
-      <td style="color:${pnlClr};">${pnlSign}${pnlPct.toFixed(1)}%</td>
-      <td style="color:${typeof daysLeft==='number'&&daysLeft<=5?'var(--red)':'var(--text2)'};">${daysLeft}</td>
-      <td style="color:${flowClr};font-weight:700;font-size:9px;">${flowDir}</td>
-      <td><button onclick="removePosition(${idx})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px;" title="Remove">×</button></td>
-    </tr>`;
-  }).join('');
+      const strikeNum = parseFloat(p.strike);
+      const strikeStr = !isNaN(strikeNum) ? '$' + strikeNum.toFixed(0) : (p.strike || '—');
+
+      rows += `<tr>
+        <td style="font-weight:700;color:var(--text);">${p.symbol || '—'}</td>
+        <td><span style="color:${cpClr};font-weight:700;font-size:10px;">${p.cp || '—'}</span></td>
+        <td>${strikeStr}</td>
+        <td style="font-size:9px;color:var(--text2);">${p.expiry || '—'}</td>
+        <td>${qty}</td>
+        <td>$${entry.toFixed(2)}</td>
+        <td>
+          $${current.toFixed(2)}
+          <button onclick="refreshPosPrice(${idx})" title="Refresh price" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 2px;">↻</button>
+        </td>
+        <td style="color:${pnlClr};font-weight:700;">${pnlSign}$${pnlTotal.toFixed(0)}</td>
+        <td style="color:${pnlClr};">${pnlSign}${pnlPct.toFixed(1)}%</td>
+        <td style="color:${typeof daysLeft==='number'&&daysLeft<=5?'var(--red)':'var(--text2)'};">${daysLeft}</td>
+        <td style="color:${flowClr};font-weight:700;font-size:9px;">${flowDir}</td>
+        <td><button onclick="removePosition(${idx})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px;" title="Remove">×</button></td>
+      </tr>`;
+    }catch(rowErr){
+      console.error('[Positions] Error rendering row', idx, p, rowErr);
+    }
+  });
+
+  tbody.innerHTML = rows;
 
   if(totalPnlEl){
     const sign = totalPnlDollar >= 0 ? '+' : '';
     totalPnlEl.style.color = totalPnlDollar >= 0 ? 'var(--green)' : 'var(--red)';
     totalPnlEl.textContent = `${sign}$${totalPnlDollar.toFixed(0)}`;
   }
+
+  // Scroll table into view so new row is visible
+  const body = document.getElementById('pos-panel-body');
+  if(body) body.scrollTop = body.scrollHeight;
 }
 
 function removePosition(idx){
@@ -3813,7 +3836,21 @@ function submitPosition(){
   positions.push(pos);
   savePositions();
 
-  // Clear form fields immediately before closing
+  console.log('[Positions] Saved position:', pos);
+  console.log('[Positions] Total positions:', positions.length);
+  console.log('[Positions] localStorage sp_positions:', localStorage.getItem('sp_positions'));
+
+  // Ensure panel is expanded so the table is visible
+  if(_posCollapsed){
+    _posCollapsed = false;
+    const panel = document.getElementById('pos-panel');
+    const btn = document.getElementById('pos-collapse-btn');
+    if(panel) panel.classList.remove('collapsed');
+    if(btn) btn.textContent = '▼';
+    localStorage.setItem('sp_pos_collapsed', '0');
+  }
+
+  // Clear form fields before closing
   ['pf-sym','pf-strike','pf-expiry','pf-entry','pf-current'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.value = '';
@@ -3823,11 +3860,13 @@ function submitPosition(){
   const cpEl = document.getElementById('pf-cp');
   if(cpEl) cpEl.selectedIndex = 0;
 
-  renderPositions();
-  // Close form without toggling _posAddOpen back through the clear-on-open path
+  // Close form directly without going through toggleAddPosForm
   _posAddOpen = false;
   const form = document.getElementById('pos-add-form');
   if(form) form.style.display = 'none';
+
+  // Render — panel is guaranteed expanded and DOM elements exist at this point
+  renderPositions();
 
   // Auto-fetch current price from Finnhub if key set and user didn't type one
   if(finnhubKey && !userTypedCurrent){
@@ -3891,6 +3930,10 @@ function posDragStart(e){
 }
 
 function _initPosPanel(){
+  // This must run AFTER the positions panel HTML is in the DOM.
+  // It is called via DOMContentLoaded, not inline at boot.
+  console.log('[Positions] _initPosPanel — restoring', positions.length, 'positions from localStorage');
+
   // Restore panel position
   try{
     const saved = JSON.parse(localStorage.getItem('sp_pos_xy') || 'null');
@@ -3904,6 +3947,7 @@ function _initPosPanel(){
       }
     }
   }catch(e){}
+
   // Restore collapsed state
   if(_posCollapsed){
     const panel = document.getElementById('pos-panel');
@@ -3911,6 +3955,8 @@ function _initPosPanel(){
     if(panel) panel.classList.add('collapsed');
     if(btn) btn.textContent = '▲';
   }
+
+  // Render saved positions — DOM is guaranteed ready at this point
   renderPositions();
 }
 
@@ -3919,7 +3965,9 @@ function _initPosPanel(){
 // ============================================================
 // Render all mock data immediately — no CDN dependency
 initData();
-_initPosPanel();
+// _initPosPanel deferred — #pos-panel HTML comes after </script>, so DOM isn't ready yet when
+// this script runs. DOMContentLoaded fires after the browser finishes parsing the full document.
+document.addEventListener('DOMContentLoaded', _initPosPanel);
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>fetchVixCandles(),300000);
