@@ -30,7 +30,7 @@ body.light-mode .wl-row:hover{background:var(--bg3);}
 .theme-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 8px;border-radius:4px;border:1px solid var(--border2);transition:background 0.15s;}
 .theme-toggle:hover{background:var(--bg3);}
 .theme-icon{font-size:14px;line-height:1;}
-.theme-lbl{font-size:10px;color:var(--text2);letter-spacing:0.5px;}
+.theme-lbl{font-size:10px;color:#e0e0e0;letter-spacing:0.5px;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12px;min-height:100vh;overflow-x:hidden;}
 
@@ -39,7 +39,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .brand{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:4px;color:var(--cyan);margin-right:24px;white-space:nowrap;line-height:1;}
 .brand span{color:var(--text);font-size:18px;letter-spacing:2px;}
 .nav{display:flex;gap:0;flex:1;}
-.nav-btn{padding:0 16px;height:48px;border:none;background:transparent;color:var(--text2);font-family:var(--font);font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.8px;text-transform:uppercase;border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;}
+.nav-btn{padding:0 16px;height:48px;border:none;background:transparent;color:#e0e0e0;font-family:var(--font);font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.8px;text-transform:uppercase;border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;}
 .nav-btn:hover{color:var(--text);background:rgba(255,255,255,0.03);}
 .nav-btn.active{color:var(--cyan);border-bottom-color:var(--cyan);}
 .header-right{display:flex;align-items:center;gap:12px;margin-left:auto;}
@@ -48,7 +48,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .dot.on{background:var(--green);animation:blink 2s infinite;}
 .dot.off{background:var(--red);}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
-.clock{font-size:11px;color:var(--text2);letter-spacing:1px;}
+.clock{font-size:11px;color:#ffffff;letter-spacing:1px;}
 .vix-pill{padding:3px 10px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.5px;}
 
 /* TICKER TAPE */
@@ -63,11 +63,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 @keyframes tape-scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 @keyframes tape-scroll-rev{0%{transform:translateX(-50%)}100%{transform:translateX(0)}}
 .tape-filter{display:flex;align-items:center;gap:4px;padding:3px 12px;background:var(--bg2);border-bottom:1px solid var(--border);}
-.tape-filter-lbl{font-size:9px;color:var(--text3);letter-spacing:1px;margin-right:4px;}
-.tpbtn{padding:1px 7px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-family:var(--font);font-size:9px;cursor:pointer;transition:all 0.1s;letter-spacing:0.5px;}
+.tape-filter-lbl{font-size:9px;color:#e0e0e0;letter-spacing:1px;margin-right:4px;}
+.tpbtn{padding:1px 7px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:#e0e0e0;font-family:var(--font);font-size:9px;cursor:pointer;transition:all 0.1s;letter-spacing:0.5px;}
 .tpbtn:hover{color:var(--text);background:var(--bg3);}
 .tpbtn.active{background:var(--cyan);color:#000;border-color:var(--cyan);font-weight:700;}
-.vix-tfbtn{padding:2px 7px;border-radius:2px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:var(--font);font-size:9px;cursor:pointer;transition:all 0.1s;letter-spacing:0.4px;}
+.vix-tfbtn{padding:2px 7px;border-radius:2px;border:1px solid var(--border);background:transparent;color:#e0e0e0;font-family:var(--font);font-size:9px;cursor:pointer;transition:all 0.1s;letter-spacing:0.4px;}
 .vix-tfbtn:hover{color:var(--text);border-color:var(--border2);}
 .vix-tfbtn.active{background:rgba(255,176,32,0.18);color:var(--amber);border-color:var(--amber);font-weight:700;}
 .tape-item{display:inline-flex;align-items:center;gap:5px;}
@@ -91,12 +91,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 /* CARDS */
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px 16px;}
 .card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
-.card-title{font-size:10px;font-weight:600;letter-spacing:1.2px;color:var(--text2);text-transform:uppercase;}
-.card-sub{font-size:10px;color:var(--text3);}
+.card-title{font-size:10px;font-weight:600;letter-spacing:1.2px;color:#e0e0e0;text-transform:uppercase;}
+.card-sub{font-size:10px;color:#e0e0e0;}
 
 /* STAT BOXES */
 .stat-box{background:var(--bg3);border-radius:5px;padding:12px 14px;}
-.stat-lbl{font-size:9px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}
+.stat-lbl{font-size:9px;color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}
 .stat-val{font-size:24px;font-weight:700;letter-spacing:-1px;}
 .stat-sub{font-size:10px;margin-top:3px;}
 
@@ -105,7 +105,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .vix-reg{font-size:10px;letter-spacing:2px;text-align:center;margin-top:4px;}
 .vix-bar{height:5px;border-radius:3px;background:linear-gradient(to right,var(--green) 0%,var(--amber) 40%,var(--red) 75%);margin:12px 0 4px;position:relative;}
 .vix-pin{position:absolute;top:-5px;width:15px;height:15px;background:white;border-radius:50%;transform:translateX(-50%);border:2px solid var(--bg2);transition:left 0.6s;}
-.vix-sc{display:flex;justify-content:space-between;font-size:9px;color:var(--text3);}
+.vix-sc{display:flex;justify-content:space-between;font-size:9px;color:#e0e0e0;}
 
 /* SECTOR HEATMAP */
 .sector-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;}
@@ -116,11 +116,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 
 /* WATCHLIST */
 .wl-sector{margin-bottom:14px;}
-.wl-sector-hd{font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:6px;display:flex;justify-content:space-between;}
+.wl-sector-hd{font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:6px;display:flex;justify-content:space-between;}
 .wl-row{display:grid;grid-template-columns:80px 1fr 70px 65px 65px;align-items:center;gap:6px;padding:5px 4px;border-radius:3px;cursor:pointer;transition:background 0.1s;}
 .wl-row:hover{background:var(--bg3);}
 .wl-sym{font-weight:700;font-size:12px;}
-.wl-name{font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wl-name{font-size:10px;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .wl-px{font-size:12px;font-weight:600;text-align:right;}
 .wl-chg{font-size:10px;padding:2px 5px;border-radius:2px;text-align:center;}
 .chg-up{background:rgba(0,229,176,0.1);color:var(--green);}
@@ -174,14 +174,14 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .pct-cell{font-size:12px;text-align:right;font-weight:600;white-space:nowrap;}
 .pct-pos{color:var(--green);}
 .pct-neg{color:var(--red);}
-.pct-zero{color:var(--text3);font-weight:400;font-size:11px;}
-.pct-na{color:var(--text3);font-weight:400;font-size:11px;}
+.pct-zero{color:#e0e0e0;font-weight:400;font-size:11px;}
+.pct-na{color:#e0e0e0;font-weight:400;font-size:11px;}
 .wl-dot-wrap{display:flex;gap:2px;align-items:center;justify-content:flex-end;}
 .wl-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
 .dot-earn{background:var(--amber);}
 .dot-opts{background:var(--purple);}
 .bb-tf-bar{display:flex;gap:4px;align-items:center;}
-.bb-tf-btn{padding:3px 10px;border:1px solid var(--border2);border-radius:3px;font-size:11px;font-family:var(--font);background:transparent;color:var(--text2);cursor:pointer;transition:all 0.1s;}
+.bb-tf-btn{padding:3px 10px;border:1px solid var(--border2);border-radius:3px;font-size:11px;font-family:var(--font);background:transparent;color:#e0e0e0;cursor:pointer;transition:all 0.1s;}
 .bb-tf-btn:hover{color:var(--text);border-color:var(--cyan);}
 .bb-tf-btn.active{background:var(--cyan);color:var(--bg);border-color:var(--cyan);font-weight:700;}
 /* expandable detail (used only in ticker popup now) */
@@ -189,7 +189,7 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .perf-pill{padding:2px 7px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.3px;}
 .perf-up{background:rgba(0,229,176,0.12);color:var(--green);}
 .perf-dn{background:rgba(255,61,90,0.12);color:var(--red);}
-.perf-na{background:rgba(255,255,255,0.04);color:var(--text3);}
+.perf-na{background:rgba(255,255,255,0.04);color:#e0e0e0;}
 .streak-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;font-size:10px;}
 .streak-box{background:var(--bg3);border-radius:3px;padding:5px 8px;}
 /* HOVER POPUP (Gainers/Losers) */
@@ -212,13 +212,13 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 #pos-panel.collapsed #pos-panel-hdr{border-radius:8px;border-bottom:none;}
 #pos-panel-body{padding:10px 12px;max-height:320px;overflow-y:auto;}
 .pos-tbl{width:100%;border-collapse:collapse;font-size:10px;}
-.pos-tbl th{color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.6px;font-size:9px;padding:3px 5px;border-bottom:1px solid var(--border2);white-space:nowrap;text-align:left;}
+.pos-tbl th{color:#e0e0e0;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;font-size:9px;padding:3px 5px;border-bottom:1px solid var(--border2);white-space:nowrap;text-align:left;}
 .pos-tbl td{padding:5px 5px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap;}
 .pos-tbl tr:last-child td{border-bottom:none;}
 .pos-tbl tr:hover td{background:rgba(255,255,255,0.03);}
 #pos-add-form{background:var(--bg3);border-radius:6px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border);}
 .pos-form-row{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;}
-.pos-form-row label{display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;}
+.pos-form-row label{display:flex;flex-direction:column;gap:3px;font-size:9px;color:#e0e0e0;text-transform:uppercase;letter-spacing:0.5px;}
 .pos-form-row input,.pos-form-row select{background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:4px 7px;border-radius:3px;font-family:var(--font);font-size:11px;width:80px;}
 .pos-form-row select{width:68px;}
 /* SYNC PROGRESS */
@@ -230,12 +230,12 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .ticker-modal{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.72);backdrop-filter:blur(4px);}
 .ticker-modal.open{display:flex;align-items:center;justify-content:center;}
 .ticker-modal-box{background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:20px;width:540px;max-width:96vw;max-height:88vh;overflow-y:auto;position:relative;}
-.tm-close{position:absolute;top:12px;right:14px;background:transparent;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1;}
+.tm-close{position:absolute;top:12px;right:14px;background:transparent;border:none;color:#e0e0e0;font-size:20px;cursor:pointer;line-height:1;}
 .tm-close:hover{color:var(--text);}
 .flow-day-bar{display:flex;gap:3px;margin:8px 0;}
 .flow-day-cell{flex:1;height:28px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;}
 .earn-row{display:grid;grid-template-columns:80px 70px 70px 70px 80px;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:10px;}
-.earn-hd{font-size:9px;color:var(--text2);font-weight:600;}
+.earn-hd{font-size:9px;color:#e0e0e0;font-weight:600;}
 .signal-strong-bull{background:rgba(0,229,176,0.2);color:var(--green);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;}
 .signal-bull{background:rgba(0,229,176,0.10);color:var(--green);border-radius:3px;padding:1px 5px;font-size:9px;}
 .signal-strong-bear{background:rgba(255,61,90,0.2);color:var(--red);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;}
@@ -265,7 +265,7 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .pred-card:hover{border-color:var(--border2);}
 .pred-card.bull{border-left:3px solid var(--green);}
 .pred-card.bear{border-left:3px solid var(--red);}
-.pred-rank{font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--text3);margin-right:12px;}
+.pred-rank{font-family:'Bebas Neue',sans-serif;font-size:32px;color:#e0e0e0;margin-right:12px;}
 .pred-sym{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;}
 .pred-score-bar{height:4px;border-radius:2px;margin:8px 0;}
 .score-pill{padding:3px 8px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.5px;}
@@ -288,11 +288,11 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .sent-bar-wrap{display:flex;align-items:center;gap:6px;margin-top:6px;}
 .sent-track{flex:1;height:3px;background:var(--bg4);border-radius:2px;}
 .sent-fill{height:3px;border-radius:2px;transition:width 0.4s;}
-.ai-box{background:var(--bg3);border-radius:3px;padding:6px 8px;margin-top:6px;border-left:2px solid var(--purple);font-size:10px;color:var(--text2);line-height:1.6;}
+.ai-box{background:var(--bg3);border-radius:3px;padding:6px 8px;margin-top:6px;border-left:2px solid var(--purple);font-size:10px;color:#e0e0e0;line-height:1.6;}
 
 /* HISTORY */
 .hist-row{display:grid;grid-template-columns:80px 70px 60px 60px 60px 60px 1fr;gap:6px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
-.hist-hd{font-size:9px;color:var(--text2);font-weight:600;}
+.hist-hd{font-size:9px;color:#e0e0e0;font-weight:600;}
 .win{color:var(--green);}
 .loss{color:var(--red);}
 
@@ -305,7 +305,7 @@ select option{background:var(--bg2);}
 .btn-cyan{background:var(--cyan);color:#000;}
 .btn-green{background:var(--green);color:#000;}
 .btn-amber{background:var(--amber);color:#000;}
-.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border2);}
+.btn-ghost{background:transparent;color:#e0e0e0;border:1px solid var(--border2);}
 .btn-ghost:hover{color:var(--text);background:var(--bg3);}
 .btn-red{background:rgba(255,61,90,0.15);color:var(--red);border:1px solid rgba(255,61,90,0.25);}
 .btn-sm{padding:4px 10px;font-size:10px;}
@@ -314,14 +314,14 @@ select option{background:var(--bg2);}
 .upload-zone{border:2px dashed rgba(61,158,255,0.4);border-radius:6px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.15s;background:rgba(61,158,255,0.04);}
 .upload-zone:hover,.upload-zone.drag{border-color:var(--cyan);}
 .upload-icon{font-size:32px;margin-bottom:10px;}
-.upload-text{font-size:12px;color:var(--text2);line-height:1.7;}
+.upload-text{font-size:12px;color:#e0e0e0;line-height:1.7;}
 
 /* ALERTS */
 .alert-item{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);}
 .alert-dot{width:7px;height:7px;border-radius:50%;margin-top:3px;flex-shrink:0;}
 .alert-body{font-size:11px;line-height:1.5;}
 .alert-sym{font-weight:700;}
-.alert-time{font-size:9px;color:var(--text3);margin-top:2px;}
+.alert-time{font-size:9px;color:#ffffff;margin-top:2px;}
 
 /* TOAST */
 .toast-wrap{position:fixed;top:56px;right:14px;z-index:999;display:flex;flex-direction:column;gap:6px;pointer-events:none;max-width:320px;}
@@ -331,8 +331,8 @@ select option{background:var(--bg2);}
 .toast.info{border-left:3px solid var(--blue);}
 @keyframes slide-in{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}
 .toast-sym{font-weight:700;font-size:11px;}
-.toast-msg{font-size:10px;color:var(--text2);margin-top:2px;line-height:1.4;}
-.toast-x{float:right;background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px;margin:-2px -4px 0 0;}
+.toast-msg{font-size:10px;color:#e0e0e0;margin-top:2px;line-height:1.4;}
+.toast-x{float:right;background:none;border:none;color:#e0e0e0;cursor:pointer;font-size:13px;margin:-2px -4px 0 0;}
 
 /* SCANNER STATUS */
 .scan-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--bg3);border-radius:4px;margin-bottom:12px;}
@@ -344,7 +344,7 @@ select option{background:var(--bg2);}
 
 /* FILTER ROW */
 .filter-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
-.fbtn{padding:4px 10px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:var(--font);font-size:10px;cursor:pointer;transition:all 0.1s;}
+.fbtn{padding:4px 10px;border-radius:3px;border:1px solid var(--border);background:transparent;color:#e0e0e0;font-family:var(--font);font-size:10px;cursor:pointer;transition:all 0.1s;}
 .fbtn.active{background:var(--bg3);color:var(--text);border-color:var(--border2);}
 
 .section-gap{margin-top:20px;}
@@ -357,7 +357,7 @@ select option{background:var(--bg2);}
 .toggle input:checked+.tslider{background:var(--green);}
 .toggle input:checked+.tslider:before{transform:translateX(15px);}
 
-.empty{text-align:center;padding:40px 20px;color:var(--text2);}
+.empty{text-align:center;padding:40px 20px;color:#e0e0e0;}
 .empty-icon{font-size:36px;margin-bottom:10px;}
 
 @media(max-width:800px){
@@ -461,7 +461,7 @@ select option{background:var(--bg2);}
       <div class="card">
         <div class="card-hd">
           <span class="card-title">VIX Fear Gauge</span>
-          <span id="vix-last-update" style="font-size:9px;color:var(--text3);">—</span>
+          <span id="vix-last-update" style="font-size:9px;color:#ffffff;">—</span>
         </div>
         <div class="vix-num" id="vix-big">—</div>
         <div class="vix-reg" id="vix-regime">—</div>
@@ -469,7 +469,7 @@ select option{background:var(--bg2);}
         <div class="vix-sc"><span>0</span><span>15</span><span>25</span><span>35</span><span>50+</span></div>
         <div style="margin-top:14px;">
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;flex-wrap:wrap;">
-            <span style="font-size:9px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;margin-right:4px;">VIX</span>
+            <span style="font-size:9px;color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;margin-right:4px;">VIX</span>
             <button class="vix-tfbtn" onclick="setVixTf('1',this)">1MIN</button>
             <button class="vix-tfbtn" onclick="setVixTf('5',this)">5MIN</button>
             <button class="vix-tfbtn" onclick="setVixTf('15',this)">15MIN</button>
@@ -479,11 +479,11 @@ select option{background:var(--bg2);}
           </div>
           <div style="position:relative;height:180px;"><canvas id="vix-candle-chart"></canvas></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-            <div style="display:flex;gap:10px;font-size:9px;color:var(--text2);">
+            <div style="display:flex;gap:10px;font-size:9px;color:#e0e0e0;">
               <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--green);display:inline-block;border-radius:1px;"></span>VIX Down</span>
               <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--red);display:inline-block;border-radius:1px;"></span>VIX Up</span>
             </div>
-            <span id="vix-candle-updated" style="font-size:9px;color:var(--text3);">—</span>
+            <span id="vix-candle-updated" style="font-size:9px;color:#ffffff;">—</span>
           </div>
         </div>
       </div>
@@ -507,11 +507,11 @@ select option{background:var(--bg2);}
           <div class="card-hd">
             <span class="card-title">Top Gainers</span>
             <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-size:9px;color:var(--text2);">5</span>
+              <span style="font-size:9px;color:#e0e0e0;">5</span>
               <input type="range" min="5" max="10" step="5" value="5" id="gainers-slider"
                 style="width:48px;height:3px;accent-color:var(--green);cursor:pointer;"
                 oninput="updateMoverCount(this.value)"/>
-              <span style="font-size:9px;color:var(--text2);">10</span>
+              <span style="font-size:9px;color:#e0e0e0;">10</span>
               <span id="mover-count-lbl" style="font-size:9px;color:var(--green);min-width:14px;">5</span>
             </div>
           </div>
@@ -526,7 +526,7 @@ select option{background:var(--bg2);}
         <div class="card-hd">
           <div>
             <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
-            <div id="mkt-chart-date" style="font-size:12px;font-weight:600;color:var(--text);margin-top:3px;letter-spacing:0.3px;"></div>
+            <div id="mkt-chart-date" style="font-size:16px;font-weight:700;color:#ffffff;margin-top:4px;letter-spacing:0.3px;"></div>
           </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <!-- Symbol input -->
@@ -543,7 +543,7 @@ select option{background:var(--bg2);}
                 style="background:var(--bg3);border:none;color:#ffffff;padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:130px;color-scheme:dark;"
                 onchange="switchMktDate()"/>
             </div>
-            <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
+            <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
             <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
             <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
             <button class="fbtn" onclick="setMktRange('1M',this)">1M</button>
@@ -576,7 +576,7 @@ select option{background:var(--bg2);}
   </div>
   <!-- Bull/Bear window selector -->
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding:5px 8px;background:var(--bg2);border-radius:4px;border:1px solid var(--border);">
-    <span style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Avg Bull/Bear Window:</span>
+    <span style="font-size:9px;color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;">Avg Bull/Bear Window:</span>
     <div class="bb-tf-bar">
       <button class="bb-tf-btn" onclick="setFlowWindow('5D',this)">5D</button>
       <button class="bb-tf-btn active" onclick="setFlowWindow('30D',this)">30D</button>
@@ -584,7 +584,7 @@ select option{background:var(--bg2);}
       <button class="bb-tf-btn" onclick="setFlowWindow('6M',this)">6M</button>
       <button class="bb-tf-btn" onclick="setFlowWindow('1Y',this)">1Y</button>
     </div>
-    <span style="font-size:9px;color:var(--text3);margin-left:auto;">Based on uploaded OMEN CSVs</span>
+    <span style="font-size:9px;color:#e0e0e0;margin-left:auto;">Based on uploaded OMEN CSVs</span>
   </div>
   <!-- Column header (sticky) -->
   <div class="wl-col-hdr">
@@ -612,7 +612,7 @@ select option{background:var(--bg2);}
     <div class="card">
       <div class="card-hd">
         <span class="card-title">Upload OMEN CSV</span>
-        <span id="db-status" style="font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.06);color:var(--text3);letter-spacing:0.5px;">● DB connecting…</span>
+        <span id="db-status" style="font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.06);color:#e0e0e0;letter-spacing:0.5px;">● DB connecting…</span>
       </div>
       <div class="upload-zone" id="drop-zone" onclick="document.getElementById('csv-input').click()"
         ondragover="event.preventDefault();this.classList.add('drag')"
@@ -620,11 +620,11 @@ select option{background:var(--bg2);}
         ondrop="handleDrop(event)">
         <div class="upload-icon">📂</div>
         <div class="upload-text">Click or drag & drop one or more OMEN CSVs<br>
-        <span style="color:var(--text3);font-size:10px;">Export from OMEN → Download CSV — multiple days supported</span></div>
+        <span style="color:#e0e0e0;font-size:10px;">Export from OMEN → Download CSV — multiple days supported</span></div>
       </div>
       <input type="file" id="csv-input" accept=".csv" multiple style="display:none" onchange="handleMultipleCSV(this.files)"/>
-      <div style="margin-top:8px;font-size:10px;color:var(--text2);" id="csv-status">No file loaded</div>
-      <div style="margin-top:3px;font-size:9px;color:var(--text3);" id="flow-last-update"></div>
+      <div style="margin-top:8px;font-size:10px;color:#e0e0e0;" id="csv-status">No file loaded</div>
+      <div style="margin-top:3px;font-size:9px;color:#ffffff;" id="flow-last-update"></div>
     </div>
     <div class="g2" style="gap:8px;">
       <div class="stat-box"><div class="stat-lbl">Total Trades</div><div class="stat-val" id="flow-total" style="color:var(--blue)">0</div></div>
@@ -640,21 +640,21 @@ select option{background:var(--bg2);}
   <div id="flow-db-stats" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:10px;">
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
       <div style="display:flex;align-items:center;gap:6px;">
-        <span style="color:var(--text3);letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">All-Time</span>
+        <span style="color:#e0e0e0;letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">All-Time</span>
         <span id="db-stat-total" style="color:var(--blue);font-weight:700;font-size:13px;">—</span>
-        <span style="color:var(--text3);">rows in DB</span>
+        <span style="color:#e0e0e0;">rows in DB</span>
       </div>
       <div style="width:1px;height:16px;background:var(--border2);"></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <span style="color:var(--text3);letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">Today</span>
+        <span style="color:#e0e0e0;letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">Today</span>
         <span id="db-stat-today" style="color:var(--cyan);font-weight:700;font-size:13px;">—</span>
-        <span style="color:var(--text3);">uploaded</span>
+        <span style="color:#e0e0e0;">uploaded</span>
       </div>
       <div style="width:1px;height:16px;background:var(--border2);"></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <span id="db-stat-range" style="color:var(--text2);font-size:10px;">—</span>
+        <span id="db-stat-range" style="color:#e0e0e0;font-size:10px;">—</span>
       </div>
-      <div style="margin-left:auto;font-size:9px;color:var(--text3);font-style:italic;" id="db-stat-window">
+      <div style="margin-left:auto;font-size:9px;color:#e0e0e0;font-style:italic;" id="db-stat-window">
         Displaying last 30 days · Full history used for conviction analytics
       </div>
     </div>
@@ -666,8 +666,8 @@ select option{background:var(--bg2);}
       <!-- Bar + percentages -->
       <div style="flex:1;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;">Flow Sentiment</span>
-          <span id="flow-sentiment-signal" style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:0.5px;">—</span>
+          <span style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;">Flow Sentiment</span>
+          <span id="flow-sentiment-signal" style="font-size:11px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">—</span>
         </div>
         <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bg3);">
           <div id="flow-bull-bar" style="height:100%;background:var(--green);transition:width 0.5s ease;width:0%;"></div>
@@ -681,8 +681,8 @@ select option{background:var(--bg2);}
       <!-- Conviction badge -->
       <div id="flow-conviction-badge" style="flex-shrink:0;min-width:130px;text-align:center;padding:10px 16px;border-radius:6px;background:var(--bg3);border:1px solid var(--border2);">
         <div id="flow-conv-pct" style="font-size:26px;font-weight:700;letter-spacing:1px;line-height:1;">—</div>
-        <div id="flow-conv-lbl" style="font-size:9px;letter-spacing:1.5px;margin-top:3px;color:var(--text2);">NO DATA</div>
-        <div style="font-size:8px;color:var(--text3);margin-top:4px;">premium-weighted</div>
+        <div id="flow-conv-lbl" style="font-size:9px;letter-spacing:1.5px;margin-top:3px;color:#e0e0e0;">NO DATA</div>
+        <div style="font-size:8px;color:#e0e0e0;margin-top:4px;">premium-weighted</div>
       </div>
     </div>
   </div>
@@ -691,7 +691,7 @@ select option{background:var(--bg2);}
     <div class="card-hd">
       <span class="card-title">Options Flow Feed</span>
       <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-size:9px;font-weight:700;letter-spacing:1px;color:var(--text3);text-transform:uppercase;">Filter:</span>
+        <span style="font-size:9px;font-weight:700;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Filter:</span>
         <div class="filter-row" style="margin:0;background:var(--bg3);border-radius:4px;padding:3px;gap:2px;border:1px solid var(--border);">
           <button class="fbtn active" onclick="setFlowFilter('all',this)">All</button>
           <button class="fbtn" onclick="setFlowFilter('Call',this)">Calls</button>
@@ -724,13 +724,13 @@ select option{background:var(--bg2);}
       </div>
       <div class="scan-bar">
         <div class="dot" id="scan-dot" style="background:var(--text3)"></div>
-        <span id="scan-status" style="font-size:10px;color:var(--text2);">Idle</span>
+        <span id="scan-status" style="font-size:10px;color:#e0e0e0;">Idle</span>
         <div class="scan-prog"><div class="scan-fill" id="scan-fill" style="width:0%"></div></div>
         <span id="scan-countdown" style="font-size:10px;color:var(--blue);">—</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div>
-          <div style="font-size:10px;color:var(--text2);margin-bottom:4px;">Interval</div>
+          <div style="font-size:10px;color:#e0e0e0;margin-bottom:4px;">Interval</div>
           <select id="scan-interval" onchange="updateScanInterval()">
             <option value="120">2 minutes</option>
             <option value="300" selected>5 minutes</option>
@@ -740,7 +740,7 @@ select option{background:var(--bg2);}
           </select>
         </div>
         <div>
-          <div style="font-size:10px;color:var(--text2);margin-bottom:4px;">Sentiment Filter</div>
+          <div style="font-size:10px;color:#e0e0e0;margin-bottom:4px;">Sentiment Filter</div>
           <select id="news-sent-filter">
             <option value="all">All news</option>
             <option value="bull">Bullish only</option>
@@ -750,7 +750,7 @@ select option{background:var(--bg2);}
         </div>
       </div>
       <div style="margin-top:10px;">
-        <div style="font-size:10px;color:var(--text2);margin-bottom:6px;">Notifications</div>
+        <div style="font-size:10px;color:#e0e0e0;margin-bottom:6px;">Notifications</div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">In-app toasts<label class="toggle"><input type="checkbox" id="n-inapp" checked><span class="tslider"></span></label></label>
           <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">Browser push<label class="toggle"><input type="checkbox" id="n-push" onchange="reqPush()"><span class="tslider"></span></label></label>
@@ -781,7 +781,7 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: PREDICTOR ============ -->
 <div id="page-predictor" class="page">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
-    <div style="font-size:10px;color:var(--text2);">Last scored:</div>
+    <div style="font-size:10px;color:#e0e0e0;">Last scored:</div>
     <div style="font-size:11px;" id="pred-time">Never — upload options CSV + run news scan first</div>
     <button class="btn btn-cyan btn-sm" onclick="runPredictor()" style="margin-left:auto;">⚡ Score Now</button>
     <button class="btn btn-ghost btn-sm" onclick="savePrediction()">Save to History</button>
@@ -800,7 +800,7 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: HISTORY ============ -->
 <div id="page-history" class="page">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-    <span style="font-size:10px;color:var(--text2);">30-day prediction log — tracks what worked</span>
+    <span style="font-size:10px;color:#e0e0e0;">30-day prediction log — tracks what worked</span>
     <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="margin-left:auto;">Clear History</button>
   </div>
   <div class="g4" style="margin-bottom:14px;">
@@ -838,7 +838,7 @@ select option{background:var(--bg2);}
               <input type="password" id="s-finnhub" placeholder="Paste Finnhub API key..."/>
               <button class="btn btn-cyan btn-sm" onclick="saveKey('finnhub')">Save</button>
             </div>
-            <div style="font-size:9px;color:var(--text3);margin-top:3px;">finnhub.io/register — free, no credit card</div>
+            <div style="font-size:9px;color:#e0e0e0;margin-top:3px;">finnhub.io/register — free, no credit card</div>
           </div>
           <div>
             <div style="font-size:10px;color:var(--purple);margin-bottom:4px;">ALPHA VANTAGE — Deep sentiment (25/day free)</div>
@@ -846,9 +846,9 @@ select option{background:var(--bg2);}
               <input type="password" id="s-av" placeholder="Paste Alpha Vantage key..."/>
               <button class="btn btn-sm" style="background:var(--purple);color:white;border:none;" onclick="saveKey('av')">Save</button>
             </div>
-            <div style="font-size:9px;color:var(--text3);margin-top:3px;">alphavantage.co/support — free</div>
+            <div style="font-size:9px;color:#e0e0e0;margin-top:3px;">alphavantage.co/support — free</div>
           </div>
-          <div id="key-status" style="font-size:10px;color:var(--text2);"></div>
+          <div id="key-status" style="font-size:10px;color:#e0e0e0;"></div>
         </div>
       </div>
       <div class="card">
@@ -869,7 +869,7 @@ select option{background:var(--bg2);}
         <div style="display:flex;flex-direction:column;gap:8px;">
           <label style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Bullish signals only<label class="toggle"><input type="checkbox" id="s-bullonly"><span class="tslider"></span></label></label>
           <label style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Market hours only<label class="toggle"><input type="checkbox" id="s-mktonly" checked><span class="tslider"></span></label></label>
-          <div style="font-size:10px;color:var(--text2);margin-top:4px;">Min confidence to alert</div>
+          <div style="font-size:10px;color:#e0e0e0;margin-top:4px;">Min confidence to alert</div>
           <select id="s-threshold">
             <option value="0.2">Any signal (20%+)</option>
             <option value="0.4" selected>Moderate (40%+)</option>
@@ -885,13 +885,13 @@ select option{background:var(--bg2);}
           <div style="display:flex;justify-content:space-between;">News articles cached<span id="st-news" style="color:var(--cyan)">0</span></div>
           <div style="display:flex;justify-content:space-between;">Options rows loaded<span id="st-flow" style="color:var(--cyan)">0</span></div>
           <div style="display:flex;justify-content:space-between;">History entries<span id="st-hist" style="color:var(--cyan)">0</span></div>
-          <div style="display:flex;justify-content:space-between;">Last full refresh<span id="st-refresh" style="color:var(--text2)">Never</span></div>
+          <div style="display:flex;justify-content:space-between;">Last full refresh<span id="st-refresh" style="color:#e0e0e0">Never</span></div>
         </div>
         <button class="btn btn-red btn-sm" style="margin-top:12px;width:100%;" onclick="clearAll()">Clear All Data</button>
       </div>
       <div class="card">
         <div class="card-hd"><span class="card-title">Data Sync</span></div>
-        <div style="font-size:10px;color:var(--text2);margin-bottom:10px;line-height:1.6;">
+        <div style="font-size:10px;color:#e0e0e0;margin-bottom:10px;line-height:1.6;">
           Phase 1: Yahoo Finance prices (no key) — ~40s<br>
           Phase 2: Finnhub earnings 8Q (needs key) — ~5m<br>
           Phase 3: Finnhub options chain (needs key) — ~5m
@@ -900,17 +900,17 @@ select option{background:var(--bg2);}
         <div id="sync-progress-wrap" style="display:none;margin-bottom:6px;">
           <div class="sync-phase" id="sync-phase"></div>
           <div class="sync-progress-outer"><div class="sync-progress-inner" id="sync-progress-bar"></div></div>
-          <div id="sync-status" style="font-size:10px;color:var(--text2);margin-top:3px;"></div>
+          <div id="sync-status" style="font-size:10px;color:#e0e0e0;margin-top:3px;"></div>
         </div>
-        <div id="sync-last" style="font-size:10px;color:var(--text3);margin-bottom:10px;"></div>
-        <div style="font-size:9px;color:var(--text2);margin-bottom:6px;letter-spacing:0.5px;">QUICK LOAD (Yahoo Finance prices only)</div>
+        <div id="sync-last" style="font-size:10px;color:#e0e0e0;margin-bottom:10px;"></div>
+        <div style="font-size:9px;color:#e0e0e0;margin-bottom:6px;letter-spacing:0.5px;">QUICK LOAD (Yahoo Finance prices only)</div>
         <div style="display:flex;gap:6px;margin-bottom:8px;">
           <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="startLoadHistory()">Top 20</button>
           <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="loadAllBaselines()">All 130</button>
         </div>
-        <div id="hist-load-status" style="font-size:10px;color:var(--text2);min-height:14px;"></div>
+        <div id="hist-load-status" style="font-size:10px;color:#e0e0e0;min-height:14px;"></div>
         <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:8px;">
-          <span style="color:var(--text2);">Price baselines cached</span>
+          <span style="color:#e0e0e0;">Price baselines cached</span>
           <span id="st-baselines" style="color:var(--cyan)">0</span>
         </div>
       </div>
@@ -1223,7 +1223,7 @@ function initData(){
   applyTheme();
   // Prime the flow status — Supabase will overwrite once it loads
   const _fsSt=document.getElementById('csv-status');
-  if(_fsSt){_fsSt.textContent='Connecting to database…';_fsSt.style.color='var(--text2)';}
+  if(_fsSt){_fsSt.textContent='Connecting to database…';_fsSt.style.color='#e0e0e0';}
   // Set market chart date immediately — visible before chart renders
   const _mcdEl=document.getElementById('mkt-chart-date');
   if(_mcdEl) _mcdEl.textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
@@ -1665,9 +1665,9 @@ function renderMoverLists(){
         onclick="showTickerDetail('${d.s}')"
         onmouseenter="showHoverPopup('${d.s}',this)"
         onmouseleave="hideHoverPopup()">
-        <span style="color:var(--text3);font-size:10px;min-width:14px;">#${i+1}</span>
+        <span style="color:#e0e0e0;font-size:10px;min-width:14px;">#${i+1}</span>
         <span class="wl-sym">${d.s}</span>
-        <span style="font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${COMPANY_NAMES[d.s]||''}</span>
+        <span style="font-size:10px;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${COMPANY_NAMES[d.s]||''}</span>
         <span class="wl-px ${d.dp>=0?'up':'dn'}">${fmtPrice(d.s,d.p)}</span>
         <span class="wl-chg ${d.dp>=0?'chg-up':'chg-dn'}">${d.dp>=0?'+':''}${d.dp.toFixed(2)}%</span>
       </div>`).join('');
@@ -1729,6 +1729,20 @@ function genIntradayPrices(base,prev,seed){
 const BAR_4AM=0,BAR_930AM=66,BAR_4PM=144,BAR_8PM=191;
 
 function renderMktChart(range,sym,date){
+  // GUARD: never render with an empty key — retry every 2s until key is ready
+  if(!finnhubKey){
+    const _notice=document.getElementById('mkt-notice');
+    if(_notice){_notice.textContent='Loading API key… chart will appear automatically';_notice.style.display='block';}
+    console.log('[Chart] renderMktChart deferred — finnhubKey is empty');
+    if(!window._mktKeyRetry){
+      const _r=range,_s=sym,_d=date; // capture params for retry
+      window._mktKeyRetry=setInterval(function(){
+        if(finnhubKey){clearInterval(window._mktKeyRetry);window._mktKeyRetry=null;renderMktChart(_r,_s,_d);}
+      },2000);
+    }
+    return;
+  }
+  if(window._mktKeyRetry){clearInterval(window._mktKeyRetry);window._mktKeyRetry=null;}
   sym=sym||'SPY';
   // date: YYYY-MM-DD string or '' for today (only used in 1D mode)
   if(range==='1D'){renderIntradayChart(sym, date||_mktDate||'');return;}
@@ -2175,10 +2189,10 @@ function buildWlDetail(sym){
   // Price performance
   let perfHtml;
   if(!perf&&!histBaselines[sym]){
-    perfHtml=`<div style="color:var(--text3);font-size:10px;margin-bottom:8px;">Fetching history from Yahoo Finance…</div>`;
+    perfHtml=`<div style="color:#e0e0e0;font-size:10px;margin-bottom:8px;">Fetching history from Yahoo Finance…</div>`;
   } else {
     const labels=[['1D',perf?.d1],['1W',perf?.w1],['1M',perf?.m1],['6M',perf?.m6],['1Y',perf?.y1]];
-    perfHtml=`<div style="font-size:9px;letter-spacing:1px;color:var(--text2);margin-bottom:4px;">PRICE PERFORMANCE</div>
+    perfHtml=`<div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin-bottom:4px;">PRICE PERFORMANCE</div>
     <div class="perf-row">`+
     labels.map(([lbl,val])=>{
       if(val==null)return`<span class="perf-pill perf-na">${lbl} —</span>`;
@@ -2189,31 +2203,31 @@ function buildWlDetail(sym){
   // Flow analytics
   let flowHtml;
   if(!fa){
-    flowHtml=`<div style="color:var(--text3);font-size:10px;margin:8px 0;">No flow data — upload OMEN CSVs on multiple days to see streaks</div>`;
+    flowHtml=`<div style="color:#e0e0e0;font-size:10px;margin:8px 0;">No flow data — upload OMEN CSVs on multiple days to see streaks</div>`;
   } else {
     const strClr=fa.currentStreak.dir==='bull'?'var(--green)':'var(--red)';
-    flowHtml=`<div style="font-size:9px;letter-spacing:1px;color:var(--text2);margin:8px 0 4px;">OPTIONS FLOW ANALYTICS (${fa.totalDays} day${fa.totalDays!==1?'s':''})</div>
+    flowHtml=`<div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin:8px 0 4px;">OPTIONS FLOW ANALYTICS (${fa.totalDays} day${fa.totalDays!==1?'s':''})</div>
     <div class="streak-grid">
-      <div class="streak-box"><div style="color:var(--text2)">Bull / Bear Split</div>
+      <div class="streak-box"><div style="color:#e0e0e0">Bull / Bear Split</div>
         <div style="font-weight:700;margin-top:2px;"><span style="color:var(--green)">${fa.bullPct}%B</span> / <span style="color:var(--red)">${fa.bearPct}%Br</span></div></div>
-      <div class="streak-box"><div style="color:var(--text2)">Avg Run Length</div>
+      <div class="streak-box"><div style="color:#e0e0e0">Avg Run Length</div>
         <div style="margin-top:2px;"><span style="color:var(--green)">${fa.avgBull}d bull</span> / <span style="color:var(--red)">${fa.avgBear}d bear</span></div></div>
-      <div class="streak-box"><div style="color:var(--text2)">Current Streak</div>
+      <div class="streak-box"><div style="color:#e0e0e0">Current Streak</div>
         <div style="font-weight:700;margin-top:2px;color:${strClr}">${fa.currentStreak.dir==='bull'?'Bull':'Bear'} Day ${fa.currentStreak.len}</div></div>
-      <div class="streak-box"><div style="color:var(--text2)">Longest Bull Run</div>
+      <div class="streak-box"><div style="color:#e0e0e0">Longest Bull Run</div>
         <div style="font-weight:700;margin-top:2px;color:var(--green)">${fa.maxBull} day${fa.maxBull!==1?'s':''}</div></div>
-      <div class="streak-box"><div style="color:var(--text2)">Longest Bear Run</div>
+      <div class="streak-box"><div style="color:#e0e0e0">Longest Bear Run</div>
         <div style="font-weight:700;margin-top:2px;color:var(--red)">${fa.maxBear} day${fa.maxBear!==1?'s':''}</div></div>
     </div>`;
   }
   // Options chain (from cache)
   const chain=optionsCache[sym];
-  const chainHtml=chain?`<div style="font-size:9px;letter-spacing:1px;color:var(--text2);margin:8px 0 4px;">OPTIONS CHAIN (Finnhub)</div>`+renderOptionsChainData(chain):'';
+  const chainHtml=chain?`<div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin:8px 0 4px;">OPTIONS CHAIN (Finnhub)</div>`+renderOptionsChainData(chain):'';
   // Sparkline
   const sparkHtml=recent20?.length?
-    `<div style="margin-top:8px;"><div style="font-size:9px;color:var(--text2);margin-bottom:3px;">20-DAY PRICE TREND</div>
+    `<div style="margin-top:8px;"><div style="font-size:9px;color:#e0e0e0;margin-bottom:3px;">20-DAY PRICE TREND</div>
     <canvas id="wl-spark-${sym}" width="240" height="40" style="display:block;"></canvas></div>`:
-    `<div style="margin-top:6px;font-size:10px;color:var(--text3);">No sparkline — run Sync in Settings</div>`;
+    `<div style="margin-top:6px;font-size:10px;color:#e0e0e0;">No sparkline — run Sync in Settings</div>`;
   return perfHtml+flowHtml+chainHtml+sparkHtml;
 }
 
@@ -2286,7 +2300,7 @@ function renderWatchlist(){
     const sectorHdr=`<div class="wl-sector-hd-dense" onclick="toggleSector('${sector.replace(/'/g,"\\'")}')">
       <span class="wl-chevron${isCollapsed?' closed':''}" id="wl-chev-${secId}">▾</span>
       <span>${sector}</span>
-      <span style="color:var(--text3);margin-left:auto;font-size:9px;">${matched.length} stocks</span>
+      <span style="color:#e0e0e0;margin-left:auto;font-size:9px;">${matched.length} stocks</span>
     </div>`;
     // Stock rows
     const rows=matched.map(sym=>{
@@ -2452,7 +2466,7 @@ function buildTickerPopup(sym){
   // 5-day flow history bar
   let flowBar='';
   if(trend.totalDays===0){
-    flowBar=`<div style="color:var(--text3);font-size:10px;padding:8px 0;">No flow history yet — upload CSVs on multiple days to see trend</div>`;
+    flowBar=`<div style="color:#e0e0e0;font-size:10px;padding:8px 0;">No flow history yet — upload CSVs on multiple days to see trend</div>`;
   }else{
     const cells=trend.days.map(d=>{
       const isBull=d.dir==='bull';
@@ -2512,10 +2526,10 @@ function buildTickerPopup(sym){
     const strongBear=signals.filter(s=>s.lbl==='STRONG BEAR').length;
     const bear=signals.filter(s=>s.lbl==='BEAR').length;
     flowStatsHtml=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:10px;margin:10px 0;">
-      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Calls</div><div style="color:var(--green);font-weight:700;">${callCount}</div></div>
-      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Puts</div><div style="color:var(--red);font-weight:700;">${putCount}</div></div>
-      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Sweeps</div><div style="color:var(--amber);font-weight:700;">${sweepCount}</div></div>
-      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Conviction</div><div style="font-weight:700;color:${convScore>=60?'var(--green)':convScore<=40?'var(--red)':'var(--amber)'};">${convScore}%</div></div>
+      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:#e0e0e0;">Calls</div><div style="color:var(--green);font-weight:700;">${callCount}</div></div>
+      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:#e0e0e0;">Puts</div><div style="color:var(--red);font-weight:700;">${putCount}</div></div>
+      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:#e0e0e0;">Sweeps</div><div style="color:var(--amber);font-weight:700;">${sweepCount}</div></div>
+      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:#e0e0e0;">Conviction</div><div style="font-weight:700;color:${convScore>=60?'var(--green)':convScore<=40?'var(--red)':'var(--amber)'};">${convScore}%</div></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:10px;">
       ${strongBull?`<span class="signal-strong-bull">${strongBull}× STRONG BULL</span>`:''}
@@ -2527,26 +2541,26 @@ function buildTickerPopup(sym){
   // Gauge canvas always rendered — 50% neutral grey when no flow data
   const convHtml=`<div style="display:flex;justify-content:center;margin:8px 0 4px;"><canvas id="spd-${sym}" width="200" height="110" style="display:block;"></canvas></div>
     ${flowStatsHtml}
-    ${!myFlows.length?`<div style="font-size:9px;color:var(--text3);text-align:center;margin-bottom:6px;">No flow data uploaded — showing neutral</div>`:''}`;
+    ${!myFlows.length?`<div style="font-size:9px;color:#e0e0e0;text-align:center;margin-bottom:6px;">No flow data uploaded — showing neutral</div>`:''}`;
   if(!myFlows.length) convScore=50;
   const coName=COMPANY_NAMES[sym]||'';
   const html=`
     <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);">
       <div>
         <span style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:${clr};">${sym}</span>
-        ${coName?`<div style="font-size:10px;color:var(--text2);letter-spacing:0.5px;margin-top:-4px;">${coName}</div>`:''}
+        ${coName?`<div style="font-size:10px;color:#e0e0e0;letter-spacing:0.5px;margin-top:-4px;">${coName}</div>`:''}
       </div>
       <span style="font-size:18px;font-weight:600;">${fmtPrice(sym,q.p)}</span>
       <span style="font-size:14px;color:${clr};">${isUp?'+':''}${q.dp.toFixed(2)}%</span>
     </div>
-    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px;">5-Day Flow History</div>
+    <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin-bottom:8px;">5-Day Flow History</div>
     ${flowBar}
-    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:12px 0 6px;">Conviction Gauge</div>
+    <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:12px 0 6px;">Conviction Gauge</div>
     ${convHtml}
-    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Options Chain ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key)</span>'}</div>
-    <div id="tm-chain-${sym}">${finnhubKey?'<div style="color:var(--text2);font-size:10px;">Loading…</div>':renderOptionsChainData(optionsCache[sym]||null)}</div>
-    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Last 8 Quarters Earnings ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key in Settings)</span>'}</div>
-    <div id="tm-earn-${sym}">${finnhubKey?'<div style="color:var(--text2);font-size:10px;">Loading…</div>':renderEarningsTable([])}</div>
+    <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:14px 0 8px;">Options Chain ${finnhubKey?'':'<span style="color:#e0e0e0">(add Finnhub key)</span>'}</div>
+    <div id="tm-chain-${sym}">${finnhubKey?'<div style="color:#e0e0e0;font-size:10px;">Loading…</div>':renderOptionsChainData(optionsCache[sym]||null)}</div>
+    <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:14px 0 8px;">Last 8 Quarters Earnings ${finnhubKey?'':'<span style="color:#e0e0e0">(add Finnhub key in Settings)</span>'}</div>
+    <div id="tm-earn-${sym}">${finnhubKey?'<div style="color:#e0e0e0;font-size:10px;">Loading…</div>':renderEarningsTable([])}</div>
   `;
   return {html, convScore};
 }
@@ -2570,7 +2584,7 @@ function getEarningsStats(data){
   return{beats,total:withSurp.length,beatRate:Math.round(beats/withSurp.length*100),avgSurp};
 }
 function renderEarningsTable(data){
-  if(!data||!data.length)return`<div style="color:var(--text3);font-size:10px;padding:8px 0;">No earnings data — add Finnhub key in Settings</div>`;
+  if(!data||!data.length)return`<div style="color:#e0e0e0;font-size:10px;padding:8px 0;">No earnings data — add Finnhub key in Settings</div>`;
   const stats=getEarningsStats(data);
   let statsHtml='';
   if(stats){
@@ -2588,7 +2602,7 @@ function renderEarningsTable(data){
     const beat=surp>=0;
     const surpClr=beat?'var(--green)':'var(--red)';
     return`<div class="earn-row">
-      <span style="color:var(--text2);">${e.period||'—'}</span>
+      <span style="color:#e0e0e0;">${e.period||'—'}</span>
       <span>${e.estimate!=null?'$'+parseFloat(e.estimate).toFixed(2):'—'}</span>
       <span style="font-weight:600;color:${beat?'var(--green)':'var(--red)'};">${e.actual!=null?'$'+parseFloat(e.actual).toFixed(2):'—'}</span>
       <span style="color:${surpClr};">${surp>=0?'+':''}${surp.toFixed(1)}%</span>
@@ -2681,7 +2695,7 @@ async function handleMultipleCSV(files){
     const file=fileArr[i];
     if(statusEl){
       statusEl.textContent=`Processing file ${i+1} of ${fileArr.length}: ${file.name}…`;
-      statusEl.style.color='var(--text2)';
+      statusEl.style.color='#e0e0e0';
     }
     await new Promise(r=>setTimeout(r,0)); // let status text paint
     try{
@@ -3123,21 +3137,21 @@ function renderNewsFeed(){
   feed.innerHTML=rows.slice(0,60).map(a=>{
     const s=a.sentiment||{label:'neutral',score:0,impact:'Low'};
     const pct=Math.round(s.score*100);
-    const clr=s.label==='bull'?'var(--green)':s.label==='bear'?'var(--red)':'var(--text3)';
+    const clr=s.label==='bull'?'var(--green)':s.label==='bear'?'var(--red)':'#e0e0e0';
     const time=fmtTime(a.datetime);
     return `<div class="news-item ${s.label}">
       <div class="news-meta" style="margin-bottom:5px;">
         <span style="font-weight:700;font-size:11px;">${a.sym}</span>
         <span style="padding:1px 6px;border-radius:2px;font-size:9px;background:${s.label==='bull'?'rgba(0,229,176,0.12)':s.label==='bear'?'rgba(255,61,90,0.12)':'rgba(255,255,255,0.05)'};color:${clr};">${s.label.toUpperCase()}</span>
         <span style="padding:1px 6px;border-radius:2px;font-size:9px;background:rgba(61,158,255,0.1);color:var(--blue);">${s.impact}</span>
-        <span style="font-size:9px;color:var(--text3);">${a.source||''}</span>
-        <span style="font-size:9px;color:var(--text3);margin-left:auto;">${time}</span>
+        <span style="font-size:9px;color:#e0e0e0;">${a.source||''}</span>
+        <span style="font-size:9px;color:#e0e0e0;margin-left:auto;">${time}</span>
       </div>
       <div class="news-hl"><a href="${a.url||'#'}" target="_blank">${a.headline}</a></div>
       <div class="sent-bar-wrap">
         <span style="font-size:9px;color:${clr};min-width:50px;">${s.label.toUpperCase()}</span>
         <div class="sent-track"><div class="sent-fill" style="width:${pct}%;background:${clr}"></div></div>
-        <span style="font-size:9px;color:var(--text2);min-width:28px;text-align:right;">${pct}%</span>
+        <span style="font-size:9px;color:#e0e0e0;min-width:28px;text-align:right;">${pct}%</span>
       </div>
     </div>`;
   }).join('');
@@ -3214,9 +3228,9 @@ function renderPredictions(){
         <div style="flex:1;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="pred-sym" style="color:${clr}">${p.sym}</span>
-            <span style="font-size:9px;color:var(--text2);">${COMPANY_NAMES[p.sym]||''}</span>
+            <span style="font-size:9px;color:#e0e0e0;">${COMPANY_NAMES[p.sym]||''}</span>
             <span class="score-pill" style="background:${p.dir==='bull'?'rgba(0,229,176,0.12)':'rgba(255,61,90,0.12)'};color:${clr};">${p.finalScore}% confidence</span>
-            <span style="margin-left:auto;font-size:11px;color:var(--text2);">${fmtPrice(p.sym,q.p)} <span class="${q.dp>=0?'up':'dn'}">${q.dp>=0?'+':''}${q.dp.toFixed(2)}%</span></span>
+            <span style="margin-left:auto;font-size:11px;color:#e0e0e0;">${fmtPrice(p.sym,q.p)} <span class="${q.dp>=0?'up':'dn'}">${q.dp>=0?'+':''}${q.dp.toFixed(2)}%</span></span>
           </div>
           <div class="pred-score-bar" style="background:${clr}${Math.round(p.finalScore*2.55).toString(16).padStart(2,'0')};width:${p.finalScore}%;"></div>
         </div>
@@ -3224,10 +3238,10 @@ function renderPredictions(){
       <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:8px;">
         <canvas id="pred-spd-${i}" width="160" height="90" style="flex-shrink:0;"></canvas>
         <div style="flex:1;display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:10px;">
-          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Calls</div><div style="font-weight:600;color:var(--green);">${p.calls} / $${fmtM(p.callPrem)}</div></div>
-          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Puts</div><div style="font-weight:600;color:var(--red);">${p.puts} / $${fmtM(p.putPrem)}</div></div>
-          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">C/P Ratio</div><div style="font-weight:600;color:${p.cpRatio>1.2?'var(--green)':p.cpRatio<0.8?'var(--red)':'var(--amber)'};">${p.cpRatio.toFixed(2)}x</div></div>
-          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:var(--text2);">Sweeps</div><div style="font-weight:600;color:var(--amber);">${p.sweeps}</div></div>
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:#e0e0e0;">Calls</div><div style="font-weight:600;color:var(--green);">${p.calls} / $${fmtM(p.callPrem)}</div></div>
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:#e0e0e0;">Puts</div><div style="font-weight:600;color:var(--red);">${p.puts} / $${fmtM(p.putPrem)}</div></div>
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:#e0e0e0;">C/P Ratio</div><div style="font-weight:600;color:${p.cpRatio>1.2?'var(--green)':p.cpRatio<0.8?'var(--red)':'var(--amber)'};">${p.cpRatio.toFixed(2)}x</div></div>
+          <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;"><div style="color:#e0e0e0;">Sweeps</div><div style="font-weight:600;color:var(--amber);">${p.sweeps}</div></div>
         </div>
       </div>
       <div class="signal-row">${p.signals.map(s=>`<span class="signal-tag st-${s.t}">${s.l}</span>`).join('')}</div>
@@ -3243,11 +3257,11 @@ function renderPredictions(){
 
 function renderMorningPicks(){
   const el=document.getElementById('morning-picks');if(!el)return;
-  if(!predictions.length){el.innerHTML='<div style="color:var(--text2);font-size:11px;padding:10px 0;">Run the predictor to see top picks</div>';return;}
+  if(!predictions.length){el.innerHTML='<div style="color:#e0e0e0;font-size:11px;padding:10px 0;">Run the predictor to see top picks</div>';return;}
   el.innerHTML=predictions.slice(0,5).map((p,i)=>{
     const clr=p.dir==='bull'?'var(--green)':'var(--red)';
     return `<div class="wl-row" onclick="goPage('predictor',null)" style="cursor:pointer;">
-      <span style="color:var(--text3);font-size:11px;">#${i+1}</span>
+      <span style="color:#e0e0e0;font-size:11px;">#${i+1}</span>
       <span class="wl-sym" style="color:${clr}">${p.sym}</span>
       <span></span>
       <span class="wl-chg ${p.dir==='bull'?'chg-up':'chg-dn'}">${p.finalScore}%</span>
@@ -3274,7 +3288,7 @@ function renderHistory(){
   if(!historyData.length){body.innerHTML='<div class="empty">No history yet</div>';return;}
   body.innerHTML=historyData.map(entry=>`
     <div style="padding:8px 0;border-bottom:1px solid var(--border);">
-      <div style="font-size:10px;color:var(--text2);margin-bottom:4px;">${entry.date} — VIX ${entry.vix?.toFixed(1)||'N/A'}</div>
+      <div style="font-size:10px;color:#e0e0e0;margin-bottom:4px;">${entry.date} — VIX ${entry.vix?.toFixed(1)||'N/A'}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">
         ${(entry.preds||[]).map(p=>`<span style="padding:2px 8px;border-radius:2px;font-size:10px;background:${p.dir==='bull'?'rgba(0,229,176,0.1)':'rgba(255,61,90,0.1)'};color:${p.dir==='bull'?'var(--green)':'var(--red)'};">${p.sym} ${p.score}%</span>`).join('')}
       </div>
@@ -3288,7 +3302,7 @@ function clearHistory(){historyData=[];localStorage.setItem('sp_hist','[]');rend
 function renderAlertsMini(){
   const el=document.getElementById('morning-alerts');if(!el)return;
   document.getElementById('alert-count').textContent=alerts.length+' total';
-  if(!alerts.length){el.innerHTML='<div style="color:var(--text2);font-size:11px;padding:8px 0;">No alerts yet</div>';return;}
+  if(!alerts.length){el.innerHTML='<div style="color:#e0e0e0;font-size:11px;padding:8px 0;">No alerts yet</div>';return;}
   el.innerHTML=alerts.slice(0,5).map(a=>`<div class="alert-item">
     <div class="alert-dot" style="background:${a.type==='bull'?'var(--green)':a.type==='bear'?'var(--red)':'var(--blue)'}"></div>
     <div><div class="alert-body"><span class="alert-sym">${a.sym}</span> — ${a.msg}</div><div class="alert-time">${a.time}</div></div>
@@ -3358,7 +3372,7 @@ async function fetchYahooHistory(sym){
 }
 
 async function loadHistoricalBaselines(tickers,statusEl){
-  if(statusEl){statusEl.textContent='Fetching baselines…';statusEl.style.color='var(--text2)';}
+  if(statusEl){statusEl.textContent='Fetching baselines…';statusEl.style.color='#e0e0e0';}
   let done=0,failed=0;
   for(const sym of tickers){
     const data=await fetchYahooHistory(sym);
@@ -3422,21 +3436,21 @@ async function fetchOptionsChain(sym){
   }catch(e){return null;}
 }
 function renderOptionsChainData(data){
-  if(!data)return`<div style="color:var(--text3);font-size:10px;padding:4px 0;">No options chain data — add Finnhub key or run Sync</div>`;
-  const pcClr=data.pcRatio!=null?(data.pcRatio<0.7?'var(--green)':data.pcRatio>1.3?'var(--red)':'var(--amber)'):'var(--text2)';
+  if(!data)return`<div style="color:#e0e0e0;font-size:10px;padding:4px 0;">No options chain data — add Finnhub key or run Sync</div>`;
+  const pcClr=data.pcRatio!=null?(data.pcRatio<0.7?'var(--green)':data.pcRatio>1.3?'var(--red)':'var(--amber)'):'#e0e0e0';
   const pcLbl=data.pcRatio!=null?(data.pcRatio<0.7?'Bullish':data.pcRatio>1.3?'Bearish':'Neutral'):'—';
   const fmtOI=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'K':String(n);
   return`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:10px;">
     <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;">
-      <div style="color:var(--text2);">P/C OI Ratio</div>
+      <div style="color:#e0e0e0;">P/C OI Ratio</div>
       <div style="font-weight:700;margin-top:2px;color:${pcClr};">${data.pcRatio??'—'} <span style="font-size:9px;font-weight:400;">${pcLbl}</span></div>
     </div>
     <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;">
-      <div style="color:var(--text2);">Call OI / Put OI</div>
+      <div style="color:#e0e0e0;">Call OI / Put OI</div>
       <div style="margin-top:2px;"><span style="color:var(--green);">${fmtOI(data.callOI)}</span> / <span style="color:var(--red);">${fmtOI(data.putOI)}</span></div>
     </div>
     <div style="background:var(--bg3);border-radius:3px;padding:5px 8px;">
-      <div style="color:var(--text2);">Avg IV (C / P)</div>
+      <div style="color:#e0e0e0;">Avg IV (C / P)</div>
       <div style="margin-top:2px;">${data.avgCallIV??'—'}% / ${data.avgPutIV??'—'}%</div>
     </div>
   </div>`;
@@ -3802,7 +3816,7 @@ async function loadFlowFromSupabase(){
     if(error)throw error;
     _setDbStatus('● DB connected','#00e5b0');
     if(!data||!data.length){
-      if(statusEl){statusEl.textContent='No flow data yet — upload a CSV to get started';statusEl.style.color='var(--text3)';}
+      if(statusEl){statusEl.textContent='No flow data yet — upload a CSV to get started';statusEl.style.color='#e0e0e0';}
       return;
     }
     flowData=data.map(_supaRowToFlow).filter(r=>r.symbol&&r.cp);
@@ -4347,7 +4361,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     _setDbStatus('● DB unavailable','#ff3d5a');
     const cached=JSON.parse(localStorage.getItem('sp_flow')||'[]');
     if(cached.length){flowData=cached;renderFlowStats();renderFlowBody();updateStatusCounts();}
-    else{const st=document.getElementById('csv-status');if(st){st.textContent='Upload a CSV to load flow data';st.style.color='var(--text3)';}}
+    else{const st=document.getElementById('csv-status');if(st){st.textContent='Upload a CSV to load flow data';st.style.color='#e0e0e0';}}
   };
   document.head.appendChild(s);
 })();
@@ -4361,13 +4375,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
 <!-- FLOATING POSITIONS TRACKER -->
 <div id="pos-panel">
   <div id="pos-panel-hdr" onmousedown="posDragStart(event)">
-    <span style="font-size:13px;color:var(--text3);cursor:grab;margin-right:2px;">⠿</span>
+    <span style="font-size:13px;color:#e0e0e0;cursor:grab;margin-right:2px;">⠿</span>
     <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--cyan);">MY POSITIONS</span>
-    <span id="pos-count" style="font-size:9px;background:var(--bg4);padding:1px 7px;border-radius:10px;color:var(--text2);">0</span>
+    <span id="pos-count" style="font-size:9px;background:var(--bg4);padding:1px 7px;border-radius:10px;color:#e0e0e0;">0</span>
     <span id="pos-total-pnl" style="font-size:12px;font-weight:700;margin-left:4px;"></span>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
       <button onclick="event.stopPropagation();toggleAddPosForm()" style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--cyan);border-radius:3px;padding:2px 9px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">+ Add</button>
-      <button onclick="event.stopPropagation();togglePosPanel()" id="pos-collapse-btn" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:var(--font);">▼</button>
+      <button onclick="event.stopPropagation();togglePosPanel()" id="pos-collapse-btn" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:var(--font);">▼</button>
     </div>
   </div>
   <div id="pos-panel-body">
@@ -4383,10 +4397,10 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
         <label>Current $<input id="pf-current" type="number" placeholder="0.00" step="0.01" style="width:68px;"/></label>
         <div style="display:flex;gap:6px;align-items:flex-end;padding-bottom:1px;">
           <button onclick="submitPosition()" style="background:var(--green);border:none;color:#000;border-radius:3px;padding:5px 14px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">Save</button>
-          <button onclick="toggleAddPosForm()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:5px 10px;font-size:10px;cursor:pointer;font-family:var(--font);">Cancel</button>
+          <button onclick="toggleAddPosForm()" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:5px 10px;font-size:10px;cursor:pointer;font-family:var(--font);">Cancel</button>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Current $ defaults to 0 — type a price manually, or set a Finnhub API key to auto-fetch</div>
+      <div style="font-size:9px;color:#e0e0e0;margin-top:6px;">Current $ defaults to 0 — type a price manually, or set a Finnhub API key to auto-fetch</div>
     </div>
     <!-- Positions table -->
     <table class="pos-tbl">
@@ -4397,7 +4411,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
       </tr></thead>
       <tbody id="pos-tbody"></tbody>
     </table>
-    <div id="pos-empty" style="text-align:center;color:var(--text3);font-size:10px;padding:14px 0;">No positions — click + Add to start tracking</div>
+    <div id="pos-empty" style="text-align:center;color:#e0e0e0;font-size:10px;padding:14px 0;">No positions — click + Add to start tracking</div>
   </div>
 </div>
 </body>
