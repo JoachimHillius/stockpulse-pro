@@ -223,15 +223,20 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .signal-strong-bear{background:rgba(255,61,90,0.2);color:var(--red);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;}
 .signal-bear{background:rgba(255,61,90,0.10);color:var(--red);border-radius:3px;padding:1px 5px;font-size:9px;}
 .signal-neutral{background:rgba(255,176,32,0.10);color:var(--amber);border-radius:3px;padding:1px 5px;font-size:9px;}
-/* OPTIONS FLOW */
-.flow-row{display:grid;grid-template-columns:42px 46px 60px 62px 46px 52px 72px 78px 34px 40px 46px;align-items:center;gap:4px;padding:5px 4px;border-bottom:1px solid var(--border);font-size:11px;}
+/* OPTIONS FLOW — 13 cols: Flag|Time|Symbol|Expiry|Strike|C/P|Spread|Premium|Last|Signal|Score|IV%|V/OI */
+:root{--flow-grid:60px 80px 90px 90px 70px 50px 80px 100px 70px 80px 60px 55px 65px;}
+.flow-row{display:grid;grid-template-columns:var(--flow-grid);align-items:center;gap:4px;min-height:36px;padding:0 8px;border-bottom:1px solid var(--border);font-size:11px;cursor:pointer;}
 .flow-row:hover{background:var(--bg3);}
-.flow-hd{font-size:9px;color:var(--text2);font-weight:600;letter-spacing:0.5px;}
+.flow-row.is-sweep{border-left:3px solid rgba(255,61,90,0.65);}
+.flow-hd{min-height:32px;font-size:12px;color:#ffffff;font-weight:700;letter-spacing:0.6px;background:var(--bg3);position:sticky;top:0;z-index:5;cursor:default;}
+.flow-hd:hover{background:var(--bg3);}
 .flag-b{background:#f59e0b;color:#000;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;}
 .flag-s{background:#ef4444;color:#fff;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;}
 .at-ask{background:rgba(0,229,176,0.15);color:var(--green);border-radius:2px;padding:1px 4px;font-size:9px;}
 .at-bid{background:rgba(255,61,90,0.15);color:var(--red);border-radius:2px;padding:1px 4px;font-size:9px;}
 .at-mid{background:rgba(255,176,32,0.15);color:var(--amber);border-radius:2px;padding:1px 4px;font-size:9px;}
+.cp-call{display:inline-block;background:#00e5b0;color:#060912;border-radius:3px;padding:2px 8px;font-size:11px;font-weight:700;line-height:1.3;}
+.cp-put{display:inline-block;background:#ff3d5a;color:#fff;border-radius:3px;padding:2px 8px;font-size:11px;font-weight:700;line-height:1.3;}
 .call-badge{background:rgba(0,229,176,0.12);color:var(--green);border-radius:2px;padding:1px 5px;font-size:9px;font-weight:600;}
 .put-badge{background:rgba(255,61,90,0.12);color:var(--red);border-radius:2px;padding:1px 5px;font-size:9px;font-weight:600;}
 .sweep-badge{background:rgba(255,61,90,0.2);color:var(--red);border-radius:2px;padding:1px 4px;font-size:8px;letter-spacing:0.5px;}
@@ -342,7 +347,7 @@ select option{background:var(--bg2);}
   .g-main{grid-template-columns:1fr;}
   .g3{grid-template-columns:1fr;}
   .sector-grid{grid-template-columns:repeat(3,1fr);}
-  .flow-row{grid-template-columns:38px 42px 56px 56px 42px;}
+  .flow-row{grid-template-columns:50px 70px 80px 80px 60px 44px 70px 90px;}
 }
 </style>
 </head>
@@ -620,7 +625,7 @@ select option{background:var(--bg2);}
       </div>
     </div>
     <div class="flow-row flow-hd">
-      <span>Flag</span><span>Time</span><span>Symbol</span><span>Expiry</span><span>Strike</span><span>C/P</span><span>Premium</span><span>Signal</span><span>Scr</span><span>IV%</span><span>V/OI</span>
+      <span>Flag</span><span>Time</span><span>Symbol</span><span>Expiry</span><span>Strike</span><span>C/P</span><span>Spread</span><span>Premium</span><span>Last</span><span>Signal</span><span>Score</span><span>IV%</span><span>V/OI</span>
     </div>
     <div id="flow-body">
       <div class="empty"><div class="empty-icon">📊</div>Upload your OMEN CSV to see options flow</div>
@@ -2594,6 +2599,10 @@ function parseOMENcsv(text){
       earnings: obj['earningsdate']||'',
     };
     row.id=makeTradeId(row);
+    // Fix swapped strike/expiry: if strike looks like a date, swap with expiry
+    if(row.strike && /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(row.strike.trim())){
+      const tmp=row.strike; row.strike=row.expiry; row.expiry=tmp;
+    }
     return row;
   }).filter(r=>r.symbol&&r.cp);
 }
@@ -2702,24 +2711,31 @@ function renderFlowBody(){
     const premNum=parseFloat((r.premium||'0').replace(/[$,kmb]/gi,''));
     const isLarge=r.premium&&(r.premium.toUpperCase().includes('M')||(r.premium.toUpperCase().includes('K')&&premNum>500));
     const sig=getFlowSignal(r);
-    // Vol/OI ratio
     const vol=parseFloat(r.size)||0;
     const oi=parseFloat(r.oi)||0;
     const voiRatio=oi>0?(vol/oi):null;
     const voiStr=voiRatio!==null?voiRatio.toFixed(2):'—';
     const voiGreen=voiRatio!==null&&voiRatio>1;
-    return `<div class="flow-row" style="${isLarge?'background:rgba(255,176,32,0.04);':''}" onclick="showTickerDetail('${r.symbol}')" title="Click for ${r.symbol} detail">
-      <span>${isSweep?'<span class="sweep-badge">S</span>':'<span class="block-badge">B</span>'}</span>
-      <span style="color:var(--text2);font-size:10px;">${(r.time||'').replace(/ [AP]M/,'')}</span>
-      <span style="font-weight:700;color:${isCall?'var(--green)':'var(--red)'};cursor:pointer;">${r.symbol}</span>
-      <span style="font-size:10px;color:var(--text2);">${fmtExpiry(r.expiry)}</span>
-      <span style="font-size:10px;">${r.strike}</span>
-      <span>${isCall?'<span class="call-badge">C</span>':'<span class="put-badge">P</span>'}</span>
-      <span style="font-weight:600;color:${isLarge?'var(--amber)':'var(--text)'};">${r.premium}</span>
-      <span><span class="${sig.cls}">${sig.lbl}</span></span>
-      <span style="color:var(--text2);font-size:10px;">${r.score||'—'}</span>
-      <span style="color:var(--text2);font-size:10px;">${r.iv?parseFloat(r.iv).toFixed(0)+'%':'—'}</span>
-      <span style="color:${voiGreen?'var(--green)':'var(--text2)'};font-size:10px;${voiGreen?'font-weight:700;':''}">${voiStr}</span>
+    // Spread label
+    const spread=(r.spread||'').toLowerCase();
+    const spreadBadge=spread.includes('ask')?'<span class="at-ask">Ask</span>':spread.includes('bid')?'<span class="at-bid">Bid</span>':spread.includes('mid')?'<span class="at-mid">Mid</span>':`<span style="color:var(--text3);font-size:10px;">${r.spread||'—'}</span>`;
+    // Signal badge color override for stronger visual
+    const sigStyle=sig.lbl.includes('BULL')?'background:rgba(0,229,176,0.18);color:#00e5b0;':sig.lbl.includes('BEAR')?'background:rgba(255,61,90,0.18);color:#ff3d5a;':'background:rgba(255,176,32,0.12);color:#ffb020;';
+    const rowBg=isLarge?'background:rgba(255,176,32,0.05);':'';
+    return `<div class="flow-row${isSweep?' is-sweep':''}" style="${rowBg}" onclick="showTickerDetail('${r.symbol}')" title="Click for ${r.symbol} detail">
+      <span>${isSweep?'<span class="sweep-badge">SWEEP</span>':'<span class="block-badge">BLOCK</span>'}</span>
+      <span style="color:var(--cyan);font-size:10px;white-space:nowrap;">${(r.time||'').replace(/ [AP]M/,'')}</span>
+      <span style="font-weight:700;color:#ffffff;">${r.symbol}</span>
+      <span style="color:#8899aa;font-size:10px;white-space:nowrap;">${fmtExpiry(r.expiry)}</span>
+      <span style="color:#ffffff;">${r.strike||'—'}</span>
+      <span>${isCall?'<span class="cp-call">C</span>':'<span class="cp-put">P</span>'}</span>
+      <span>${spreadBadge}</span>
+      <span style="font-weight:700;font-size:12px;color:${isLarge?'var(--amber)':'#ffffff'};">${r.premium||'—'}</span>
+      <span style="color:var(--text);font-size:11px;">${r.stocklast?'$'+parseFloat(r.stocklast).toFixed(2):'—'}</span>
+      <span><span style="border-radius:3px;padding:2px 6px;font-size:9px;font-weight:700;${sigStyle}">${sig.lbl}</span></span>
+      <span style="color:var(--amber);font-weight:600;">${r.score||'—'}</span>
+      <span style="color:#dde3f0;">${r.iv?parseFloat(r.iv).toFixed(0)+'%':'—'}</span>
+      <span style="color:${voiGreen?'var(--green)':'#dde3f0'};font-weight:${voiGreen?700:400};">${voiStr}</span>
     </div>`;
   }).join('');
 }
