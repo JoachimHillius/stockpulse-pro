@@ -2444,6 +2444,20 @@ function buildTickerSummary(rows){
   return summary;
 }
 
+// Merge a new partial ticker summary into an existing one (add counts, don't replace)
+function mergeSummaries(existing, incoming){
+  const merged={...existing};
+  Object.entries(incoming).forEach(([sym,v])=>{
+    if(!merged[sym])merged[sym]={calls:0,puts:0,callPrem:0,putPrem:0,sweeps:0};
+    merged[sym].calls+=v.calls;
+    merged[sym].puts+=v.puts;
+    merged[sym].callPrem+=v.callPrem;
+    merged[sym].putPrem+=v.putPrem;
+    merged[sym].sweeps+=v.sweeps;
+  });
+  return merged;
+}
+
 async function handleMultipleCSV(files){
   if(!files||!files.length)return;
   const fileArr=Array.from(files).filter(f=>f.name.toLowerCase().endsWith('.csv'));
@@ -2451,9 +2465,11 @@ async function handleMultipleCSV(files){
   const statusEl=document.getElementById('csv-status');
   const updEl=document.getElementById('flow-last-update');
 
-  let totalTrades=0, loadedFiles=0;
+  let totalNew=0, totalSkipped=0, loadedFiles=0;
   const allDates=[];
-  let mostRecentDate='', mostRecentRows=[];
+  let mostRecentDate='';
+  // Raw rows for the most recent date (used to update live flowData)
+  const rawByDate={}; // dateKey -> [rows]
 
   for(let i=0;i<fileArr.length;i++){
     const file=fileArr[i];
@@ -2461,23 +2477,50 @@ async function handleMultipleCSV(files){
       statusEl.textContent=`Processing file ${i+1} of ${fileArr.length}: ${file.name}…`;
       statusEl.style.color='var(--text2)';
     }
-    // Yield to browser so status text actually paints before next synchronous parse
-    await new Promise(r=>setTimeout(r,0));
+    await new Promise(r=>setTimeout(r,0)); // let status text paint
     try{
       const rows=await readFileAsCSV(file);
       if(!rows.length)continue;
+
       const dateKey=detectDateFromFile(file.name,rows);
-      allDates.push(dateKey);
-      totalTrades+=rows.length;
+      if(!allDates.includes(dateKey))allDates.push(dateKey);
       loadedFiles++;
-      // Track most recent day to set as active flowData
-      if(!mostRecentDate||dateKey>mostRecentDate){mostRecentDate=dateKey;mostRecentRows=rows;}
-      // Merge per-ticker summary into flowHistory (keeps storage small)
-      const tickerSummary=buildTickerSummary(rows);
+      if(!mostRecentDate||dateKey>mostRecentDate)mostRecentDate=dateKey;
+
+      // Load existing IDs for this date from flowHistory
+      const entry=flowHistory.find(e=>e.date===dateKey);
+      const existingIds=new Set(entry?.ids||[]);
+
+      // Split into new vs duplicate
+      const newRows=rows.filter(r=>!existingIds.has(r.id));
+      const skipped=rows.length-newRows.length;
+      totalNew+=newRows.length;
+      totalSkipped+=skipped;
+
+      if(!newRows.length)continue; // all dupes — nothing to merge
+
+      // Add new IDs to the set
+      newRows.forEach(r=>existingIds.add(r.id));
+
+      // Merge new rows into the ticker summary incrementally
+      const newSummary=buildTickerSummary(newRows);
+      const mergedTickers=entry?.tickers?mergeSummaries(entry.tickers,newSummary):newSummary;
+      const mergedCount=(entry?.count||0)+newRows.length;
+
+      // Accumulate raw rows per date for flowData update
+      if(!rawByDate[dateKey])rawByDate[dateKey]=[];
+      rawByDate[dateKey].push(...newRows);
+
+      // Write back to flowHistory
       flowHistory=flowHistory.filter(e=>e.date!==dateKey);
-      flowHistory.push({date:dateKey,tickers:tickerSummary,count:rows.length});
+      flowHistory.push({
+        date:dateKey,
+        tickers:mergedTickers,
+        count:mergedCount,
+        ids:Array.from(existingIds), // persisted so next upload can dedup
+      });
     }catch(err){
-      console.warn('Skipping',file.name,err);
+      console.warn('Skipping',file.name,':',err);
     }
   }
 
@@ -2486,31 +2529,41 @@ async function handleMultipleCSV(files){
     return;
   }
 
-  // Persist: sort history chronologically, keep up to 90 days summarised
+  // Persist sorted history (90-day cap keeps localStorage manageable)
   flowHistory=flowHistory.sort((a,b)=>a.date>b.date?1:-1).slice(-90);
   localStorage.setItem('sp_flowHist',JSON.stringify(flowHistory));
 
-  // Set live flowData to most recent file's rows
-  flowData=mostRecentRows;
-  localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
+  // Update live flowData: merge new rows for the most recent date into existing
+  if(rawByDate[mostRecentDate]){
+    const existingRaw=JSON.parse(localStorage.getItem('sp_flow')||'[]');
+    const existingIds=new Set(existingRaw.map(r=>r.id).filter(Boolean));
+    const freshRows=rawByDate[mostRecentDate].filter(r=>!existingIds.has(r.id));
+    flowData=[...existingRaw,...freshRows];
+    localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
+  }
 
-  // Build final status
+  // Final status message
   allDates.sort();
-  const dateA=allDates[0], dateB=allDates[allDates.length-1];
-  const rangeStr=allDates.length>1?`${dateA} → ${dateB}`:dateA;
-  const summary=`✓ Loaded ${loadedFiles} file${loadedFiles>1?'s':''}, ${totalTrades} total trades  ·  ${rangeStr}`;
-  if(statusEl){statusEl.textContent=summary;statusEl.style.color='var(--green)';}
+  const rangeStr=allDates.length>1?`${allDates[0]} → ${allDates[allDates.length-1]}`:allDates[0];
+  const dupNote=totalSkipped>0?`, ${totalSkipped} duplicate${totalSkipped>1?'s':''} skipped`:'';
+  const msg=`✓ ${totalNew} new trade${totalNew!==1?'s':''} added${dupNote}  ·  ${rangeStr}`;
+  if(statusEl){statusEl.textContent=msg;statusEl.style.color=totalNew>0?'var(--green)':'var(--amber)';}
   const now=new Date();
-  if(updEl) updEl.textContent='Uploaded '+now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' at '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  if(updEl)updEl.textContent='Uploaded '+now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' at '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 
   renderFlowStats();
   renderFlowBody();
   updateStatusCounts();
-  showToast('OMEN',`${loadedFiles} file${loadedFiles>1?'s':''}, ${totalTrades} trades loaded`,'info');
+  showToast('OMEN',`${totalNew} new trades${totalSkipped?`, ${totalSkipped} dupes skipped`:''}  ·  ${rangeStr}`,'info');
 }
 
 // Legacy single-file handler (kept for any external callers)
 function handleCSV(file){if(file)handleMultipleCSV([file]);}
+
+function makeTradeId(r){
+  // Stable unique key from the fields that identify a specific trade execution
+  return [r.time,r.symbol,r.strike,r.expiry,r.cp,r.size].join('|');
+}
 
 function parseOMENcsv(text){
   if(!text)return[];
@@ -2522,13 +2575,7 @@ function parseOMENcsv(text){
     const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
     const obj={};
     headers.forEach((h,i)=>{obj[h]=vals[i]||'';});
-    // Exact OMEN export column mappings (after header cleaning):
-    // Score, Alerts, Flags, Time, Symbol, Expiration Date→expirationdate,
-    // Strike, Call/Put→callput, Price, Trade Spread→tradespread,
-    // Premium, Stock Last→stocklast, Trade Size→tradesize,
-    // Open Interest→openinterest, Stock Cnt.→stockcnt,
-    // Option Cnt.→optioncnt, Implied Vol.→impliedvol, Earnings Date→earningsdate
-    return {
+    const row={
       score:    obj['score']||'',
       alerts:   obj['alerts']||'',
       flag:     obj['flags']||obj['flag']||'B',
@@ -2546,6 +2593,8 @@ function parseOMENcsv(text){
       iv:       obj['impliedvol']||'',
       earnings: obj['earningsdate']||'',
     };
+    row.id=makeTradeId(row);
+    return row;
   }).filter(r=>r.symbol&&r.cp);
 }
 
