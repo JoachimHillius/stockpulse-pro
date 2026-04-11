@@ -496,8 +496,13 @@ select option{background:var(--bg2);}
         </div>
       </div>
       <div class="card">
-        <div class="card-hd"><span class="card-title">Market Chart — SPY</span>
-          <div style="display:flex;gap:4px;">
+        <div class="card-hd">
+          <div>
+            <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
+            <div id="mkt-chart-date" style="font-size:9px;color:var(--text2);margin-top:2px;letter-spacing:0.4px;"></div>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
             <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
             <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
             <button class="fbtn" onclick="setMktRange('1M',this)">1M</button>
@@ -838,6 +843,7 @@ let predictions = [];
 let alerts = JSON.parse(localStorage.getItem('sp_alerts') || '[]');
 let scanTimer = null, scanCountdown = null, scanRunning = false;
 let mktChart = null;
+let _intradayMockCache = null; // {sym, date, prices, times, prev} — stable per session/day
 let currentNewsFilter = 'all';
 let currentFlowFilter = 'all';
 let currentWlFilter = 'all';
@@ -1548,6 +1554,19 @@ function smartStep(minVal,maxVal){
   return Math.round(range/6/5)*5||5;
 }
 
+// Returns stable mock intraday data — generated once per session+day, not on every render
+function getMockIntraday(sym){
+  const todayKey=new Date().toISOString().slice(0,10);
+  if(_intradayMockCache&&_intradayMockCache.sym===sym&&_intradayMockCache.date===todayKey){
+    return _intradayMockCache;
+  }
+  const base=(liveData[sym]||MOCK[sym])?.p||680;
+  const prev=parseFloat((base*(1+(Math.random()-0.5)*0.010)).toFixed(2));
+  const{prices,times}=genIntradayPrices(base,prev);
+  _intradayMockCache={sym,date:todayKey,prices,times,prev};
+  return _intradayMockCache;
+}
+
 function genIntradayPrices(base,prev){
   const BARS=192,prices=[],times=[];
   function volAt(i){
@@ -1658,17 +1677,54 @@ function renderMktChart(range,sym){
   });
 }
 
-function renderIntradayChart(sym){
+async function renderIntradayChart(sym){
   sym=sym||'SPY';
-  const base=(liveData[sym]||MOCK[sym])?.p||680;
-  const prev=parseFloat((base*(1+(Math.random()-0.5)*0.010)).toFixed(2));
-  const{prices,times}=genIntradayPrices(base,prev);
+  // Update header title and date
+  const todayDt=new Date();
+  const dateStr=todayDt.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const titleEl=document.getElementById('mkt-chart-title');
+  const dateEl=document.getElementById('mkt-chart-date');
+  if(titleEl) titleEl.textContent=`Market Chart — ${sym}  |  ${dateStr}`;
+  if(dateEl) dateEl.textContent='';
+
+  let prices,times,prev,isSimulated=false;
+
+  if(finnhubKey){
+    // Fetch real 5-min SPY candles from Finnhub
+    try{
+      const todayStart=Math.floor(new Date(todayDt.getFullYear(),todayDt.getMonth(),todayDt.getDate()).getTime()/1000);
+      const now=Math.floor(Date.now()/1000);
+      const url=`https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=5&from=${todayStart}&to=${now}&token=${finnhubKey}`;
+      const r=await fetch(url);
+      const d=await r.json();
+      if(d.s==='ok'&&d.t&&d.t.length>0){
+        prices=d.c;
+        times=d.t.map(ts=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}));
+        prev=d.o[0]; // first bar open as proxy for prev close
+        isSimulated=false;
+      }else{
+        throw new Error('no_data');
+      }
+    }catch(e){
+      console.warn('Finnhub SPY intraday failed, using mock:',e);
+      ({prices,times,prev}=getMockIntraday(sym));
+      isSimulated=true;
+    }
+  }else{
+    ({prices,times,prev}=getMockIntraday(sym));
+    isSimulated=true;
+  }
+
+  if(isSimulated&&dateEl) dateEl.textContent='⚠ Simulated data — add Finnhub key for live prices';
+
   const minP=Math.min(...prices),maxP=Math.max(...prices);
   const step=smartStep(minP,maxP);
   const yMin=Math.floor(minP/step)*step,yMax=Math.ceil(maxP/step)*step;
-  const isUp=prices[BAR_4PM]>=prev;
+  // For real data use last price; for mock use the anchored 4pm bar
+  const lastPrice=prices[prices.length-1];
+  const isUp=lastPrice>=prev;
   const clr=isUp?'#00e5b0':'#ff3d5a';
-  const today=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const today=dateStr;
   if(mktChart)mktChart.destroy();
   const ctx=document.getElementById('mkt-chart').getContext('2d');
 
@@ -1741,23 +1797,45 @@ function renderIntradayChart(sym){
     }
   };
 
+  // Watermark for simulated data — drawn diagonally across chart area
+  const watermarkPlugin=isSimulated?{
+    id:'simWatermark',
+    afterDatasetsDraw(chart){
+      const{ctx:c2,chartArea:{left,right,top,bottom}}=chart;
+      c2.save();
+      c2.globalAlpha=0.07;
+      c2.font='bold 38px JetBrains Mono,monospace';
+      c2.fillStyle='#ffb020';
+      c2.textAlign='center';
+      c2.textBaseline='middle';
+      const cx=(left+right)/2,cy=(top+bottom)/2;
+      c2.translate(cx,cy);
+      c2.rotate(-Math.PI/8);
+      c2.fillText('SIMULATED DATA',0,0);
+      c2.restore();
+    }
+  }:null;
+
   safeRegister(zonePlugin);
   safeRegister(xh2Plugin);
+  const inlinePlugins=watermarkPlugin?[watermarkPlugin]:[];
   mktChart=new Chart(ctx,{
     type:'line',
     data:{
       labels:prices.map((_,i)=>i),
       datasets:[{data:prices,borderColor:clr,backgroundColor:clr+'10',fill:true,tension:0.2,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:clr,pointHoverBorderColor:'#060912',pointHoverBorderWidth:2,borderWidth:1.5}]
     },
+    plugins:inlinePlugins,
     options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false},zones:{},xh2:{},
+      plugins:{legend:{display:false},zones:{},xh2:{},simWatermark:{},
         tooltip:{enabled:true,backgroundColor:'#0d1420',borderColor:'rgba(255,255,255,0.15)',borderWidth:1,titleColor:'#7a8899',bodyColor:'#dde3f0',padding:10,displayColors:false,
           callbacks:{
-            title:items=>{const i=items[0].dataIndex;return`${today}  ·  ${times[i]} ET`;},
+            title:items=>{const i=items[0].dataIndex;return`${today}  ·  ${times[i]}`;},
             label:item=>{
               const val=item.raw,chg=val-prev,pct=((chg/prev)*100).toFixed(2),sign=chg>=0?'+':'';
               const i=item.dataIndex;
-              const zone=i<BAR_930AM?'Pre-Market':i<BAR_4PM?'Market Hours':'After-Hours';
+              // Zone label only meaningful for mock data with fixed bar positions
+              const zone=isSimulated?(i<BAR_930AM?'Pre-Market':i<BAR_4PM?'Market Hours':'After-Hours'):'Live';
               return[`  ${sym}:  $${val.toFixed(2)}`,`  Change:  ${sign}$${chg.toFixed(2)}  (${sign}${pct}%)`,`  Session:  ${zone}`];
             }
           }
@@ -1767,12 +1845,18 @@ function renderIntradayChart(sym){
         x:{grid:{color:'rgba(255,255,255,0.03)',drawBorder:false},border:{display:false},
           ticks:{color:'#7a8899',font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:12,
             callback:(v,i)=>{
-              if(i===BAR_4AM)   return '4:00 AM';
-              if(i===BAR_930AM) return '9:30 AM';
-              if(i===BAR_4PM)   return '4:00 PM';
-              if(i===BAR_8PM)   return '8:00 PM';
-              const m=4*60+i*5;
-              if(m%120===0){const h=Math.floor(m/60),ap=h<12?'AM':'PM',h12=h===0?12:h>12?h-12:h;return`${h12}:00 ${ap}`;}
+              if(isSimulated){
+                // Fixed mock bar positions
+                if(i===BAR_4AM)   return '4:00 AM';
+                if(i===BAR_930AM) return '9:30 AM';
+                if(i===BAR_4PM)   return '4:00 PM';
+                if(i===BAR_8PM)   return '8:00 PM';
+                const m=4*60+i*5;
+                if(m%120===0){const h=Math.floor(m/60),ap=h<12?'AM':'PM',h12=h===0?12:h>12?h-12:h;return`${h12}:00 ${ap}`;}
+                return null;
+              }
+              // Real data: show every other tick from the times array
+              if(i%4===0)return times[i]||null;
               return null;
             }
           }
@@ -1782,6 +1866,15 @@ function renderIntradayChart(sym){
       }
     }
   });
+}
+
+function refreshMktChart(){
+  _intradayMockCache=null; // clear mock cache so it regenerates fresh
+  renderMktChart('1D');
+  // re-activate 1D button
+  document.querySelectorAll('#page-morning .fbtn').forEach(b=>b.classList.remove('active'));
+  const btn1d=document.querySelector('#page-morning .fbtn');
+  if(btn1d) btn1d.classList.add('active');
 }
 
 function setMktRange(r,btn){
