@@ -127,6 +127,24 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .chg-dn{background:rgba(255,61,90,0.1);color:var(--red);}
 .wl-pat{font-size:9px;color:var(--amber);}
 
+/* WATCHLIST — expandable rows */
+.wl-item{margin-bottom:1px;}
+.wl-item-hd{display:grid;grid-template-columns:16px 52px 1fr 72px 58px 90px 72px;align-items:center;gap:6px;padding:5px 6px;border-radius:3px;cursor:pointer;transition:background 0.1s;}
+.wl-item-hd:hover{background:var(--bg3);}
+body.light-mode .wl-item-hd:hover{background:var(--bg3);}
+.wl-toggle{font-size:9px;color:var(--text3);user-select:none;transition:color 0.15s;}
+.wl-toggle.open{color:var(--cyan);}
+.wl-detail{display:none;padding:10px 12px 12px 28px;background:var(--bg2);border-left:2px solid var(--border2);margin:0 2px 4px;border-radius:0 0 4px 4px;}
+.wl-detail.open{display:block;}
+.perf-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;}
+.perf-pill{padding:2px 7px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.3px;}
+.perf-up{background:rgba(0,229,176,0.12);color:var(--green);}
+.perf-dn{background:rgba(255,61,90,0.12);color:var(--red);}
+.perf-na{background:rgba(255,255,255,0.04);color:var(--text3);}
+.streak-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;font-size:10px;}
+.streak-box{background:var(--bg3);border-radius:3px;padding:5px 8px;}
+.wl-sector-sum{display:flex;gap:16px;padding:5px 8px;font-size:10px;color:var(--text2);border-top:1px solid var(--border);margin-top:2px;}
+
 /* TICKER POPUP */
 .ticker-modal{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.72);backdrop-filter:blur(4px);}
 .ticker-modal.open{display:flex;align-items:center;justify-content:center;}
@@ -726,6 +744,7 @@ let tapePeriod = '1d';
 let flowHistory = JSON.parse(localStorage.getItem('sp_flowHist') || '[]');
 let earningsCache = {};
 let histBaselines = JSON.parse(localStorage.getItem('sp_histBaselines') || '{}');
+const expandedTickers = new Set();
 
 // ============================================================
 // MASTER WATCHLIST — All 130 tickers by sector
@@ -1636,6 +1655,144 @@ function setMktRange(r,btn){
 // WATCHLIST
 // ============================================================
 function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
+
+// ============================================================
+// WATCHLIST ANALYTICS HELPERS
+// ============================================================
+function getFlowAnalytics(sym){
+  const days=flowHistory
+    .filter(e=>e.tickers?.[sym])
+    .map(e=>{const t=e.tickers[sym];return{date:e.date,bull:(t.callPrem||0)>=(t.putPrem||0)};})
+    .sort((a,b)=>a.date.localeCompare(b.date));
+  if(!days.length)return null;
+  const bullDays=days.filter(d=>d.bull).length;
+  const bullPct=Math.round(bullDays/days.length*100);
+  // Build streak list
+  const streaks=[];
+  let cur={dir:days[0].bull?'bull':'bear',len:1};
+  for(let i=1;i<days.length;i++){
+    const isBull=days[i].bull;
+    if((isBull&&cur.dir==='bull')||(!isBull&&cur.dir==='bear')){cur.len++;}
+    else{streaks.push({...cur});cur={dir:isBull?'bull':'bear',len:1};}
+  }
+  streaks.push({...cur});
+  const bullS=streaks.filter(s=>s.dir==='bull').map(s=>s.len);
+  const bearS=streaks.filter(s=>s.dir==='bear').map(s=>s.len);
+  return{
+    bullPct, bearPct:100-bullPct, totalDays:days.length,
+    avgBull:bullS.length?+(bullS.reduce((a,b)=>a+b)/bullS.length).toFixed(1):0,
+    avgBear:bearS.length?+(bearS.reduce((a,b)=>a+b)/bearS.length).toFixed(1):0,
+    maxBull:bullS.length?Math.max(...bullS):0,
+    maxBear:bearS.length?Math.max(...bearS):0,
+    currentStreak:streaks.at(-1),
+  };
+}
+
+function drawSparkline(canvas,closes){
+  if(!canvas||!closes?.length)return;
+  const W=canvas.width,H=canvas.height;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const min=Math.min(...closes),max=Math.max(...closes),range=max-min||1;
+  const xStep=W/(closes.length-1||1);
+  const isUp=closes.at(-1)>=closes[0];
+  ctx.beginPath();
+  closes.forEach((c,i)=>{
+    const x=i*xStep,y=H-2-(c-min)/range*(H-4);
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle=isUp?'#00e5b0':'#ff3d5a';ctx.lineWidth=1.5;ctx.stroke();
+  // Subtle fill
+  ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.closePath();
+  ctx.fillStyle=isUp?'rgba(0,229,176,0.07)':'rgba(255,61,90,0.07)';ctx.fill();
+}
+
+function buildWlDetail(sym){
+  const perf=histBaselines[sym]?.perf;
+  const fa=getFlowAnalytics(sym);
+  const recent20=histBaselines[sym]?.recent20;
+  // Price performance
+  let perfHtml;
+  if(!perf&&!histBaselines[sym]){
+    perfHtml=`<div style="color:var(--text3);font-size:10px;margin-bottom:8px;">Fetching history from Yahoo Finance…</div>`;
+  } else {
+    const labels=[['1D',perf?.d1],['1W',perf?.w1],['1M',perf?.m1],['6M',perf?.m6],['1Y',perf?.y1]];
+    perfHtml=`<div style="font-size:9px;letter-spacing:1px;color:var(--text2);margin-bottom:4px;">PRICE PERFORMANCE</div>
+    <div class="perf-row">`+
+    labels.map(([lbl,val])=>{
+      if(val==null)return`<span class="perf-pill perf-na">${lbl} —</span>`;
+      const cls=val>=0?'perf-up':'perf-dn';
+      return`<span class="perf-pill ${cls}">${lbl} ${val>=0?'+':''}${val.toFixed(2)}%</span>`;
+    }).join('')+`</div>`;
+  }
+  // Flow analytics
+  let flowHtml;
+  if(!fa){
+    flowHtml=`<div style="color:var(--text3);font-size:10px;margin:8px 0;">No flow data — upload OMEN CSVs on multiple days to see streaks</div>`;
+  } else {
+    const strClr=fa.currentStreak.dir==='bull'?'var(--green)':'var(--red)';
+    flowHtml=`<div style="font-size:9px;letter-spacing:1px;color:var(--text2);margin:8px 0 4px;">OPTIONS FLOW ANALYTICS (${fa.totalDays} day${fa.totalDays!==1?'s':''})</div>
+    <div class="streak-grid">
+      <div class="streak-box"><div style="color:var(--text2)">Bull / Bear Split</div>
+        <div style="font-weight:700;margin-top:2px;"><span style="color:var(--green)">${fa.bullPct}%B</span> / <span style="color:var(--red)">${fa.bearPct}%Br</span></div></div>
+      <div class="streak-box"><div style="color:var(--text2)">Avg Run Length</div>
+        <div style="margin-top:2px;"><span style="color:var(--green)">${fa.avgBull}d bull</span> / <span style="color:var(--red)">${fa.avgBear}d bear</span></div></div>
+      <div class="streak-box"><div style="color:var(--text2)">Current Streak</div>
+        <div style="font-weight:700;margin-top:2px;color:${strClr}">${fa.currentStreak.dir==='bull'?'Bull':'Bear'} Day ${fa.currentStreak.len}</div></div>
+      <div class="streak-box"><div style="color:var(--text2)">Longest Bull Run</div>
+        <div style="font-weight:700;margin-top:2px;color:var(--green)">${fa.maxBull} day${fa.maxBull!==1?'s':''}</div></div>
+      <div class="streak-box"><div style="color:var(--text2)">Longest Bear Run</div>
+        <div style="font-weight:700;margin-top:2px;color:var(--red)">${fa.maxBear} day${fa.maxBear!==1?'s':''}</div></div>
+    </div>`;
+  }
+  // Sparkline
+  const sparkHtml=recent20?.length?
+    `<div style="margin-top:8px;"><div style="font-size:9px;color:var(--text2);margin-bottom:3px;">20-DAY PRICE TREND</div>
+    <canvas id="wl-spark-${sym}" width="240" height="40" style="display:block;"></canvas></div>`:
+    `<div style="margin-top:6px;font-size:10px;color:var(--text3);">No sparkline — load history in Settings</div>`;
+  return perfHtml+flowHtml+sparkHtml;
+}
+
+function toggleWlRow(sym,event){
+  if(event)event.stopPropagation();
+  const detail=document.getElementById('wl-detail-'+sym);
+  const tog=document.getElementById('wl-tog-'+sym);
+  if(!detail)return;
+  if(expandedTickers.has(sym)){
+    expandedTickers.delete(sym);
+    detail.classList.remove('open');
+    if(tog){tog.textContent='▶';tog.classList.remove('open');}
+  } else {
+    expandedTickers.add(sym);
+    detail.innerHTML=buildWlDetail(sym);
+    detail.classList.add('open');
+    if(tog){tog.textContent='▼';tog.classList.add('open');}
+    setTimeout(()=>{
+      const canvas=document.getElementById('wl-spark-'+sym);
+      if(canvas&&histBaselines[sym]?.recent20)drawSparkline(canvas,histBaselines[sym].recent20);
+    },0);
+    // Lazy-fetch Yahoo data if not available yet
+    if(!histBaselines[sym]?.perf){
+      fetchYahooHistory(sym).then(data=>{
+        if(data){
+          histBaselines[sym]=data;
+          localStorage.setItem('sp_histBaselines',JSON.stringify(histBaselines));
+          if(expandedTickers.has(sym)){
+            const detailEl=document.getElementById('wl-detail-'+sym);
+            if(detailEl){
+              detailEl.innerHTML=buildWlDetail(sym);
+              setTimeout(()=>{
+                const c=document.getElementById('wl-spark-'+sym);
+                if(c&&data.recent20)drawSparkline(c,data.recent20);
+              },0);
+            }
+          }
+        }
+      });
+    }
+  }
+}
+
 function renderWatchlist(){
   const search=(document.getElementById('wl-search')?.value||'').toUpperCase();
   const body=document.getElementById('watchlist-body');
@@ -1643,23 +1800,78 @@ function renderWatchlist(){
   let html='';
   Object.entries(WATCHLIST).forEach(([sector,tickers])=>{
     if(currentWlFilter!=='all'&&sector!==currentWlFilter)return;
-    const rows=tickers.filter(s=>{if(!search)return true;const name=(COMPANY_NAMES[s]||'').toUpperCase();return s.includes(search)||name.includes(search);}).map(sym=>{
+    const matched=tickers.filter(s=>{
+      if(!search)return true;
+      const name=(COMPANY_NAMES[s]||'').toUpperCase();
+      return s.includes(search)||name.includes(search);
+    });
+    if(!matched.length)return;
+    const rows=matched.map(sym=>{
       const q=getQ(sym);const u=q.dp>=0;
-      const pats=quickPatterns(sym,q);
       const coName=COMPANY_NAMES[sym]||sector;
-      return `<div class="wl-row" onclick="showTickerDetail('${sym}')">
-        <span class="wl-sym">${sym}</span>
-        <span class="wl-name">${coName}</span>
-        <span class="wl-px ${u?'up':'dn'}">${fmtPrice(sym,q.p)}</span>
-        <span class="wl-chg ${u?'chg-up':'chg-dn'}">${u?'+':''}${q.dp.toFixed(2)}%</span>
-        <span class="wl-pat">${pats[0]||''}</span>
+      const fa=getFlowAnalytics(sym);
+      const perf=histBaselines[sym]?.perf;
+      // Use Yahoo perf d1 if available, else mock dp
+      const d1=perf?.d1??q.dp;
+      const d1Cls=d1>=0?'chg-up':'chg-dn';
+      // Flow badge
+      let flowBadge;
+      if(fa){
+        const bullClr=fa.bullPct>=60?'var(--green)':fa.bullPct<=40?'var(--red)':'var(--amber)';
+        flowBadge=`<span style="font-size:10px;font-weight:600;color:${bullClr}">${fa.bullPct}%B</span><span style="font-size:10px;color:var(--text3)">/${fa.bearPct}%Br</span>`;
+      } else {
+        flowBadge=`<span style="color:var(--text3);font-size:10px;">—</span>`;
+      }
+      // Streak badge
+      let streakBadge='';
+      if(fa?.currentStreak){
+        const sClr=fa.currentStreak.dir==='bull'?'var(--green)':'var(--red)';
+        streakBadge=`<span style="font-size:10px;color:${sClr};font-weight:600;">${fa.currentStreak.dir==='bull'?'▲':'▼'}D${fa.currentStreak.len}</span>`;
+      }
+      return `<div class="wl-item">
+        <div class="wl-item-hd" onclick="toggleWlRow('${sym}',event)">
+          <span class="wl-toggle" id="wl-tog-${sym}">▶</span>
+          <span class="wl-sym">${sym}</span>
+          <span class="wl-name">${coName}</span>
+          <span class="wl-px ${u?'up':'dn'}">${fmtPrice(sym,q.p)}</span>
+          <span class="wl-chg ${d1Cls}">${d1>=0?'+':''}${d1.toFixed(2)}%</span>
+          <span>${flowBadge}</span>
+          <span>${streakBadge}</span>
+        </div>
+        <div class="wl-detail" id="wl-detail-${sym}"></div>
       </div>`;
     }).join('');
-    if(rows){
-      html+=`<div class="wl-sector"><div class="wl-sector-hd"><span>${sector}</span><span style="color:var(--text3)">${tickers.length} stocks</span></div>${rows}</div>`;
-    }
+    // Sector summary: avg 1D%, avg flow bull%
+    const sectorDps=matched.map(s=>(histBaselines[s]?.perf?.d1??getQ(s).dp));
+    const avgDp=sectorDps.reduce((a,b)=>a+b,0)/sectorDps.length;
+    const sectorFa=matched.map(s=>getFlowAnalytics(s)).filter(Boolean);
+    const avgBull=sectorFa.length?Math.round(sectorFa.reduce((a,b)=>a+b.bullPct,0)/sectorFa.length):null;
+    const sumHtml=`<div class="wl-sector-sum">
+      <span>Avg 1D: <span class="${avgDp>=0?'up':'dn'}">${avgDp>=0?'+':''}${avgDp.toFixed(2)}%</span></span>
+      ${avgBull!==null?`<span>Avg flow: <span style="color:${avgBull>=60?'var(--green)':avgBull<=40?'var(--red)':'var(--amber)'}">${avgBull}% Bull</span></span>`:''}
+      <span style="color:var(--text3);margin-left:auto;">${matched.length} stocks</span>
+    </div>`;
+    html+=`<div class="wl-sector">
+      <div class="wl-sector-hd"><span>${sector}</span></div>
+      ${rows}
+      ${sumHtml}
+    </div>`;
   });
   body.innerHTML=html||'<div class="empty">No tickers match your filter</div>';
+  // Restore expanded rows after re-render
+  expandedTickers.forEach(sym=>{
+    const detail=document.getElementById('wl-detail-'+sym);
+    const tog=document.getElementById('wl-tog-'+sym);
+    if(detail){
+      detail.innerHTML=buildWlDetail(sym);
+      detail.classList.add('open');
+      if(tog){tog.textContent='▼';tog.classList.add('open');}
+      setTimeout(()=>{
+        const c=document.getElementById('wl-spark-'+sym);
+        if(c&&histBaselines[sym]?.recent20)drawSparkline(c,histBaselines[sym].recent20);
+      },0);
+    }
+  });
 }
 function refreshWatchlist(){if(finnhubKey)fetchLiveAll();else renderWatchlist();}
 function quickPatterns(sym,q){
@@ -2412,7 +2624,7 @@ async function reqPush(){
 // HISTORICAL BASELINES — Yahoo Finance proxy (no API key)
 // ============================================================
 async function fetchYahooHistory(sym){
-  // Yahoo Finance v8 — no API key required, CORS allowed from browser
+  // Yahoo Finance v8 — no API key required
   const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1y`;
   try{
     const res=await fetch(url,{headers:{'Accept':'application/json'}});
@@ -2423,17 +2635,28 @@ async function fetchYahooHistory(sym){
     const quotes=result.indicators?.quote?.[0];
     const timestamps=result.timestamp||[];
     if(!quotes||!timestamps.length)return null;
-    const volumes=quotes.volume.filter(v=>v!=null&&v>0);
-    const closes=quotes.close.filter(c=>c!=null&&c>0);
+    // Filter aligned close/volume pairs (skip null rows)
+    const closes=[], volumes=[];
+    quotes.close.forEach((c,i)=>{
+      if(c!=null&&timestamps[i]!=null){closes.push(c);}
+    });
+    (quotes.volume||[]).forEach(v=>{if(v!=null&&v>0)volumes.push(v);});
+    if(!closes.length)return null;
     const avgVol=volumes.reduce((a,b)=>a+b,0)/(volumes.length||1);
     const avgClose=closes.reduce((a,b)=>a+b,0)/(closes.length||1);
-    // Simple volatility: avg of abs daily returns
     let sumRet=0,retCount=0;
-    for(let i=1;i<closes.length;i++){
-      sumRet+=Math.abs((closes[i]-closes[i-1])/closes[i-1]);retCount++;
-    }
+    for(let i=1;i<closes.length;i++){sumRet+=Math.abs((closes[i]-closes[i-1])/closes[i-1]);retCount++;}
     const avgDailyMove=retCount>0?(sumRet/retCount)*100:0;
-    return{sym,avgVol,avgClose,avgDailyMove,days:timestamps.length,updated:Date.now()};
+    // Performance at standard lookback periods (trading days)
+    const perf={
+      d1:closes.length>=2?(closes.at(-1)-closes.at(-2))/closes.at(-2)*100:null,
+      w1:closes.length>=6?(closes.at(-1)-closes.at(-6))/closes.at(-6)*100:null,
+      m1:closes.length>=22?(closes.at(-1)-closes.at(-22))/closes.at(-22)*100:null,
+      m6:closes.length>=126?(closes.at(-1)-closes.at(-126))/closes.at(-126)*100:null,
+      y1:closes.length>=2?(closes.at(-1)-closes.at(0))/closes.at(0)*100:null,
+    };
+    return{sym,avgVol,avgClose,avgDailyMove,days:closes.length,updated:Date.now(),
+      recent20:closes.slice(-20), perf};
   }catch(e){return null;}
 }
 
