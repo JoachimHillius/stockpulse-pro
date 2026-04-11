@@ -3580,6 +3580,12 @@ async function loadFinnhubKeyFromSupabase(){
       setTimeout(fetchLiveAll, 500);
       showToast('API', 'Finnhub key restored from cloud backup', 'info');
       console.log('[Settings] Finnhub key restored from Supabase');
+      // Re-init market chart — it may have failed earlier when key wasn't available yet
+      if(window.Chart){
+        const sym  = (typeof _mktSym  !== 'undefined' && _mktSym)  ? _mktSym  : 'SPY';
+        const date = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : '';
+        renderMktChart('1D', sym, date);
+      }
     }
   }catch(e){
     console.warn('[Settings] Could not load Finnhub key from Supabase:', e);
@@ -3940,15 +3946,36 @@ function getSymbolFlowDir(sym){
   return 'NEUTRAL';
 }
 
+// td helper — defined at function scope, not inside the loop
+function _posTd(text, color, bold, small){
+  const el = document.createElement('td');
+  el.textContent = String(text == null ? '—' : text);
+  el.style.color = color || '#ffffff';
+  if(bold)  el.style.fontWeight = '700';
+  if(small) el.style.fontSize   = '9px';
+  return el;
+}
+
 function renderPositions(){
   const tbody = document.getElementById('pos-tbody');
-  if(!tbody) return; // panel HTML not yet in DOM
+  if(!tbody){ console.warn('[Positions] #pos-tbody not in DOM'); return; }
 
   const empty   = document.getElementById('pos-empty');
   const countEl = document.getElementById('pos-count');
   const totalEl = document.getElementById('pos-total-pnl');
+  const panel   = document.getElementById('pos-panel');
+  const panelBody = document.getElementById('pos-panel-body');
 
-  // Remove all existing rows without touching innerHTML
+  // Always expand the panel when there are positions to show
+  if(positions.length && panel && panel.classList.contains('collapsed')){
+    panel.classList.remove('collapsed');
+    _posCollapsed = false;
+    const btn = document.getElementById('pos-collapse-btn');
+    if(btn) btn.textContent = '▼';
+    localStorage.setItem('sp_pos_collapsed','0');
+  }
+
+  // Clear existing rows
   while(tbody.firstChild) tbody.removeChild(tbody.firstChild);
 
   if(!positions.length){
@@ -3961,136 +3988,130 @@ function renderPositions(){
   if(empty)   empty.style.display = 'none';
   if(countEl) countEl.textContent = String(positions.length);
 
-  const today = new Date();
+  const today  = new Date();
   let totalPnl = 0;
+  const frag   = document.createDocumentFragment(); // batch insert — one reflow
 
   for(let idx = 0; idx < positions.length; idx++){
     const p = positions[idx];
 
-    // --- compute values ---
     const entry      = parseFloat(p.entry) || 0;
     const currentRaw = parseFloat(p.current);
-    const hasCurrent = !isNaN(currentRaw) && currentRaw > 0;
+    const hasCurrent = isFinite(currentRaw) && currentRaw > 0;
     const current    = hasCurrent ? currentRaw : 0;
     const qty        = parseInt(p.contracts) || 1;
 
     // P&L = (Current − Entry) × Contracts × 100
-    let pnlDollar = 0, pnlPct = 0;
     let pnlStr = '—', pctStr = '—', pnlClr = '#ffffff';
     if(hasCurrent){
-      pnlDollar = (current - entry) * qty * 100;
-      pnlPct    = entry > 0 ? ((current - entry) / entry * 100) : 0;
-      const sign = pnlDollar >= 0 ? '+' : '';
-      pnlStr = sign + '$' + Math.abs(pnlDollar).toFixed(0);
-      pctStr = sign + pnlPct.toFixed(1) + '%';
-      pnlClr = pnlDollar >= 0 ? '#00e5b0' : '#ff3d5a';
+      const pnlDollar = (current - entry) * qty * 100;
+      const pnlPct    = entry > 0 ? (current - entry) / entry * 100 : 0;
+      const sign      = pnlDollar >= 0 ? '+' : '';
+      pnlStr  = sign + '$' + Math.abs(pnlDollar).toFixed(0);
+      pctStr  = sign + pnlPct.toFixed(1) + '%';
+      pnlClr  = pnlDollar >= 0 ? '#00e5b0' : '#ff3d5a';
       totalPnl += pnlDollar;
     }
 
-    const expDate  = p.expiry ? new Date(p.expiry + 'T00:00:00') : null;
-    const daysNum  = (expDate && !isNaN(expDate.getTime())) ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : null;
-    const daysStr  = daysNum !== null ? String(daysNum) : '—';
-    const daysClr  = (daysNum !== null && daysNum <= 5) ? '#ff3d5a' : '#ffffff';
+    const expDate = p.expiry ? new Date(p.expiry + 'T00:00:00') : null;
+    const daysNum = (expDate && isFinite(expDate.getTime()))
+      ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : null;
+    const daysStr = daysNum !== null ? String(daysNum) : '—';
+    const daysClr = (daysNum !== null && daysNum <= 5) ? '#ff3d5a' : '#ffffff';
 
     const strikeNum = parseFloat(p.strike);
-    const strikeStr = !isNaN(strikeNum) ? '$' + strikeNum.toFixed(0) : (p.strike || '—');
+    const strikeStr = isFinite(strikeNum) ? '$' + strikeNum.toFixed(0) : (p.strike || '—');
 
     const cpLower = (p.cp || '').toLowerCase();
     const cpClr   = cpLower === 'call' ? '#00e5b0' : '#ff3d5a';
 
-    const flowDir = getSymbolFlowDir(p.symbol || '');
-    const flowClr = flowDir === 'BULL' ? '#00e5b0' : flowDir === 'BEAR' ? '#ff3d5a' : '#ffffff';
+    let flowDir = 'NEUTRAL', flowClr = '#ffffff';
+    try{
+      flowDir = getSymbolFlowDir(p.symbol || '');
+      flowClr = flowDir === 'BULL' ? '#00e5b0' : flowDir === 'BEAR' ? '#ff3d5a' : '#ffffff';
+    }catch(e){}
 
-    // --- build row using DOM (no innerHTML) ---
     const tr = document.createElement('tr');
 
-    function td(text, color, bold, small){
-      const el = document.createElement('td');
-      el.textContent = String(text);
-      el.style.color = color || '#ffffff';
-      if(bold)  el.style.fontWeight = '700';
-      if(small) el.style.fontSize = '9px';
-      return el;
-    }
+    // 1 — Symbol
+    tr.appendChild(_posTd(p.symbol || '—', '#ffffff', true));
 
-    // Symbol
-    tr.appendChild(td(p.symbol || '—', '#ffffff', true));
-
-    // C/P colored span
-    const tdCp = document.createElement('td');
+    // 2 — C/P pill
+    const tdCp   = document.createElement('td');
     const cpSpan = document.createElement('span');
-    cpSpan.textContent = p.cp || '—';
-    cpSpan.style.color = cpClr;
-    cpSpan.style.fontWeight = '700';
-    cpSpan.style.fontSize = '10px';
+    cpSpan.textContent        = p.cp || '—';
+    cpSpan.style.color        = cpClr;
+    cpSpan.style.fontWeight   = '700';
+    cpSpan.style.fontSize     = '10px';
     tdCp.appendChild(cpSpan);
     tr.appendChild(tdCp);
 
-    // Strike
-    tr.appendChild(td(strikeStr, '#ffffff'));
+    // 3 — Strike
+    tr.appendChild(_posTd(strikeStr, '#ffffff'));
 
-    // Expiry
-    tr.appendChild(td(p.expiry || '—', '#ffffff', false, true));
+    // 4 — Expiry
+    tr.appendChild(_posTd(p.expiry || '—', '#ffffff', false, true));
 
-    // Qty
-    tr.appendChild(td(String(qty), '#ffffff'));
+    // 5 — Qty
+    tr.appendChild(_posTd(String(qty), '#ffffff'));
 
-    // Entry $
-    tr.appendChild(td('$' + entry.toFixed(2), '#ffffff'));
+    // 6 — Entry $
+    tr.appendChild(_posTd('$' + entry.toFixed(2), '#ffffff'));
 
-    // Current $ + refresh button
-    const tdCur = document.createElement('td');
-    tdCur.style.color = '#ffffff';
-    const curSpan = document.createElement('span');
-    curSpan.textContent = hasCurrent ? '$' + current.toFixed(2) : '$0.00';
-    const rrBtn = document.createElement('button');
-    rrBtn.textContent = '↻';
-    rrBtn.title = 'Refresh price';
-    rrBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#8090a8;font-size:9px;padding:0 2px;margin-left:2px;';
-    rrBtn.addEventListener('click', (function(i){ return function(){ refreshPosPrice(i); }; })(idx));
-    tdCur.appendChild(curSpan);
+    // 7 — Current $ + refresh button
+    const tdCur  = document.createElement('td');
+    const curTxt = document.createElement('span');
+    curTxt.style.color  = '#ffffff';
+    curTxt.textContent  = hasCurrent ? '$' + current.toFixed(2) : '$0.00';
+    const rrBtn  = document.createElement('button');
+    rrBtn.textContent   = '↻';
+    rrBtn.title         = 'Refresh price';
+    rrBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#8090a8;font-size:9px;padding:0 2px;margin-left:2px;vertical-align:middle;';
+    rrBtn.addEventListener('click', (function(i){ return function(e){ e.stopPropagation(); refreshPosPrice(i); }; })(idx));
+    tdCur.appendChild(curTxt);
     tdCur.appendChild(rrBtn);
     tr.appendChild(tdCur);
 
-    // P&L $
-    tr.appendChild(td(pnlStr, pnlClr, true));
+    // 8 — P&L $
+    tr.appendChild(_posTd(pnlStr, pnlClr, true));
 
-    // P&L %
-    tr.appendChild(td(pctStr, pnlClr));
+    // 9 — P&L %
+    tr.appendChild(_posTd(pctStr, pnlClr));
 
-    // Days to expiry
-    tr.appendChild(td(daysStr, daysClr));
+    // 10 — Days to expiry
+    tr.appendChild(_posTd(daysStr, daysClr));
 
-    // Flow direction
-    tr.appendChild(td(flowDir, flowClr, true, true));
+    // 11 — Flow signal
+    tr.appendChild(_posTd(flowDir, flowClr, true, true));
 
-    // Remove button
-    const tdX = document.createElement('td');
+    // 12 — Remove ×
+    const tdX  = document.createElement('td');
     const xBtn = document.createElement('button');
-    xBtn.textContent = '×';
-    xBtn.title = 'Remove position';
-    xBtn.style.cssText = 'background:none;border:none;color:#8090a8;cursor:pointer;font-size:13px;padding:0 2px;';
-    xBtn.addEventListener('click', (function(i){ return function(){ removePosition(i); }; })(idx));
+    xBtn.textContent   = '×';
+    xBtn.title         = 'Remove position';
+    xBtn.style.cssText = 'background:none;border:none;color:#8090a8;cursor:pointer;font-size:14px;padding:0 3px;line-height:1;';
+    xBtn.addEventListener('click', (function(i){ return function(e){ e.stopPropagation(); removePosition(i); }; })(idx));
     tdX.appendChild(xBtn);
     tr.appendChild(tdX);
 
-    tbody.appendChild(tr);
+    frag.appendChild(tr);
   }
 
-  // Update total P&L in panel header
+  tbody.appendChild(frag); // single DOM write
+
+  // Total P&L in header
   if(totalEl){
     if(totalPnl !== 0){
       const sign = totalPnl >= 0 ? '+' : '';
       totalEl.style.color = totalPnl >= 0 ? '#00e5b0' : '#ff3d5a';
       totalEl.textContent = sign + '$' + Math.abs(totalPnl).toFixed(0);
-    } else {
+    }else{
       totalEl.textContent = '';
     }
   }
 
-  // Scroll to bottom so newest row is visible
-  const panelBody = document.getElementById('pos-panel-body');
-  if(panelBody) panelBody.scrollTop = panelBody.scrollHeight;
+  // Scroll to show newest row
+  if(panelBody) setTimeout(function(){ panelBody.scrollTop = panelBody.scrollHeight; }, 50);
 }
 
 function removePosition(idx){
