@@ -403,6 +403,10 @@ select option{background:var(--bg2);}
       <span id="mkt-txt">—</span>
     </div>
     <div class="vix-pill" id="hdr-vix">VIX —</div>
+    <div id="fh-pill" style="display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:3px;border:1px solid rgba(255,61,90,0.4);font-size:10px;font-weight:600;color:#ff3d5a;cursor:pointer;letter-spacing:0.3px;" onclick="showTab('settings')" title="Finnhub API status — click to configure">
+      <span id="fh-dot" style="width:6px;height:6px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
+      <span id="fh-txt">No API Key</span>
+    </div>
     <div class="clock" id="clock">—</div>
   </div>
 </div>
@@ -823,6 +827,11 @@ select option{background:var(--bg2);}
       <div class="card">
         <div class="card-hd"><span class="card-title">API Keys</span></div>
         <div style="display:flex;flex-direction:column;gap:10px;">
+          <!-- Finnhub status badge — visible before scrolling -->
+          <div id="fh-status-badge" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:5px;background:rgba(255,61,90,0.08);border:1px solid rgba(255,61,90,0.3);">
+            <span id="fh-badge-dot" style="width:8px;height:8px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
+            <span id="fh-badge-txt" style="font-size:11px;font-weight:700;color:#ff3d5a;">● No Finnhub Key — live data unavailable</span>
+          </div>
           <div>
             <div style="font-size:10px;color:var(--cyan);margin-bottom:4px;">FINNHUB — Live prices + news (free)</div>
             <div style="display:flex;gap:6px;">
@@ -1246,6 +1255,8 @@ function initData(){
   }
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
+  // Set API key indicator state immediately (before Supabase loads)
+  updateFhIndicator();
   updateClock();
   setInterval(updateClock,1000);
   updateMarketStatus();
@@ -3493,15 +3504,112 @@ async function syncAllData(){
 // ============================================================
 // SETTINGS / KEYS
 // ============================================================
-function saveKey(type){
-  if(type==='finnhub'){
-    const k=document.getElementById('s-finnhub').value.trim();
-    if(k&&!k.includes('•')){finnhubKey=k;localStorage.setItem('sp_fh',k);document.getElementById('key-status').textContent='✓ Finnhub key saved';document.getElementById('key-status').style.color='var(--green)';showToast('API','Finnhub connected','info');}
-  }else{
-    const k=document.getElementById('s-av').value.trim();
-    if(k&&!k.includes('•')){avKey=k;localStorage.setItem('sp_av',k);document.getElementById('key-status').textContent='✓ Alpha Vantage key saved';document.getElementById('key-status').style.color='var(--green)';}
+
+// Update both the header pill and the Settings badge to reflect current key state
+function updateFhIndicator(){
+  const active = !!finnhubKey;
+
+  // Header pill
+  const pill = document.getElementById('fh-pill');
+  const dot  = document.getElementById('fh-dot');
+  const txt  = document.getElementById('fh-txt');
+  if(pill && dot && txt){
+    if(active){
+      pill.style.borderColor = 'rgba(0,229,176,0.4)';
+      pill.style.color       = '#00e5b0';
+      dot.style.background   = '#00e5b0';
+      txt.textContent        = 'Finnhub Active';
+    }else{
+      pill.style.borderColor = 'rgba(255,61,90,0.4)';
+      pill.style.color       = '#ff3d5a';
+      dot.style.background   = '#ff3d5a';
+      txt.textContent        = 'No API Key';
+    }
+  }
+
+  // Settings badge
+  const badge    = document.getElementById('fh-status-badge');
+  const badgeDot = document.getElementById('fh-badge-dot');
+  const badgeTxt = document.getElementById('fh-badge-txt');
+  if(badge && badgeDot && badgeTxt){
+    if(active){
+      badge.style.background   = 'rgba(0,229,176,0.08)';
+      badge.style.borderColor  = 'rgba(0,229,176,0.3)';
+      badgeDot.style.background= '#00e5b0';
+      badgeTxt.style.color     = '#00e5b0';
+      badgeTxt.textContent     = '● Finnhub key active — live data connected';
+    }else{
+      badge.style.background   = 'rgba(255,61,90,0.08)';
+      badge.style.borderColor  = 'rgba(255,61,90,0.3)';
+      badgeDot.style.background= '#ff3d5a';
+      badgeTxt.style.color     = '#ff3d5a';
+      badgeTxt.textContent     = '● No Finnhub Key — live data unavailable';
+    }
   }
 }
+
+// Save Finnhub key to Supabase user_settings table (fire-and-forget)
+async function saveFinnhubKeyToSupabase(key){
+  const supa = getSupabase();
+  if(!supa) return;
+  try{
+    await supa.from('user_settings').upsert({key:'finnhub_api_key', value:key},{onConflict:'key'});
+    console.log('[Settings] Finnhub key saved to Supabase');
+  }catch(e){
+    console.warn('[Settings] Could not save Finnhub key to Supabase:', e);
+  }
+}
+
+// Load Finnhub key from Supabase — called after Supabase client loads if localStorage was empty
+async function loadFinnhubKeyFromSupabase(){
+  const supa = getSupabase();
+  if(!supa) return;
+  try{
+    const {data, error} = await supa.from('user_settings').select('value').eq('key','finnhub_api_key').single();
+    if(error || !data || !data.value) return;
+    const key = data.value;
+    if(key && !finnhubKey){
+      // localStorage was empty — restore from Supabase
+      finnhubKey = key;
+      localStorage.setItem('sp_fh', key);
+      updateFhIndicator();
+      // Mask the input if Settings tab is open
+      const inp = document.getElementById('s-finnhub');
+      if(inp) inp.value = '••••••••';
+      // Kick off live data now that we have a key
+      setTimeout(fetchLiveAll, 500);
+      showToast('API', 'Finnhub key restored from cloud backup', 'info');
+      console.log('[Settings] Finnhub key restored from Supabase');
+    }
+  }catch(e){
+    console.warn('[Settings] Could not load Finnhub key from Supabase:', e);
+  }
+}
+
+function saveKey(type){
+  if(type==='finnhub'){
+    const k = document.getElementById('s-finnhub').value.trim();
+    if(!k || k.includes('•')) return;
+    finnhubKey = k;
+    localStorage.setItem('sp_fh', k);
+    updateFhIndicator();
+    // Write to Supabase as cloud backup
+    saveFinnhubKeyToSupabase(k);
+    const ks = document.getElementById('key-status');
+    if(ks){ ks.textContent = '✓ Finnhub key saved & backed up to cloud'; ks.style.color = 'var(--green)'; }
+    showToast('API', 'Finnhub connected', 'info');
+    // Start live data immediately
+    setTimeout(fetchLiveAll, 300);
+  }else{
+    const k = document.getElementById('s-av').value.trim();
+    if(!k || k.includes('•')) return;
+    avKey = k;
+    localStorage.setItem('sp_av', k);
+    const ks = document.getElementById('key-status');
+    if(ks){ ks.textContent = '✓ Alpha Vantage key saved'; ks.style.color = 'var(--green)'; }
+  }
+}
+
 function clearAll(){if(confirm('Clear all data?')){localStorage.clear();location.reload();}}
 
 // ============================================================
@@ -4175,7 +4283,11 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
 (function(){
   const s=document.createElement('script');
   s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
-  s.onload=function(){loadFlowFromSupabase();};
+  s.onload=function(){
+    loadFlowFromSupabase();
+    // If localStorage had no Finnhub key, try to restore from Supabase cloud backup
+    if(!finnhubKey) loadFinnhubKeyFromSupabase();
+  };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
     _setDbStatus('● DB unavailable','#ff3d5a');
