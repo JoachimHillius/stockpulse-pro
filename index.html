@@ -625,30 +625,44 @@ select option{background:var(--bg2);}
 
   <!-- Bull / Bear flow sentiment summary -->
   <div class="card" style="margin-bottom:14px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <span style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;">Flow Sentiment</span>
-      <span id="flow-sentiment-signal" style="font-size:12px;font-weight:700;letter-spacing:0.5px;">—</span>
-    </div>
-    <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bg3);">
-      <div id="flow-bull-bar" style="height:100%;background:var(--green);transition:width 0.5s ease;width:0%;"></div>
-      <div id="flow-bear-bar" style="height:100%;background:var(--red);transition:width 0.5s ease;width:0%;"></div>
-    </div>
-    <div style="display:flex;justify-content:space-between;margin-top:7px;font-size:10px;">
-      <span style="color:var(--green);">▲ CALLS &nbsp;<span id="flow-bull-pct" style="font-weight:700;">—</span>&nbsp; · &nbsp;<span id="flow-bull-dollar">$0</span></span>
-      <span style="color:var(--red);"><span id="flow-bear-dollar">$0</span>&nbsp; · &nbsp;<span id="flow-bear-pct" style="font-weight:700;">—</span>&nbsp; PUTS ▼</span>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <!-- Bar + percentages -->
+      <div style="flex:1;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;">Flow Sentiment</span>
+          <span id="flow-sentiment-signal" style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:0.5px;">—</span>
+        </div>
+        <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bg3);">
+          <div id="flow-bull-bar" style="height:100%;background:var(--green);transition:width 0.5s ease;width:0%;"></div>
+          <div id="flow-bear-bar" style="height:100%;background:var(--red);transition:width 0.5s ease;width:0%;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:7px;font-size:10px;">
+          <span style="color:var(--green);">▲ CALLS &nbsp;<span id="flow-bull-pct" style="font-weight:700;">—</span>&nbsp;·&nbsp;<span id="flow-bull-dollar">$0</span></span>
+          <span style="color:var(--red);"><span id="flow-bear-dollar">$0</span>&nbsp;·&nbsp;<span id="flow-bear-pct" style="font-weight:700;">—</span>&nbsp; PUTS ▼</span>
+        </div>
+      </div>
+      <!-- Conviction badge -->
+      <div id="flow-conviction-badge" style="flex-shrink:0;min-width:130px;text-align:center;padding:10px 16px;border-radius:6px;background:var(--bg3);border:1px solid var(--border2);">
+        <div id="flow-conv-pct" style="font-size:26px;font-weight:700;letter-spacing:1px;line-height:1;">—</div>
+        <div id="flow-conv-lbl" style="font-size:9px;letter-spacing:1.5px;margin-top:3px;color:var(--text2);">NO DATA</div>
+        <div style="font-size:8px;color:var(--text3);margin-top:4px;">premium-weighted</div>
+      </div>
     </div>
   </div>
 
   <div class="card">
     <div class="card-hd">
       <span class="card-title">Options Flow Feed</span>
-      <div class="filter-row" style="margin:0;">
-        <button class="fbtn active" onclick="setFlowFilter('all',this)">All</button>
-        <button class="fbtn" onclick="setFlowFilter('Call',this)">Calls</button>
-        <button class="fbtn" onclick="setFlowFilter('Put',this)">Puts</button>
-        <button class="fbtn" onclick="setFlowFilter('sweep',this)">Sweeps</button>
-        <button class="fbtn" onclick="setFlowFilter('atask',this)">At Ask</button>
-        <button class="fbtn" onclick="setFlowFilter('watchlist',this)">My Watchlist</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:9px;font-weight:700;letter-spacing:1px;color:var(--text3);text-transform:uppercase;">Filter:</span>
+        <div class="filter-row" style="margin:0;background:var(--bg3);border-radius:4px;padding:3px;gap:2px;border:1px solid var(--border);">
+          <button class="fbtn active" onclick="setFlowFilter('all',this)">All</button>
+          <button class="fbtn" onclick="setFlowFilter('Call',this)">Calls</button>
+          <button class="fbtn" onclick="setFlowFilter('Put',this)">Puts</button>
+          <button class="fbtn" onclick="setFlowFilter('sweep',this)">Sweeps</button>
+          <button class="fbtn" onclick="setFlowFilter('atask',this)">At Ask</button>
+          <button class="fbtn" onclick="setFlowFilter('watchlist',this)">Watchlist</button>
+        </div>
       </div>
     </div>
     <div class="flow-row flow-hd">
@@ -2693,6 +2707,36 @@ function renderFlowStats(){
     else if(bearPct>=55){signal.textContent='LEANING BEARISH';signal.style.color='var(--red)';}
     else{signal.textContent='NEUTRAL';signal.style.color='var(--amber)';}
   }
+
+  // Weighted conviction badge — premium + sweep + at-ask multipliers
+  let bullW=0,bearW=0;
+  flowData.forEach(r=>{
+    const isCall=r.cp.toLowerCase().includes('call');
+    const isSweep=(r.flag||'').toUpperCase().includes('S');
+    const atAsk=(r.spread||'').toLowerCase().includes('ask');
+    const prem=parsePrem(r.premium)/1e6; // in $M
+    // weight = base(1) + premium contribution + aggression bonuses
+    const w=(1+prem*8)*(isSweep?1.5:1)*(atAsk?1.2:1);
+    if(isCall)bullW+=w;else bearW+=w;
+  });
+  const convTotal=bullW+bearW;
+  const convPctEl=document.getElementById('flow-conv-pct');
+  const convLblEl=document.getElementById('flow-conv-lbl');
+  const convBadge=document.getElementById('flow-conviction-badge');
+  if(convTotal>0&&convPctEl&&convLblEl&&convBadge){
+    const bPct=Math.round((bullW/convTotal)*100);
+    const isBull=bPct>=50;
+    const displayPct=isBull?bPct:100-bPct;
+    const clr=isBull?'#00e5b0':'#ff3d5a';
+    const bg=isBull?'rgba(0,229,176,0.08)':'rgba(255,61,90,0.08)';
+    const lbl=isBull?'BULLISH':'BEARISH';
+    convPctEl.textContent=displayPct+'%';
+    convPctEl.style.color=clr;
+    convLblEl.textContent=lbl;
+    convLblEl.style.color=clr;
+    convBadge.style.borderColor=clr.replace(')',',0.3)').replace('rgb','rgba');
+    convBadge.style.background=bg;
+  }
 }
 function fmtM(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(0)+'K';return n.toFixed(0);}
 
@@ -2722,10 +2766,12 @@ function getFlowSignal(r){
   const atAsk=spread.includes('ask');
   const belowBid=spread.includes('bid');
   const isSweep=(r.flag||'').toUpperCase().includes('S');
-  if(isCall&&atAsk&&isSweep)return{cls:'signal-strong-bull',lbl:'STRONG BULL'};
-  if(isCall&&atAsk)return{cls:'signal-bull',lbl:'BULL'};
-  if(isPut&&atAsk&&isSweep)return{cls:'signal-strong-bear',lbl:'STRONG BEAR'};
-  if(isPut&&atAsk)return{cls:'signal-bear',lbl:'BEAR'};
+  // Sweeps are always aggressive orders — treat as at-ask even if spread field is empty
+  const aggressive=atAsk||isSweep;
+  if(isCall&&aggressive&&isSweep)return{cls:'signal-strong-bull',lbl:'STRONG BULL'};
+  if(isPut&&aggressive&&isSweep)return{cls:'signal-strong-bear',lbl:'STRONG BEAR'};
+  if(isCall&&aggressive)return{cls:'signal-bull',lbl:'BULL'};
+  if(isPut&&aggressive)return{cls:'signal-bear',lbl:'BEAR'};
   if(isCall&&belowBid)return{cls:'signal-bear',lbl:'BEAR'};
   if(isPut&&belowBid)return{cls:'signal-bull',lbl:'BULL'};
   return{cls:'signal-neutral',lbl:'NEUTRAL'};
@@ -2752,22 +2798,25 @@ function renderFlowBody(){
     const voiRatio=oi>0?(vol/oi):null;
     const voiStr=voiRatio!==null?voiRatio.toFixed(2):'—';
     const voiGreen=voiRatio!==null&&voiRatio>1;
-    // Spread label
+    // Spread badge
     const spread=(r.spread||'').toLowerCase();
-    const spreadBadge=spread.includes('ask')?'<span class="at-ask">Ask</span>':spread.includes('bid')?'<span class="at-bid">Bid</span>':spread.includes('mid')?'<span class="at-mid">Mid</span>':`<span style="color:var(--text3);font-size:10px;">${r.spread||'—'}</span>`;
-    // Signal badge color override for stronger visual
+    const spreadBadge=spread.includes('ask')?'<span class="at-ask">Ask</span>':spread.includes('bid')?'<span class="at-bid">Bid</span>':spread.includes('mid')?'<span class="at-mid">Mid</span>':`<span style="color:#dde3f0;font-size:10px;">${r.spread||'—'}</span>`;
+    // Signal badge
     const sigStyle=sig.lbl.includes('BULL')?'background:rgba(0,229,176,0.18);color:#00e5b0;':sig.lbl.includes('BEAR')?'background:rgba(255,61,90,0.18);color:#ff3d5a;':'background:rgba(255,176,32,0.12);color:#ffb020;';
     const rowBg=isLarge?'background:rgba(255,176,32,0.05);':'';
+    // Stock Last — strip non-numeric chars before parseFloat
+    const lastNum=parseFloat((r.stocklast||'').replace(/[$, ]/g,''));
+    const lastStr=isNaN(lastNum)||lastNum===0?'—':'$'+lastNum.toFixed(2);
     return `<div class="flow-row${isSweep?' is-sweep':''}" style="${rowBg}" onclick="showTickerDetail('${r.symbol}')" title="Click for ${r.symbol} detail">
       <span>${isSweep?'<span class="sweep-badge">SWEEP</span>':'<span class="block-badge">BLOCK</span>'}</span>
       <span style="color:var(--cyan);font-size:10px;white-space:nowrap;">${(r.time||'').replace(/ [AP]M/,'')}</span>
       <span style="font-weight:700;color:#ffffff;">${r.symbol}</span>
-      <span style="color:#8899aa;font-size:10px;white-space:nowrap;">${fmtExpiry(r.expiry)}</span>
+      <span style="color:#dde3f0;font-size:10px;white-space:nowrap;">${fmtExpiry(r.expiry)}</span>
       <span style="color:#ffffff;">${r.strike||'—'}</span>
       <span>${isCall?'<span class="cp-call">C</span>':'<span class="cp-put">P</span>'}</span>
       <span>${spreadBadge}</span>
       <span style="font-weight:700;font-size:12px;color:${isLarge?'var(--amber)':'#ffffff'};">${r.premium||'—'}</span>
-      <span style="color:var(--text);font-size:11px;">${r.stocklast?'$'+parseFloat(r.stocklast).toFixed(2):'—'}</span>
+      <span style="color:#dde3f0;font-size:11px;">${lastStr}</span>
       <span><span style="border-radius:3px;padding:2px 6px;font-size:9px;font-weight:700;${sigStyle}">${sig.lbl}</span></span>
       <span style="color:var(--amber);font-weight:600;">${r.score||'—'}</span>
       <span style="color:#dde3f0;">${r.iv?parseFloat(r.iv).toFixed(0)+'%':'—'}</span>
