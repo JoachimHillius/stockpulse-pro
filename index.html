@@ -1347,8 +1347,12 @@ function renderVixCandleChart(rawCandles){
       const xScale = chart.scales.x;
       const yScale = chart.scales.y;
 
-      // Fixed divisor of 10 so bar width is consistent regardless of actual candle count
-      const barW = (right - left) / 10 * 0.6;
+      // Use actual pixel gap between adjacent bars so spacing is always correct
+      // Falls back to canvas.offsetWidth if only 1 candle
+      const barSpacing = candles.length > 1
+        ? (xScale.getPixelForValue(1) - xScale.getPixelForValue(0))
+        : chart.canvas.offsetWidth / candles.length;
+      const barW = barSpacing * 0.6;
 
       candles.forEach((candle, i)=>{
         const xPos = xScale.getPixelForValue(i);
@@ -2175,22 +2179,42 @@ function buildTickerPopup(sym){
   }
   // Bull/bear conviction from current flowData
   const myFlows=flowData.filter(r=>r.symbol===sym);
-  let convHtml='', convScore=50;
+  let convScore=50;
+  const _parsePremNum=s=>{if(!s)return 0;const n=parseFloat((s||'0').replace(/[$,]/g,''));const lo=(s||'').toLowerCase();return lo.includes('m')?n*1e6:lo.includes('k')?n*1e3:n;};
+  let flowStatsHtml='';
   if(myFlows.length){
-    const calls=myFlows.filter(r=>r.cp.toLowerCase().includes('call')).length;
-    const puts=myFlows.length-calls;
-    const sweeps=myFlows.filter(r=>(r.flag||'').toUpperCase().includes('S')).length;
+    const callFlows=myFlows.filter(r=>r.cp.toLowerCase().includes('call'));
+    const putFlows=myFlows.filter(r=>!r.cp.toLowerCase().includes('call'));
+    const callCount=callFlows.length;
+    const putCount=putFlows.length;
+    const sweepCount=myFlows.filter(r=>(r.flag||'').toUpperCase().includes('S')).length;
+    const ataskCount=myFlows.filter(r=>(r.spread||'').toLowerCase().includes('ask')).length;
+    // Premium in $M units so it scales reasonably alongside count weights
+    const callPremM=callFlows.reduce((a,r)=>a+_parsePremNum(r.premium),0)/1e6;
+    const putPremM=putFlows.reduce((a,r)=>a+_parsePremNum(r.premium),0)/1e6;
+    // User formula: bullScore = (calls * callPrem + sweeps*2 + atask*1.5) / total * 100
+    // bear mirror:  bearScore  = (puts  * putPrem)
+    const bullNum=callCount*(callPremM||1)+sweepCount*2+ataskCount*1.5;
+    const bearNum=putCount*(putPremM||1);
+    const totalNum=bullNum+bearNum||1;
+    convScore=Math.min(100,Math.max(0,Math.round((bullNum/totalNum)*100)));
+    // News sentiment nudge ±10 pts
+    const myNews=newsData.filter(a=>a.sym===sym);
+    if(myNews.length){
+      const bullNews=myNews.filter(a=>a.sentiment?.label==='bull').length;
+      const bearNews=myNews.filter(a=>a.sentiment?.label==='bear').length;
+      const newsBias=Math.round(((bullNews-bearNews)/myNews.length)*10);
+      convScore=Math.min(100,Math.max(0,convScore+newsBias));
+    }
     const signals=myFlows.map(getFlowSignal);
     const strongBull=signals.filter(s=>s.lbl==='STRONG BULL').length;
     const bull=signals.filter(s=>s.lbl==='BULL').length;
     const strongBear=signals.filter(s=>s.lbl==='STRONG BEAR').length;
     const bear=signals.filter(s=>s.lbl==='BEAR').length;
-    convScore=Math.min(100,Math.round(((calls+sweeps*1.5+strongBull*2+bull)/(myFlows.length||1))*100));
-    convHtml=`<div style="display:flex;justify-content:center;margin:8px 0 4px;"><canvas id="spd-${sym}" width="200" height="110" style="display:block;"></canvas></div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:10px;margin:10px 0;">
-      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Calls</div><div style="color:var(--green);font-weight:700;">${calls}</div></div>
-      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Puts</div><div style="color:var(--red);font-weight:700;">${puts}</div></div>
-      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Sweeps</div><div style="color:var(--amber);font-weight:700;">${sweeps}</div></div>
+    flowStatsHtml=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:10px;margin:10px 0;">
+      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Calls</div><div style="color:var(--green);font-weight:700;">${callCount}</div></div>
+      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Puts</div><div style="color:var(--red);font-weight:700;">${putCount}</div></div>
+      <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Sweeps</div><div style="color:var(--amber);font-weight:700;">${sweepCount}</div></div>
       <div style="background:var(--bg3);border-radius:4px;padding:6px 8px;"><div style="color:var(--text2);">Conviction</div><div style="font-weight:700;color:${convScore>=60?'var(--green)':convScore<=40?'var(--red)':'var(--amber)'};">${convScore}%</div></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:10px;">
@@ -2200,6 +2224,11 @@ function buildTickerPopup(sym){
       ${bear?`<span class="signal-bear">${bear}× BEAR</span>`:''}
     </div>`;
   }
+  // Gauge canvas always rendered — 50% neutral grey when no flow data
+  const convHtml=`<div style="display:flex;justify-content:center;margin:8px 0 4px;"><canvas id="spd-${sym}" width="200" height="110" style="display:block;"></canvas></div>
+    ${flowStatsHtml}
+    ${!myFlows.length?`<div style="font-size:9px;color:var(--text3);text-align:center;margin-bottom:6px;">No flow data uploaded — showing neutral</div>`:''}`;
+  if(!myFlows.length) convScore=50;
   const coName=COMPANY_NAMES[sym]||'';
   const html=`
     <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);">
@@ -2212,7 +2241,8 @@ function buildTickerPopup(sym){
     </div>
     <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin-bottom:8px;">5-Day Flow History</div>
     ${flowBar}
-    ${convHtml?`<div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:12px 0 6px;">Today's Flow Signals</div>${convHtml}`:''}
+    <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:12px 0 6px;">Conviction Gauge</div>
+    ${convHtml}
     <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Options Chain ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key)</span>'}</div>
     <div id="tm-chain-${sym}">${finnhubKey?'<div style="color:var(--text2);font-size:10px;">Loading…</div>':renderOptionsChainData(optionsCache[sym]||null)}</div>
     <div style="font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;margin:14px 0 8px;">Last 8 Quarters Earnings ${finnhubKey?'':'<span style="color:var(--text3)">(add Finnhub key in Settings)</span>'}</div>
