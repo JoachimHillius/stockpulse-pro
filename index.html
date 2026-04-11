@@ -498,8 +498,8 @@ select option{background:var(--bg2);}
       <div class="card">
         <div class="card-hd">
           <div>
-            <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
-            <div id="mkt-chart-date" style="font-size:9px;color:var(--text2);margin-top:2px;letter-spacing:0.4px;"></div>
+            <span class="card-title">Market Chart — SPY</span>
+            <div id="mkt-chart-date" style="font-size:12px;font-weight:600;color:var(--text);margin-top:3px;letter-spacing:0.3px;"></div>
           </div>
           <div style="display:flex;gap:4px;align-items:center;">
             <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
@@ -1133,6 +1133,9 @@ const yieldFn = (fn) => setTimeout(fn, 0);
 
 function initData(){
   applyTheme();
+  // Set market chart date immediately — visible before chart renders
+  const _mcdEl=document.getElementById('mkt-chart-date');
+  if(_mcdEl) _mcdEl.textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
   updateClock();
@@ -1679,13 +1682,11 @@ function renderMktChart(range,sym){
 
 async function renderIntradayChart(sym){
   sym=sym||'SPY';
-  // Update header title and date
   const todayDt=new Date();
-  const dateStr=todayDt.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-  const titleEl=document.getElementById('mkt-chart-title');
   const dateEl=document.getElementById('mkt-chart-date');
-  if(titleEl) titleEl.textContent=`Market Chart — ${sym}  |  ${dateStr}`;
-  if(dateEl) dateEl.textContent='';
+  // Refresh date label (user may keep tab open past midnight)
+  const dateStr=todayDt.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+  if(dateEl) dateEl.textContent=dateStr;
 
   let prices,times,prev,isSimulated=false;
 
@@ -1715,7 +1716,7 @@ async function renderIntradayChart(sym){
     isSimulated=true;
   }
 
-  if(isSimulated&&dateEl) dateEl.textContent='⚠ Simulated data — add Finnhub key for live prices';
+  if(isSimulated&&dateEl) dateEl.textContent=dateStr+' · Simulated';
 
   const minP=Math.min(...prices),maxP=Math.max(...prices);
   const step=smartStep(minP,maxP);
