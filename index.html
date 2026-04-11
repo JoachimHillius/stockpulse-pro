@@ -1284,7 +1284,15 @@ function initData(){
 }
 function initCharts(){
   fetchVixCandles();
-  try{renderMktChart('1D', typeof _mktSym!=='undefined'?_mktSym:'SPY', typeof _mktDate!=='undefined'?_mktDate:'');}catch(e){console.warn('Chart init failed:',e);}
+  if(finnhubKey){
+    // Key already in localStorage — render immediately
+    try{renderMktChart('1D', typeof _mktSym!=='undefined'?_mktSym:'SPY', typeof _mktDate!=='undefined'?_mktDate:'');}catch(e){console.warn('Chart init failed:',e);}
+  } else {
+    // Key not yet available — loadFinnhubKeyFromSupabase() will trigger renderMktChart() once it restores the key
+    console.log('[Chart] No Finnhub key at Chart.js load — market chart deferred until key is restored');
+    const notice = document.getElementById('mkt-notice');
+    if(notice){ notice.textContent='Waiting for API key to load chart…'; notice.style.display='block'; }
+  }
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -3958,6 +3966,7 @@ function _posTd(text, color, bold, small){
 
 function renderPositions(){
   const tbody = document.getElementById('pos-tbody');
+  console.log('[Positions] renderPositions — tbody:', !!tbody, '| positions.length:', positions.length);
   if(!tbody){ console.warn('[Positions] #pos-tbody not in DOM'); return; }
 
   const empty   = document.getElementById('pos-empty');
@@ -3978,7 +3987,13 @@ function renderPositions(){
   // Clear existing rows
   while(tbody.firstChild) tbody.removeChild(tbody.firstChild);
 
-  if(!positions.length){
+  // Filter out any null/corrupted entries that could cause the loop to throw mid-way
+  const validPos = positions.filter(function(p){ return p && typeof p === 'object'; });
+  if(validPos.length !== positions.length){
+    console.warn('[Positions] Filtered out', positions.length - validPos.length, 'null/invalid entries');
+  }
+
+  if(!validPos.length){
     if(empty)   empty.style.display = 'block';
     if(countEl) countEl.textContent = '0';
     if(totalEl) totalEl.textContent = '';
@@ -3986,14 +4001,16 @@ function renderPositions(){
   }
 
   if(empty)   empty.style.display = 'none';
-  if(countEl) countEl.textContent = String(positions.length);
+  if(countEl) countEl.textContent = String(validPos.length);
 
   const today  = new Date();
   let totalPnl = 0;
+  let rowsBuilt = 0;
   const frag   = document.createDocumentFragment(); // batch insert — one reflow
 
-  for(let idx = 0; idx < positions.length; idx++){
-    const p = positions[idx];
+  for(let idx = 0; idx < validPos.length; idx++){
+    const p = validPos[idx];
+    if(!p){ continue; } // extra null guard
 
     const entry      = parseFloat(p.entry) || 0;
     const currentRaw = parseFloat(p.current);
@@ -4031,73 +4048,80 @@ function renderPositions(){
       flowClr = flowDir === 'BULL' ? '#00e5b0' : flowDir === 'BEAR' ? '#ff3d5a' : '#ffffff';
     }catch(e){}
 
-    const tr = document.createElement('tr');
+    try{
+      const tr = document.createElement('tr');
 
-    // 1 — Symbol
-    tr.appendChild(_posTd(p.symbol || '—', '#ffffff', true));
+      // 1 — Symbol
+      tr.appendChild(_posTd(p.symbol || '—', '#ffffff', true));
 
-    // 2 — C/P pill
-    const tdCp   = document.createElement('td');
-    const cpSpan = document.createElement('span');
-    cpSpan.textContent        = p.cp || '—';
-    cpSpan.style.color        = cpClr;
-    cpSpan.style.fontWeight   = '700';
-    cpSpan.style.fontSize     = '10px';
-    tdCp.appendChild(cpSpan);
-    tr.appendChild(tdCp);
+      // 2 — C/P pill
+      const tdCp   = document.createElement('td');
+      const cpSpan = document.createElement('span');
+      cpSpan.textContent        = p.cp || '—';
+      cpSpan.style.color        = cpClr;
+      cpSpan.style.fontWeight   = '700';
+      cpSpan.style.fontSize     = '10px';
+      tdCp.appendChild(cpSpan);
+      tr.appendChild(tdCp);
 
-    // 3 — Strike
-    tr.appendChild(_posTd(strikeStr, '#ffffff'));
+      // 3 — Strike
+      tr.appendChild(_posTd(strikeStr, '#ffffff'));
 
-    // 4 — Expiry
-    tr.appendChild(_posTd(p.expiry || '—', '#ffffff', false, true));
+      // 4 — Expiry
+      tr.appendChild(_posTd(p.expiry || '—', '#ffffff', false, true));
 
-    // 5 — Qty
-    tr.appendChild(_posTd(String(qty), '#ffffff'));
+      // 5 — Qty
+      tr.appendChild(_posTd(String(qty), '#ffffff'));
 
-    // 6 — Entry $
-    tr.appendChild(_posTd('$' + entry.toFixed(2), '#ffffff'));
+      // 6 — Entry $
+      tr.appendChild(_posTd('$' + entry.toFixed(2), '#ffffff'));
 
-    // 7 — Current $ + refresh button
-    const tdCur  = document.createElement('td');
-    const curTxt = document.createElement('span');
-    curTxt.style.color  = '#ffffff';
-    curTxt.textContent  = hasCurrent ? '$' + current.toFixed(2) : '$0.00';
-    const rrBtn  = document.createElement('button');
-    rrBtn.textContent   = '↻';
-    rrBtn.title         = 'Refresh price';
-    rrBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#8090a8;font-size:9px;padding:0 2px;margin-left:2px;vertical-align:middle;';
-    rrBtn.addEventListener('click', (function(i){ return function(e){ e.stopPropagation(); refreshPosPrice(i); }; })(idx));
-    tdCur.appendChild(curTxt);
-    tdCur.appendChild(rrBtn);
-    tr.appendChild(tdCur);
+      // 7 — Current $ + refresh button
+      const tdCur  = document.createElement('td');
+      const curTxt = document.createElement('span');
+      curTxt.style.color  = '#ffffff';
+      curTxt.textContent  = hasCurrent ? '$' + current.toFixed(2) : '$0.00';
+      const rrBtn  = document.createElement('button');
+      rrBtn.textContent   = '↻';
+      rrBtn.title         = 'Refresh price';
+      rrBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#8090a8;font-size:9px;padding:0 2px;margin-left:2px;vertical-align:middle;';
+      rrBtn.addEventListener('click', (function(i){ return function(e){ e.stopPropagation(); refreshPosPrice(i); }; })(idx));
+      tdCur.appendChild(curTxt);
+      tdCur.appendChild(rrBtn);
+      tr.appendChild(tdCur);
 
-    // 8 — P&L $
-    tr.appendChild(_posTd(pnlStr, pnlClr, true));
+      // 8 — P&L $
+      tr.appendChild(_posTd(pnlStr, pnlClr, true));
 
-    // 9 — P&L %
-    tr.appendChild(_posTd(pctStr, pnlClr));
+      // 9 — P&L %
+      tr.appendChild(_posTd(pctStr, pnlClr));
 
-    // 10 — Days to expiry
-    tr.appendChild(_posTd(daysStr, daysClr));
+      // 10 — Days to expiry
+      tr.appendChild(_posTd(daysStr, daysClr));
 
-    // 11 — Flow signal
-    tr.appendChild(_posTd(flowDir, flowClr, true, true));
+      // 11 — Flow signal
+      tr.appendChild(_posTd(flowDir, flowClr, true, true));
 
-    // 12 — Remove ×
-    const tdX  = document.createElement('td');
-    const xBtn = document.createElement('button');
-    xBtn.textContent   = '×';
-    xBtn.title         = 'Remove position';
-    xBtn.style.cssText = 'background:none;border:none;color:#8090a8;cursor:pointer;font-size:14px;padding:0 3px;line-height:1;';
-    xBtn.addEventListener('click', (function(i){ return function(e){ e.stopPropagation(); removePosition(i); }; })(idx));
-    tdX.appendChild(xBtn);
-    tr.appendChild(tdX);
+      // 12 — Remove ×
+      const tdX  = document.createElement('td');
+      const xBtn = document.createElement('button');
+      xBtn.textContent   = '×';
+      xBtn.title         = 'Remove position';
+      xBtn.style.cssText = 'background:none;border:none;color:#8090a8;cursor:pointer;font-size:14px;padding:0 3px;line-height:1;';
+      xBtn.addEventListener('click', (function(i){ return function(e){ e.stopPropagation(); removePosition(i); }; })(idx));
+      tdX.appendChild(xBtn);
+      tr.appendChild(tdX);
 
-    frag.appendChild(tr);
+      frag.appendChild(tr);
+      rowsBuilt++;
+    }catch(rowErr){
+      console.error('[Positions] Failed to build row', idx, positions[idx], rowErr);
+    }
   }
 
+  console.log('[Positions] rows built:', rowsBuilt, '| fragment children:', frag.childNodes.length);
   tbody.appendChild(frag); // single DOM write
+  console.log('[Positions] tbody rows after append:', tbody.rows ? tbody.rows.length : tbody.childNodes.length);
 
   // Total P&L in header
   if(totalEl){
@@ -4108,6 +4132,15 @@ function renderPositions(){
     }else{
       totalEl.textContent = '';
     }
+  }
+
+  // Show error notice if positions exist but zero rows rendered
+  if(rowsBuilt === 0 && validPos.length > 0){
+    console.error('[Positions] BUG: positions.length =', validPos.length, 'but 0 rows were built');
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = 'color:#ff3d5a;font-size:10px;padding:8px 0;text-align:center;';
+    errDiv.textContent = 'Error rendering positions — open DevTools console for details';
+    tbody.parentNode && tbody.parentNode.insertBefore(errDiv, tbody.nextSibling);
   }
 
   // Scroll to show newest row
