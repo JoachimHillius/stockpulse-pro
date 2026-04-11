@@ -203,6 +203,24 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 }
 #hover-popup .flow-day-bar{display:flex;gap:4px;margin-bottom:4px;}
 #hover-popup .flow-day-cell{flex:1;padding:4px 2px;border-radius:3px;text-align:center;}
+/* POSITIONS PANEL */
+#pos-panel{position:fixed;bottom:20px;right:20px;width:860px;max-width:96vw;z-index:700;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.65);user-select:none;}
+#pos-panel-hdr{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--bg3);border-radius:8px 8px 0 0;cursor:grab;border-bottom:1px solid var(--border2);}
+#pos-panel-hdr:active{cursor:grabbing;}
+#pos-panel.collapsed #pos-panel-body{display:none;}
+#pos-panel.collapsed{border-radius:8px;}
+#pos-panel.collapsed #pos-panel-hdr{border-radius:8px;border-bottom:none;}
+#pos-panel-body{padding:10px 12px;max-height:320px;overflow-y:auto;}
+.pos-tbl{width:100%;border-collapse:collapse;font-size:10px;}
+.pos-tbl th{color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.6px;font-size:9px;padding:3px 5px;border-bottom:1px solid var(--border2);white-space:nowrap;text-align:left;}
+.pos-tbl td{padding:5px 5px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap;}
+.pos-tbl tr:last-child td{border-bottom:none;}
+.pos-tbl tr:hover td{background:rgba(255,255,255,0.03);}
+#pos-add-form{background:var(--bg3);border-radius:6px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border);}
+.pos-form-row{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;}
+.pos-form-row label{display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;}
+.pos-form-row input,.pos-form-row select{background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:4px 7px;border-radius:3px;font-family:var(--font);font-size:11px;width:80px;}
+.pos-form-row select{width:68px;}
 /* SYNC PROGRESS */
 .sync-progress-outer{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:6px 0;}
 .sync-progress-inner{height:100%;background:var(--cyan);border-radius:3px;transition:width 0.3s;width:0%;}
@@ -503,10 +521,17 @@ select option{background:var(--bg2);}
       <div class="card">
         <div class="card-hd">
           <div>
-            <span class="card-title">Market Chart — SPY</span>
+            <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
             <div id="mkt-chart-date" style="font-size:12px;font-weight:600;color:var(--text);margin-top:3px;letter-spacing:0.3px;"></div>
           </div>
-          <div style="display:flex;gap:4px;align-items:center;">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
+              <input id="mkt-sym-input" type="text" value="SPY" maxlength="8"
+                style="width:56px;background:var(--bg3);border:none;color:var(--text);padding:3px 6px;font-family:var(--font);font-size:11px;font-weight:700;text-transform:uppercase;outline:none;"
+                onkeydown="if(event.key==='Enter')switchMktSym()"
+                oninput="this.value=this.value.toUpperCase()"/>
+              <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-size:10px;font-weight:700;">GO</button>
+            </div>
             <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
             <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
             <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
@@ -1185,6 +1210,15 @@ function initData(){
   // Set market chart date immediately — visible before chart renders
   const _mcdEl=document.getElementById('mkt-chart-date');
   if(_mcdEl) _mcdEl.textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+  // Restore saved market symbol
+  const _savedSym=localStorage.getItem('sp_mkt_sym');
+  if(_savedSym){
+    _mktSym=_savedSym;
+    const _symInp=document.getElementById('mkt-sym-input');
+    if(_symInp) _symInp.value=_savedSym;
+    const _titleEl=document.getElementById('mkt-chart-title');
+    if(_titleEl) _titleEl.textContent='Market Chart — '+_savedSym;
+  }
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
   updateClock();
@@ -1214,7 +1248,8 @@ function initData(){
 }
 function initCharts(){
   fetchVixCandles();
-  try{renderMktChart('1D');}catch(e){console.warn('Chart init failed:',e);}
+  // Use saved symbol if available (sp_mkt_sym restored in initData before this runs)
+  try{renderMktChart('1D', typeof _mktSym!=='undefined'?_mktSym:'SPY');}catch(e){console.warn('Chart init failed:',e);}
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -3626,10 +3661,247 @@ async function saveFlowToSupabase(rows){
 }
 
 // ============================================================
+// SWITCHABLE MARKET CHART
+// ============================================================
+let _mktSym = localStorage.getItem('sp_mkt_sym') || 'SPY';
+
+function switchMktSym(){
+  const input = document.getElementById('mkt-sym-input');
+  const sym = (input?.value || 'SPY').toUpperCase().trim();
+  if(!sym) return;
+  _mktSym = sym;
+  localStorage.setItem('sp_mkt_sym', sym);
+  const titleEl = document.getElementById('mkt-chart-title');
+  if(titleEl) titleEl.textContent = 'Market Chart — ' + sym;
+  renderMktChart('1D', sym);
+}
+
+// ============================================================
+// FLOATING POSITIONS TRACKER
+// ============================================================
+let positions = JSON.parse(localStorage.getItem('sp_positions') || '[]');
+let _posCollapsed = localStorage.getItem('sp_pos_collapsed') === '1';
+let _posAddOpen = false;
+
+function savePositions(){
+  localStorage.setItem('sp_positions', JSON.stringify(positions));
+}
+
+function getSymbolFlowDir(sym){
+  if(!flowData || !flowData.length) return 'NEUTRAL';
+  const rows = flowData.filter(r => (r.symbol||'').toUpperCase() === sym.toUpperCase());
+  if(!rows.length) return 'NEUTRAL';
+  let bullW = 0, bearW = 0;
+  rows.forEach(r => {
+    const isCall = (r.cp||'').toLowerCase().includes('call');
+    const isSweep = (r.flag||'').toUpperCase().includes('S');
+    const atAsk = (r.spread||'').toLowerCase().includes('ask');
+    const prem = parsePrem(r.premium) / 1e6;
+    const w = (1 + prem * 8) * (isSweep ? 1.5 : 1) * (atAsk ? 1.2 : 1);
+    if(isCall) bullW += w; else bearW += w;
+  });
+  if(bullW === 0 && bearW === 0) return 'NEUTRAL';
+  const ratio = bullW / (bullW + bearW);
+  if(ratio >= 0.6) return 'BULL';
+  if(ratio <= 0.4) return 'BEAR';
+  return 'NEUTRAL';
+}
+
+function renderPositions(){
+  const tbody = document.getElementById('pos-tbody');
+  const empty = document.getElementById('pos-empty');
+  const countEl = document.getElementById('pos-count');
+  const totalPnlEl = document.getElementById('pos-total-pnl');
+  if(!tbody) return;
+
+  if(!positions.length){
+    tbody.innerHTML = '';
+    if(empty) empty.style.display = 'block';
+    if(countEl) countEl.textContent = '0';
+    if(totalPnlEl) totalPnlEl.textContent = '';
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+  if(countEl) countEl.textContent = positions.length;
+
+  let totalPnlDollar = 0;
+  const today = new Date();
+  tbody.innerHTML = positions.map((p, idx) => {
+    const entry = parseFloat(p.entry) || 0;
+    const current = parseFloat(p.current) || entry;
+    const qty = parseInt(p.contracts) || 1;
+    const pnlPerContract = (current - entry) * 100;
+    const pnlTotal = pnlPerContract * qty;
+    const pnlPct = entry > 0 ? ((current - entry) / entry * 100) : 0;
+    totalPnlDollar += pnlTotal;
+
+    const expDate = p.expiry ? new Date(p.expiry) : null;
+    const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - today) / 86400000)) : '—';
+    const pnlClr = pnlTotal >= 0 ? 'var(--green)' : 'var(--red)';
+    const pnlSign = pnlTotal >= 0 ? '+' : '';
+
+    const flowDir = getSymbolFlowDir(p.symbol);
+    const flowClr = flowDir === 'BULL' ? 'var(--green)' : flowDir === 'BEAR' ? 'var(--red)' : 'var(--text3)';
+
+    const cpClr = (p.cp||'').toLowerCase() === 'call' ? 'var(--green)' : 'var(--red)';
+
+    return `<tr>
+      <td style="font-weight:700;color:var(--text);">${p.symbol}</td>
+      <td><span style="color:${cpClr};font-weight:700;font-size:10px;">${p.cp}</span></td>
+      <td>$${parseFloat(p.strike).toFixed(0)}</td>
+      <td style="font-size:9px;color:var(--text2);">${p.expiry || '—'}</td>
+      <td>${qty}</td>
+      <td>$${entry.toFixed(2)}</td>
+      <td>
+        $${current.toFixed(2)}
+        <button onclick="refreshPosPrice(${idx})" title="Refresh" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:9px;padding:0 2px;">↻</button>
+      </td>
+      <td style="color:${pnlClr};font-weight:700;">${pnlSign}$${pnlTotal.toFixed(0)}</td>
+      <td style="color:${pnlClr};">${pnlSign}${pnlPct.toFixed(1)}%</td>
+      <td style="color:${typeof daysLeft==='number'&&daysLeft<=5?'var(--red)':'var(--text2)'};">${daysLeft}</td>
+      <td style="color:${flowClr};font-weight:700;font-size:9px;">${flowDir}</td>
+      <td><button onclick="removePosition(${idx})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px;" title="Remove">×</button></td>
+    </tr>`;
+  }).join('');
+
+  if(totalPnlEl){
+    const sign = totalPnlDollar >= 0 ? '+' : '';
+    totalPnlEl.style.color = totalPnlDollar >= 0 ? 'var(--green)' : 'var(--red)';
+    totalPnlEl.textContent = `${sign}$${totalPnlDollar.toFixed(0)}`;
+  }
+}
+
+function removePosition(idx){
+  positions.splice(idx, 1);
+  savePositions();
+  renderPositions();
+}
+
+async function refreshPosPrice(idx){
+  const p = positions[idx];
+  if(!p || !finnhubKey) return;
+  try{
+    const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(p.symbol)}&token=${finnhubKey}`);
+    const data = await res.json();
+    if(data && data.c){
+      positions[idx].current = data.c;
+      savePositions();
+      renderPositions();
+    }
+  }catch(e){ console.warn('Price refresh failed:', e); }
+}
+
+function submitPosition(){
+  const sym = (document.getElementById('pf-sym')?.value || '').toUpperCase().trim();
+  const cp = document.getElementById('pf-cp')?.value || 'Call';
+  const strike = document.getElementById('pf-strike')?.value || '';
+  const expiry = document.getElementById('pf-expiry')?.value || '';
+  const contracts = parseInt(document.getElementById('pf-contracts')?.value) || 1;
+  const entry = parseFloat(document.getElementById('pf-entry')?.value);
+  const current = parseFloat(document.getElementById('pf-current')?.value);
+
+  if(!sym || isNaN(entry)){
+    showToast('Symbol and Entry price are required', 'error');
+    return;
+  }
+
+  const pos = { symbol: sym, cp, strike, expiry, contracts, entry, current: isNaN(current) ? entry : current };
+  positions.push(pos);
+  savePositions();
+  renderPositions();
+  toggleAddPosForm();
+
+  // Auto-fetch price if Finnhub key set and current wasn't provided manually
+  if(finnhubKey && isNaN(current)){
+    refreshPosPrice(positions.length - 1);
+  }
+}
+
+function togglePosPanel(){
+  _posCollapsed = !_posCollapsed;
+  const panel = document.getElementById('pos-panel');
+  const btn = document.getElementById('pos-collapse-btn');
+  if(panel) panel.classList.toggle('collapsed', _posCollapsed);
+  if(btn) btn.textContent = _posCollapsed ? '▲' : '▼';
+  localStorage.setItem('sp_pos_collapsed', _posCollapsed ? '1' : '0');
+}
+
+function toggleAddPosForm(){
+  _posAddOpen = !_posAddOpen;
+  const form = document.getElementById('pos-add-form');
+  if(form) form.style.display = _posAddOpen ? 'block' : 'none';
+  if(_posAddOpen){
+    // Clear fields
+    ['pf-sym','pf-strike','pf-expiry','pf-contracts','pf-entry','pf-current'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.value = id === 'pf-contracts' ? '1' : '';
+    });
+    setTimeout(()=>document.getElementById('pf-sym')?.focus(), 50);
+  }
+}
+
+function posDragStart(e){
+  if(e.button !== 0) return;
+  const panel = document.getElementById('pos-panel');
+  if(!panel) return;
+  // Convert right/bottom anchoring to left/top on first drag
+  const rect = panel.getBoundingClientRect();
+  panel.style.right = 'auto';
+  panel.style.bottom = 'auto';
+  panel.style.left = rect.left + 'px';
+  panel.style.top = rect.top + 'px';
+
+  let startX = e.clientX, startY = e.clientY;
+  let startL = rect.left, startT = rect.top;
+
+  function onMove(ev){
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    const newL = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, startL + dx));
+    const newT = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, startT + dy));
+    panel.style.left = newL + 'px';
+    panel.style.top = newT + 'px';
+  }
+  function onUp(){
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    // Save position
+    const r = panel.getBoundingClientRect();
+    localStorage.setItem('sp_pos_xy', JSON.stringify({left: r.left, top: r.top}));
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function _initPosPanel(){
+  // Restore panel position
+  try{
+    const saved = JSON.parse(localStorage.getItem('sp_pos_xy') || 'null');
+    if(saved){
+      const panel = document.getElementById('pos-panel');
+      if(panel){
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+        panel.style.left = Math.max(0, Math.min(saved.left, window.innerWidth - panel.offsetWidth)) + 'px';
+        panel.style.top = Math.max(0, Math.min(saved.top, window.innerHeight - panel.offsetHeight)) + 'px';
+      }
+    }
+  }catch(e){}
+  // Restore collapsed state
+  if(_posCollapsed){
+    const panel = document.getElementById('pos-panel');
+    const btn = document.getElementById('pos-collapse-btn');
+    if(panel) panel.classList.add('collapsed');
+    if(btn) btn.textContent = '▲';
+  }
+  renderPositions();
+}
+
+// ============================================================
 // BOOT
 // ============================================================
 // Render all mock data immediately — no CDN dependency
 initData();
+_initPosPanel();
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>fetchVixCandles(),300000);
@@ -3661,6 +3933,49 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
 <!-- Hover popup for Gainers/Losers -->
 <div id="hover-popup" onmouseenter="keepHoverPopup()" onmouseleave="hideHoverPopup()">
   <div id="hover-popup-content"></div>
+</div>
+
+<!-- FLOATING POSITIONS TRACKER -->
+<div id="pos-panel">
+  <div id="pos-panel-hdr" onmousedown="posDragStart(event)">
+    <span style="font-size:13px;color:var(--text3);cursor:grab;margin-right:2px;">⠿</span>
+    <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--cyan);">MY POSITIONS</span>
+    <span id="pos-count" style="font-size:9px;background:var(--bg4);padding:1px 7px;border-radius:10px;color:var(--text2);">0</span>
+    <span id="pos-total-pnl" style="font-size:12px;font-weight:700;margin-left:4px;"></span>
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+      <button onclick="event.stopPropagation();toggleAddPosForm()" style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--cyan);border-radius:3px;padding:2px 9px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">+ Add</button>
+      <button onclick="event.stopPropagation();togglePosPanel()" id="pos-collapse-btn" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:var(--font);">▼</button>
+    </div>
+  </div>
+  <div id="pos-panel-body">
+    <!-- Add position form (hidden by default) -->
+    <div id="pos-add-form" style="display:none;">
+      <div class="pos-form-row">
+        <label>Symbol<input id="pf-sym" type="text" placeholder="AAPL" maxlength="8" oninput="this.value=this.value.toUpperCase()"/></label>
+        <label>C/P<select id="pf-cp"><option value="Call">Call</option><option value="Put">Put</option></select></label>
+        <label>Strike<input id="pf-strike" type="number" placeholder="150" style="width:70px;"/></label>
+        <label>Expiry<input id="pf-expiry" type="date" style="width:110px;"/></label>
+        <label>Contracts<input id="pf-contracts" type="number" value="1" min="1" style="width:58px;"/></label>
+        <label>Entry $<input id="pf-entry" type="number" placeholder="3.50" step="0.01" style="width:68px;"/></label>
+        <label>Current $<input id="pf-current" type="number" placeholder="auto" step="0.01" style="width:68px;"/></label>
+        <div style="display:flex;gap:6px;align-items:flex-end;padding-bottom:1px;">
+          <button onclick="submitPosition()" style="background:var(--green);border:none;color:#000;border-radius:3px;padding:5px 14px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">Save</button>
+          <button onclick="toggleAddPosForm()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:3px;padding:5px 10px;font-size:10px;cursor:pointer;font-family:var(--font);">Cancel</button>
+        </div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Current price auto-fetched from Finnhub if API key is set — or enter manually</div>
+    </div>
+    <!-- Positions table -->
+    <table class="pos-tbl">
+      <thead><tr>
+        <th>Symbol</th><th>C/P</th><th>Strike</th><th>Expiry</th><th>Qty</th>
+        <th>Entry $</th><th>Current $</th><th>P&amp;L $</th><th>P&amp;L %</th>
+        <th>Days</th><th>Flow</th><th></th>
+      </tr></thead>
+      <tbody id="pos-tbody"></tbody>
+    </table>
+    <div id="pos-empty" style="text-align:center;color:var(--text3);font-size:10px;padding:14px 0;">No positions — click + Add to start tracking</div>
+  </div>
 </div>
 </body>
 </html>
