@@ -192,6 +192,17 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .perf-na{background:rgba(255,255,255,0.04);color:var(--text3);}
 .streak-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;font-size:10px;}
 .streak-box{background:var(--bg3);border-radius:3px;padding:5px 8px;}
+/* HOVER POPUP (Gainers/Losers) */
+#hover-popup{
+  display:none;position:fixed;z-index:600;
+  width:480px;max-height:82vh;overflow-y:auto;
+  background:var(--bg2);border:1px solid var(--border2);
+  border-radius:8px;padding:18px;
+  box-shadow:0 12px 40px rgba(0,0,0,0.7);
+  pointer-events:auto;
+}
+#hover-popup .flow-day-bar{display:flex;gap:4px;margin-bottom:4px;}
+#hover-popup .flow-day-cell{flex:1;padding:4px 2px;border-radius:3px;text-align:center;}
 /* SYNC PROGRESS */
 .sync-progress-outer{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:6px 0;}
 .sync-progress-inner{height:100%;background:var(--cyan);border-radius:3px;transition:width 0.3s;width:0%;}
@@ -1508,11 +1519,15 @@ function renderMoverLists(){
   ['gainers','losers'].forEach((id,ti)=>{
     const list=ti===0?gain:loss;
     const el=document.getElementById(id);
-    if(el)el.innerHTML=list.map((d,i)=>`
-      <div class="wl-row" onclick="">
+    if(!el)return;
+    el.innerHTML=list.map((d,i)=>`
+      <div class="wl-row" style="cursor:pointer;"
+        onclick="showTickerDetail('${d.s}')"
+        onmouseenter="showHoverPopup('${d.s}',this)"
+        onmouseleave="hideHoverPopup()">
         <span style="color:var(--text3);font-size:10px;min-width:14px;">#${i+1}</span>
         <span class="wl-sym">${d.s}</span>
-        <span></span>
+        <span style="font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${COMPANY_NAMES[d.s]||''}</span>
         <span class="wl-px ${d.dp>=0?'up':'dn'}">${fmtPrice(d.s,d.p)}</span>
         <span class="wl-chg ${d.dp>=0?'chg-up':'chg-dn'}">${d.dp>=0?'+':''}${d.dp.toFixed(2)}%</span>
       </div>`).join('');
@@ -3075,6 +3090,69 @@ function updateStatusCounts(){
 }
 
 // ============================================================
+// HOVER POPUP — Gainers / Losers
+// ============================================================
+let _hoverTimer = null;
+
+function showHoverPopup(sym, triggerEl){
+  clearTimeout(_hoverTimer);
+  const popup   = document.getElementById('hover-popup');
+  const content = document.getElementById('hover-popup-content');
+  if(!popup || !content) return;
+
+  // Build content (reuses the same popup as ticker detail)
+  const {html, convScore} = buildTickerPopup(sym);
+  content.innerHTML = html;
+  popup.style.display = 'block';
+
+  // Position: prefer right side of the trigger card, fall back to left
+  const rect    = triggerEl.getBoundingClientRect();
+  const popW    = 480;
+  const pad     = 14;
+  let left = rect.right + pad;
+  let top  = Math.max(8, rect.top - 60);
+
+  if(left + popW > window.innerWidth - 8){
+    left = Math.max(8, rect.left - popW - pad);
+  }
+  // Clamp vertically so it never goes below viewport
+  const maxTop = window.innerHeight - 40;           // let CSS overflow handle the rest
+  top = Math.min(top, maxTop - 200);
+
+  popup.style.left = left + 'px';
+  popup.style.top  = top  + 'px';
+
+  // Draw speedometer after DOM is painted
+  setTimeout(()=>{
+    const canvas = document.getElementById('spd-' + sym);
+    if(canvas) drawSpeedometer(canvas, convScore);
+  }, 0);
+
+  // Async load earnings if Finnhub key present
+  if(finnhubKey){
+    fetchEarnings(sym).then(data=>{
+      const el = document.getElementById('tm-earn-' + sym);
+      if(el) el.innerHTML = renderEarningsTable(data);
+    });
+    fetchOptionsChain(sym).then(data=>{
+      const el = document.getElementById('tm-chain-' + sym);
+      if(el) el.innerHTML = renderOptionsChainData(data);
+    });
+  }
+}
+
+function hideHoverPopup(){
+  _hoverTimer = setTimeout(()=>{
+    const popup = document.getElementById('hover-popup');
+    if(popup) popup.style.display = 'none';
+  }, 180);  // small grace period so user can move mouse onto popup
+}
+
+function keepHoverPopup(){
+  clearTimeout(_hoverTimer);
+}
+
+// ============================================================
 // BOOT
 // ============================================================
 // Render all mock data immediately — no CDN dependency
@@ -3092,5 +3170,10 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
   document.head.appendChild(s);
 })();
 </script>
+
+<!-- Hover popup for Gainers/Losers -->
+<div id="hover-popup" onmouseenter="keepHoverPopup()" onmouseleave="hideHoverPopup()">
+  <div id="hover-popup-content"></div>
+</div>
 </body>
 </html>
