@@ -129,10 +129,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 
 /* WATCHLIST — dense single-line layout */
 /* 14 columns: SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | Bull | Bear | dots */
-:root{--wl-grid:64px minmax(160px,1fr) 72px 62px 46px 46px 50px 50px 50px 52px 52px 58px 58px 22px;}
+:root{--wl-grid:60px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 65px 65px 22px;}
 .wl-col-hdr{
-  display:grid;grid-template-columns:var(--wl-grid);gap:4px;
-  padding:7px 12px;
+  display:grid;grid-template-columns:var(--wl-grid);gap:2px;
+  padding:6px 10px;
   font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;
   color:var(--text);                          /* bright white in dark mode */
   background:var(--bg2);
@@ -142,8 +142,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 }
 body.light-mode .wl-col-hdr{color:#1a2235;background:#dde3ef;}
 .wl-dense-row{
-  display:grid;grid-template-columns:var(--wl-grid);gap:4px;
-  padding:8px 12px;
+  display:grid;grid-template-columns:var(--wl-grid);gap:2px;
+  padding:5px 10px;
   border-radius:2px;cursor:pointer;
   transition:background 0.08s;align-items:center;
   border-bottom:1px solid var(--border);
@@ -152,7 +152,7 @@ body.light-mode .wl-col-hdr{color:#1a2235;background:#dde3ef;}
 body.light-mode .wl-dense-row:hover{background:rgba(0,0,0,0.04);}
 .wl-sym-cell{font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;}
 body.light-mode .wl-sym-cell{color:#0d1420;}
-.wl-name-cell{font-size:11px;color:#8899aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wl-name-cell{font-size:11px;color:#8899aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;}
 body.light-mode .wl-name-cell{color:#4a5a70;}
 .wl-price-cell{font-size:12px;font-weight:700;color:var(--text);text-align:right;white-space:nowrap;}
 body.light-mode .wl-price-cell{color:#0d1420;}
@@ -550,8 +550,8 @@ select option{background:var(--bg2);}
     <span>Company</span>
     <span style="text-align:right;">Price</span>
     <span style="text-align:right;">Net $</span>
-    <span style="text-align:right;">5m%</span>
-    <span style="text-align:right;">1h%</span>
+    <span style="text-align:right;" title="5-minute price change — shows — until live data has been running for ~5 minutes">5m%</span>
+    <span style="text-align:right;" title="1-hour price change — shows — until live data has been running for ~60 minutes">1h%</span>
     <span style="text-align:right;">1D%</span>
     <span style="text-align:right;">1W%</span>
     <span style="text-align:right;">1M%</span>
@@ -574,10 +574,10 @@ select option{background:var(--bg2);}
         ondragleave="this.classList.remove('drag')"
         ondrop="handleDrop(event)">
         <div class="upload-icon">📂</div>
-        <div class="upload-text">Click or drag & drop your OMEN Scanner CSV<br>
-        <span style="color:var(--text3);font-size:10px;">Export from OMEN → Download CSV button</span></div>
+        <div class="upload-text">Click or drag & drop one or more OMEN CSVs<br>
+        <span style="color:var(--text3);font-size:10px;">Export from OMEN → Download CSV — multiple days supported</span></div>
       </div>
-      <input type="file" id="csv-input" accept=".csv" style="display:none" onchange="handleCSV(this.files[0])"/>
+      <input type="file" id="csv-input" accept=".csv" multiple style="display:none" onchange="handleMultipleCSV(this.files)"/>
       <div style="margin-top:8px;font-size:10px;color:var(--text2);" id="csv-status">No file loaded</div>
       <div style="margin-top:3px;font-size:9px;color:var(--text3);" id="flow-last-update"></div>
     </div>
@@ -2394,56 +2394,123 @@ function renderEarningsTable(data){
 // ============================================================
 // OPTIONS FLOW — CSV PARSER
 // ============================================================
-function handleDrop(e){e.preventDefault();document.getElementById('drop-zone').classList.remove('drag');const f=e.dataTransfer.files[0];if(f)handleCSV(f);}
-function handleCSV(file){
-  if(!file)return;
-  const statusEl=document.getElementById('csv-status');
-  if(statusEl){statusEl.textContent='Reading '+file.name+'…';statusEl.style.color='var(--text2)';}
-  const reader=new FileReader();
-  reader.onerror=()=>{
-    if(statusEl){statusEl.textContent='⚠ Could not read file';statusEl.style.color='var(--red)';}
-  };
-  reader.onload=e=>{
-    try{
-      const rows=parseOMENcsv(e.target.result);
-      if(rows.length){
-        flowData=rows;
-        localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
-        if(statusEl){statusEl.textContent=`✓ Loaded ${rows.length} rows from ${file.name}`;statusEl.style.color='var(--green)';}
-        const now=new Date();
-        const upd=document.getElementById('flow-last-update');
-        if(upd) upd.textContent='Uploaded '+now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' at '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-        // Historical flow storage — keep last 10 days
-        const dateKey=now.toISOString().slice(0,10);
-        const tickerSummary={};
-        rows.forEach(r=>{
-          if(!r.symbol)return;
-          if(!tickerSummary[r.symbol])tickerSummary[r.symbol]={calls:0,puts:0,callPrem:0,putPrem:0,sweeps:0};
-          const isCall=r.cp.toLowerCase().includes('call');
-          const prem=parseFloat((r.premium||'0').replace(/[$,kmb]/gi,''));
-          if(isCall){tickerSummary[r.symbol].calls++;tickerSummary[r.symbol].callPrem+=prem;}
-          else{tickerSummary[r.symbol].puts++;tickerSummary[r.symbol].putPrem+=prem;}
-          if((r.flag||'').toUpperCase().includes('S'))tickerSummary[r.symbol].sweeps++;
-        });
-        // Replace or append today's entry
-        flowHistory=flowHistory.filter(e=>e.date!==dateKey);
-        flowHistory.push({date:dateKey,tickers:tickerSummary});
-        flowHistory=flowHistory.sort((a,b)=>a.date>b.date?1:-1).slice(-10);
-        localStorage.setItem('sp_flowHist',JSON.stringify(flowHistory));
-        renderFlowStats();
-        renderFlowBody();
-        updateStatusCounts();
-        showToast('OMEN',`${rows.length} options trades loaded`,'info');
-      }else{
-        if(statusEl){statusEl.textContent='⚠ 0 rows matched — verify CSV has Symbol and Call/Put columns';statusEl.style.color='var(--red)';}
-      }
-    }catch(err){
-      console.error('CSV parse error:',err);
-      if(statusEl){statusEl.textContent='⚠ Parse error: '+err.message;statusEl.style.color='var(--red)';}
-    }
-  };
-  reader.readAsText(file);
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag');
+  const files=e.dataTransfer.files;
+  if(files.length) handleMultipleCSV(files);
 }
+
+// Read a single File object and resolve with parsed rows
+function readFileAsCSV(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onerror=()=>reject(new Error('Read error: '+file.name));
+    r.onload=ev=>{try{resolve(parseOMENcsv(ev.target.result));}catch(err){reject(err);}};
+    r.readAsText(file);
+  });
+}
+
+// Auto-detect the trading date for a CSV from its filename or first row's time field
+function detectDateFromFile(filename,rows){
+  const name=filename.replace(/\.csv$/i,'');
+  // ISO YYYY-MM-DD or YYYY_MM_DD anywhere in filename
+  const iso=name.match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
+  if(iso){const d=`${iso[1]}-${iso[2]}-${iso[3]}`;if(!isNaN(new Date(d)))return d;}
+  // US MM-DD-YYYY or MM/DD/YYYY
+  const us=name.match(/(\d{1,2})[-_\/](\d{1,2})[-_\/](\d{4})/);
+  if(us){const d=`${us[3]}-${us[1].padStart(2,'0')}-${us[2].padStart(2,'0')}`;if(!isNaN(new Date(d)))return d;}
+  // Try time field of first row (may contain "2026-04-10 09:35" etc.)
+  if(rows.length&&rows[0].time){
+    const tm=rows[0].time.match(/(\d{4}-\d{2}-\d{2})/);
+    if(tm)return tm[1];
+  }
+  // Fall back to today
+  return new Date().toISOString().slice(0,10);
+}
+
+// Build a compact per-ticker summary from parsed rows (stored in flowHistory, not raw rows)
+function buildTickerSummary(rows){
+  const summary={};
+  rows.forEach(r=>{
+    if(!r.symbol)return;
+    if(!summary[r.symbol])summary[r.symbol]={calls:0,puts:0,callPrem:0,putPrem:0,sweeps:0};
+    const isCall=r.cp.toLowerCase().includes('call');
+    const prem=parseFloat((r.premium||'0').replace(/[$,kmb]/gi,''));
+    if(isCall){summary[r.symbol].calls++;summary[r.symbol].callPrem+=prem;}
+    else{summary[r.symbol].puts++;summary[r.symbol].putPrem+=prem;}
+    if((r.flag||'').toUpperCase().includes('S'))summary[r.symbol].sweeps++;
+  });
+  return summary;
+}
+
+async function handleMultipleCSV(files){
+  if(!files||!files.length)return;
+  const fileArr=Array.from(files).filter(f=>f.name.toLowerCase().endsWith('.csv'));
+  if(!fileArr.length)return;
+  const statusEl=document.getElementById('csv-status');
+  const updEl=document.getElementById('flow-last-update');
+
+  let totalTrades=0, loadedFiles=0;
+  const allDates=[];
+  let mostRecentDate='', mostRecentRows=[];
+
+  for(let i=0;i<fileArr.length;i++){
+    const file=fileArr[i];
+    if(statusEl){
+      statusEl.textContent=`Processing file ${i+1} of ${fileArr.length}: ${file.name}…`;
+      statusEl.style.color='var(--text2)';
+    }
+    // Yield to browser so status text actually paints before next synchronous parse
+    await new Promise(r=>setTimeout(r,0));
+    try{
+      const rows=await readFileAsCSV(file);
+      if(!rows.length)continue;
+      const dateKey=detectDateFromFile(file.name,rows);
+      allDates.push(dateKey);
+      totalTrades+=rows.length;
+      loadedFiles++;
+      // Track most recent day to set as active flowData
+      if(!mostRecentDate||dateKey>mostRecentDate){mostRecentDate=dateKey;mostRecentRows=rows;}
+      // Merge per-ticker summary into flowHistory (keeps storage small)
+      const tickerSummary=buildTickerSummary(rows);
+      flowHistory=flowHistory.filter(e=>e.date!==dateKey);
+      flowHistory.push({date:dateKey,tickers:tickerSummary,count:rows.length});
+    }catch(err){
+      console.warn('Skipping',file.name,err);
+    }
+  }
+
+  if(!loadedFiles){
+    if(statusEl){statusEl.textContent='⚠ No valid trades found — verify CSVs have Symbol and Call/Put columns';statusEl.style.color='var(--red)';}
+    return;
+  }
+
+  // Persist: sort history chronologically, keep up to 90 days summarised
+  flowHistory=flowHistory.sort((a,b)=>a.date>b.date?1:-1).slice(-90);
+  localStorage.setItem('sp_flowHist',JSON.stringify(flowHistory));
+
+  // Set live flowData to most recent file's rows
+  flowData=mostRecentRows;
+  localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
+
+  // Build final status
+  allDates.sort();
+  const dateA=allDates[0], dateB=allDates[allDates.length-1];
+  const rangeStr=allDates.length>1?`${dateA} → ${dateB}`:dateA;
+  const summary=`✓ Loaded ${loadedFiles} file${loadedFiles>1?'s':''}, ${totalTrades} total trades  ·  ${rangeStr}`;
+  if(statusEl){statusEl.textContent=summary;statusEl.style.color='var(--green)';}
+  const now=new Date();
+  if(updEl) updEl.textContent='Uploaded '+now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' at '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+
+  renderFlowStats();
+  renderFlowBody();
+  updateStatusCounts();
+  showToast('OMEN',`${loadedFiles} file${loadedFiles>1?'s':''}, ${totalTrades} trades loaded`,'info');
+}
+
+// Legacy single-file handler (kept for any external callers)
+function handleCSV(file){if(file)handleMultipleCSV([file]);}
 
 function parseOMENcsv(text){
   if(!text)return[];
