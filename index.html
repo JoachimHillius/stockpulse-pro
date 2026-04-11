@@ -599,6 +599,30 @@ select option{background:var(--bg2);}
     </div>
   </div>
 
+  <!-- DATABASE STATS BAR -->
+  <div id="flow-db-stats" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:10px;">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="color:var(--text3);letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">All-Time</span>
+        <span id="db-stat-total" style="color:var(--blue);font-weight:700;font-size:13px;">—</span>
+        <span style="color:var(--text3);">rows in DB</span>
+      </div>
+      <div style="width:1px;height:16px;background:var(--border2);"></div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="color:var(--text3);letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">Today</span>
+        <span id="db-stat-today" style="color:var(--cyan);font-weight:700;font-size:13px;">—</span>
+        <span style="color:var(--text3);">uploaded</span>
+      </div>
+      <div style="width:1px;height:16px;background:var(--border2);"></div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span id="db-stat-range" style="color:var(--text2);font-size:10px;">—</span>
+      </div>
+      <div style="margin-left:auto;font-size:9px;color:var(--text3);font-style:italic;" id="db-stat-window">
+        Displaying last 30 days · Full history used for conviction analytics
+      </div>
+    </div>
+  </div>
+
   <!-- Bull / Bear flow sentiment summary -->
   <div class="card" style="margin-bottom:14px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -2544,9 +2568,11 @@ async function handleMultipleCSV(files){
   flowHistory=flowHistory.sort((a,b)=>a.date>b.date?1:-1).slice(-90);
   localStorage.setItem('sp_flowHist',JSON.stringify(flowHistory));
 
-  // Save all newly-added rows to Supabase (fire-and-forget — don't block UI)
+  // Save all newly-added rows to Supabase then refresh DB stats
   const allNewRows=Object.values(rawByDate).flat();
-  saveFlowToSupabase(allNewRows).catch(e=>console.warn('Supabase save:',e));
+  saveFlowToSupabase(allNewRows)
+    .then(()=>renderDbStats())
+    .catch(e=>console.warn('Supabase save:',e));
 
   // Update live flowData: merge new rows for the most recent date into existing
   if(rawByDate[mostRecentDate]){
@@ -3478,6 +3504,7 @@ async function loadFlowFromSupabase(){
     if(statusEl){statusEl.textContent=`✓ ${flowData.length} trades loaded from database`;statusEl.style.color='var(--green)';}
     if(updEl)updEl.textContent='Last upload: '+lastStr;
     renderFlowStats();renderFlowBody();updateStatusCounts();
+    renderDbStats(); // populate all-time / today counts (async, non-blocking)
   }catch(err){
     console.warn('Supabase load failed:',err);
     _setDbStatus('● DB error','#ff3d5a');
@@ -3488,6 +3515,48 @@ async function loadFlowFromSupabase(){
       flowData=cached;
       renderFlowStats();renderFlowBody();updateStatusCounts();
     }
+  }
+}
+
+async function renderDbStats(){
+  const supa=getSupabase();
+  if(!supa)return;
+  try{
+    const todayStart=new Date();
+    todayStart.setHours(0,0,0,0);
+    const todayIso=todayStart.toISOString();
+
+    // Run three queries in parallel: total count, today count, oldest+newest dates
+    const[totalRes,todayRes,rangeRes]=await Promise.all([
+      supa.from('omen_flow').select('*',{count:'exact',head:true}),
+      supa.from('omen_flow').select('*',{count:'exact',head:true}).gte('upload_date',todayIso),
+      supa.from('omen_flow').select('upload_date').order('upload_date',{ascending:true}).limit(1),
+    ]);
+
+    const total=totalRes.count??0;
+    const today=todayRes.count??0;
+    const oldest=rangeRes.data?.[0]?.upload_date;
+
+    // Newest = most recent upload we loaded (already have it from data[0])
+    const newestRes=await supa.from('omen_flow').select('upload_date').order('upload_date',{ascending:false}).limit(1);
+    const newest=newestRes.data?.[0]?.upload_date;
+
+    const fmt=iso=>{
+      if(!iso)return'—';
+      const d=new Date(iso);
+      return d.toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});
+    };
+
+    const el=document.getElementById('flow-db-stats');
+    if(el)el.style.display='block';
+    const elTotal=document.getElementById('db-stat-total');
+    const elToday=document.getElementById('db-stat-today');
+    const elRange=document.getElementById('db-stat-range');
+    if(elTotal)elTotal.textContent=total.toLocaleString();
+    if(elToday)elToday.textContent=today.toLocaleString();
+    if(elRange)elRange.textContent=`${total.toLocaleString()} rows stored · oldest: ${fmt(oldest)} · newest: ${fmt(newest)}`;
+  }catch(err){
+    console.warn('DB stats query failed:',err);
   }
 }
 
