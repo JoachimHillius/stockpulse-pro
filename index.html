@@ -127,15 +127,32 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .chg-dn{background:rgba(255,61,90,0.1);color:var(--red);}
 .wl-pat{font-size:9px;color:var(--amber);}
 
-/* WATCHLIST — expandable rows */
-.wl-item{margin-bottom:1px;}
-.wl-item-hd{display:grid;grid-template-columns:16px 50px 1fr 68px 50px 50px 50px 82px 66px;align-items:center;gap:5px;padding:5px 6px;border-radius:3px;cursor:pointer;transition:background 0.1s;}
-.wl-item-hd:hover{background:var(--bg3);}
-body.light-mode .wl-item-hd:hover{background:var(--bg3);}
-.wl-toggle{font-size:9px;color:var(--text3);user-select:none;transition:color 0.15s;}
-.wl-toggle.open{color:var(--cyan);}
-.wl-detail{display:none;padding:10px 12px 12px 28px;background:var(--bg2);border-left:2px solid var(--border2);margin:0 2px 4px;border-radius:0 0 4px 4px;}
-.wl-detail.open{display:block;}
+/* WATCHLIST — dense single-line layout */
+.wl-col-hdr{display:grid;grid-template-columns:52px 1fr 66px 56px 44px 44px 46px 46px 46px 50px 50px 52px 52px 20px;gap:4px;padding:4px 8px;font-size:9px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;border-bottom:1px solid var(--border);position:sticky;top:48px;background:var(--bg);z-index:10;}
+.wl-dense-row{display:grid;grid-template-columns:52px 1fr 66px 56px 44px 44px 46px 46px 46px 50px 50px 52px 52px 20px;gap:4px;padding:3px 8px;border-radius:2px;cursor:pointer;transition:background 0.08s;align-items:center;}
+.wl-dense-row:hover{background:var(--bg3);}
+body.light-mode .wl-dense-row:hover{background:var(--bg3);}
+.wl-sector-hd-dense{display:flex;align-items:center;gap:6px;padding:6px 8px 4px;font-size:9px;letter-spacing:1.5px;color:var(--text2);text-transform:uppercase;cursor:pointer;user-select:none;border-top:1px solid var(--border);margin-top:4px;transition:color 0.1s;}
+.wl-sector-hd-dense:first-child{border-top:none;margin-top:0;}
+.wl-sector-hd-dense:hover{color:var(--text);}
+.wl-chevron{font-size:10px;display:inline-block;transition:transform 0.15s;}
+.wl-chevron.closed{transform:rotate(-90deg);}
+.wl-sector-rows{overflow:hidden;}
+.wl-sector-rows.collapsed{display:none;}
+.pct-cell{font-size:10px;text-align:right;font-weight:600;white-space:nowrap;}
+.pct-pos{color:var(--green);}
+.pct-neg{color:var(--red);}
+.pct-zero{color:var(--text3);font-weight:400;}
+.pct-na{color:var(--text3);font-weight:400;}
+.wl-dot-wrap{display:flex;gap:2px;align-items:center;justify-content:flex-end;}
+.wl-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+.dot-earn{background:var(--amber);}
+.dot-opts{background:var(--purple);}
+.bb-tf-bar{display:flex;gap:4px;align-items:center;}
+.bb-tf-btn{padding:2px 8px;border:1px solid var(--border2);border-radius:3px;font-size:10px;font-family:var(--font);background:transparent;color:var(--text2);cursor:pointer;transition:all 0.1s;}
+.bb-tf-btn:hover{color:var(--text);border-color:var(--cyan);}
+.bb-tf-btn.active{background:var(--cyan);color:var(--bg);border-color:var(--cyan);font-weight:700;}
+/* expandable detail (used only in ticker popup now) */
 .perf-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;}
 .perf-pill{padding:2px 7px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.3px;}
 .perf-up{background:rgba(0,229,176,0.12);color:var(--green);}
@@ -143,7 +160,6 @@ body.light-mode .wl-item-hd:hover{background:var(--bg3);}
 .perf-na{background:rgba(255,255,255,0.04);color:var(--text3);}
 .streak-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;font-size:10px;}
 .streak-box{background:var(--bg3);border-radius:3px;padding:5px 8px;}
-.wl-sector-sum{display:flex;gap:16px;padding:5px 8px;font-size:10px;color:var(--text2);border-top:1px solid var(--border);margin-top:2px;}
 /* SYNC PROGRESS */
 .sync-progress-outer{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:6px 0;}
 .sync-progress-inner{height:100%;background:var(--cyan);border-radius:3px;transition:width 0.3s;width:0%;}
@@ -453,19 +469,43 @@ select option{background:var(--bg2);}
 
 <!-- ============ PAGE: WATCHLIST ============ -->
 <div id="page-watchlist" class="page">
-  <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
-    <input type="text" id="wl-search" placeholder="Search ticker or name..." style="width:220px;" oninput="renderWatchlist()"/>
+  <!-- Top controls row -->
+  <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+    <input type="text" id="wl-search" placeholder="Search symbol or name..." style="width:180px;" oninput="renderWatchlist()"/>
     <div class="filter-row" style="margin:0;">
       <button class="fbtn active" onclick="setWlFilter('all',this)">All</button>
       <button class="fbtn" onclick="setWlFilter('Consumer Staples',this)">Staples</button>
       <button class="fbtn" onclick="setWlFilter('Technology',this)">Tech</button>
       <button class="fbtn" onclick="setWlFilter('Energy',this)">Energy</button>
-      <button class="fbtn" onclick="setWlFilter('Financials',this)">Financials</button>
+      <button class="fbtn" onclick="setWlFilter('Financials',this)">Fin</button>
       <button class="fbtn" onclick="setWlFilter('Healthcare',this)">Health</button>
       <button class="fbtn" onclick="setWlFilter('Crypto / Digital Assets',this)">Crypto</button>
-      <button class="fbtn" onclick="setWlFilter('Materials',this)">Materials</button>
+      <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
     </div>
     <button class="btn btn-ghost btn-sm" onclick="refreshWatchlist()" style="margin-left:auto;">↻ Refresh</button>
+  </div>
+  <!-- Bull/Bear window selector -->
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding:5px 8px;background:var(--bg2);border-radius:4px;border:1px solid var(--border);">
+    <span style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Avg Bull/Bear Window:</span>
+    <div class="bb-tf-bar">
+      <button class="bb-tf-btn" onclick="setFlowWindow('5D',this)">5D</button>
+      <button class="bb-tf-btn active" onclick="setFlowWindow('30D',this)">30D</button>
+      <button class="bb-tf-btn" onclick="setFlowWindow('90D',this)">90D</button>
+      <button class="bb-tf-btn" onclick="setFlowWindow('6M',this)">6M</button>
+      <button class="bb-tf-btn" onclick="setFlowWindow('1Y',this)">1Y</button>
+    </div>
+    <span style="font-size:9px;color:var(--text3);margin-left:auto;">Based on uploaded OMEN CSVs</span>
+  </div>
+  <!-- Column header (sticky) -->
+  <div class="wl-col-hdr">
+    <span>Symbol</span><span>Name</span><span style="text-align:right;">Price</span>
+    <span style="text-align:right;">Net$</span>
+    <span style="text-align:right;">5m%</span><span style="text-align:right;">1h%</span>
+    <span style="text-align:right;">1D%</span><span style="text-align:right;">1W%</span>
+    <span style="text-align:right;">1M%</span><span style="text-align:right;">6M%</span>
+    <span style="text-align:right;">1Y%</span>
+    <span style="text-align:right;">AvgBull</span><span style="text-align:right;">AvgBear</span>
+    <span></span>
   </div>
   <div id="watchlist-body"></div>
 </div>
@@ -760,6 +800,10 @@ let histBaselines = JSON.parse(localStorage.getItem('sp_histBaselines') || '{}')
 let optionsCache = JSON.parse(localStorage.getItem('sp_optChain') || '{}');
 let syncRunning = false;
 const expandedTickers = new Set();
+const collapsedSectors = new Set();
+let flowBullBearWindow = '30D'; // 5D | 30D | 90D | 6M | 1Y
+// Price ring-buffer for 5min/1hr intraday tracking (in-memory only)
+const priceHistory = {}; // sym -> [{p, ts}]
 
 // ============================================================
 // MASTER WATCHLIST — All 130 tickers by sector
@@ -1674,9 +1718,17 @@ function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-w
 // ============================================================
 // WATCHLIST ANALYTICS HELPERS
 // ============================================================
-function getFlowAnalytics(sym){
-  const days=flowHistory
-    .filter(e=>e.tickers?.[sym])
+function windowToDays(w){
+  return{  '5D':5,'30D':30,'90D':90,'6M':182,'1Y':365}[w]||30;
+}
+function getFlowAnalytics(sym, windowLabel){
+  // Filter entries within the window (undefined = all history)
+  let entries=flowHistory.filter(e=>e.tickers?.[sym]);
+  if(windowLabel){
+    const cutoffDate=new Date(Date.now()-windowToDays(windowLabel)*86400000).toISOString().slice(0,10);
+    entries=entries.filter(e=>e.date>=cutoffDate);
+  }
+  const days=entries
     .map(e=>{const t=e.tickers[sym];return{date:e.date,bull:(t.callPrem||0)>=(t.putPrem||0)};})
     .sort((a,b)=>a.date.localeCompare(b.date));
   if(!days.length)return null;
@@ -1694,13 +1746,27 @@ function getFlowAnalytics(sym){
   const bullS=streaks.filter(s=>s.dir==='bull').map(s=>s.len);
   const bearS=streaks.filter(s=>s.dir==='bear').map(s=>s.len);
   return{
-    bullPct, bearPct:100-bullPct, totalDays:days.length,
+    bullPct,bearPct:100-bullPct,totalDays:days.length,
     avgBull:bullS.length?+(bullS.reduce((a,b)=>a+b)/bullS.length).toFixed(1):0,
     avgBear:bearS.length?+(bearS.reduce((a,b)=>a+b)/bearS.length).toFixed(1):0,
     maxBull:bullS.length?Math.max(...bullS):0,
     maxBear:bearS.length?Math.max(...bearS):0,
     currentStreak:streaks.at(-1),
   };
+}
+function setFlowWindow(w,btn){
+  flowBullBearWindow=w;
+  document.querySelectorAll('.bb-tf-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  renderWatchlist();
+}
+function toggleSector(sector){
+  if(collapsedSectors.has(sector))collapsedSectors.delete(sector);
+  else collapsedSectors.add(sector);
+  const rows=document.getElementById('wl-sec-rows-'+CSS.escape(sector));
+  const chev=document.getElementById('wl-chev-'+CSS.escape(sector));
+  if(rows){rows.classList.toggle('collapsed',collapsedSectors.has(sector));}
+  if(chev){chev.classList.toggle('closed',collapsedSectors.has(sector));}
 }
 
 function drawSparkline(canvas,closes){
@@ -1815,89 +1881,91 @@ function renderWatchlist(){
   const search=(document.getElementById('wl-search')?.value||'').toUpperCase();
   const body=document.getElementById('watchlist-body');
   if(!body)return;
+  // Helpers
+  const pctCell=(val,na)=>{
+    if(val==null)return`<span class="pct-cell pct-na">—</span>`;
+    const cls=Math.abs(val)<0.05?'pct-zero':val>0?'pct-pos':'pct-neg';
+    return`<span class="pct-cell ${cls}">${val>=0?'+':''}${val.toFixed(2)}%</span>`;
+  };
+  const bbCell=(val)=>{
+    if(val==null)return`<span class="pct-cell pct-na">—</span>`;
+    const cls=val>=60?'pct-pos':val<=40?'pct-neg':'pct-zero';
+    return`<span class="pct-cell ${cls}" style="font-weight:700;">${val}%</span>`;
+  };
   let html='';
   Object.entries(WATCHLIST).forEach(([sector,tickers])=>{
     if(currentWlFilter!=='all'&&sector!==currentWlFilter)return;
     const matched=tickers.filter(s=>{
       if(!search)return true;
-      const name=(COMPANY_NAMES[s]||'').toUpperCase();
-      return s.includes(search)||name.includes(search);
+      return s.includes(search)||(COMPANY_NAMES[s]||'').toUpperCase().includes(search);
     });
     if(!matched.length)return;
+    const secId=sector.replace(/[^a-z0-9]/gi,'_');
+    const isCollapsed=collapsedSectors.has(sector);
+    // Sector header (clickable)
+    const sectorHdr=`<div class="wl-sector-hd-dense" onclick="toggleSector('${sector.replace(/'/g,"\\'")}')">
+      <span class="wl-chevron${isCollapsed?' closed':''}" id="wl-chev-${secId}">▾</span>
+      <span>${sector}</span>
+      <span style="color:var(--text3);margin-left:auto;font-size:9px;">${matched.length} stocks</span>
+    </div>`;
+    // Stock rows
     const rows=matched.map(sym=>{
-      const q=getQ(sym);const u=q.dp>=0;
-      const coName=COMPANY_NAMES[sym]||sector;
-      const fa=getFlowAnalytics(sym);
-      const perf=histBaselines[sym]?.perf;
-      // Use Yahoo perf values if available, else mock
-      const d1=perf?.d1??q.dp;
-      const w1=perf?.w1??null;
-      const m1=perf?.m1??null;
-      const mkPill=(lbl,val)=>{
-        if(val==null)return`<span class="perf-pill perf-na" style="font-size:9px;padding:1px 5px;">${lbl} —</span>`;
-        const cls=val>=0?'perf-up':'perf-dn';
-        return`<span class="perf-pill ${cls}" style="font-size:9px;padding:1px 5px;">${lbl} ${val>=0?'+':''}${val.toFixed(1)}%</span>`;
-      };
-      // Flow badge
-      let flowBadge;
-      if(fa){
-        const bullClr=fa.bullPct>=60?'var(--green)':fa.bullPct<=40?'var(--red)':'var(--amber)';
-        flowBadge=`<span style="font-size:10px;font-weight:600;color:${bullClr}">${fa.bullPct}%B</span><span style="font-size:10px;color:var(--text3)">/${fa.bearPct}%Br</span>`;
-      } else {
-        flowBadge=`<span style="color:var(--text3);font-size:10px;">—</span>`;
+      const q=getQ(sym);
+      const p=histBaselines[sym]?.perf;
+      const fa=getFlowAnalytics(sym,flowBullBearWindow);
+      // Price & net change
+      const priceClr=q.dp>=0?'up':'dn';
+      const netClr=q.d>=0?'pct-pos':'pct-neg';
+      // Intraday tracking
+      const m5=getPriceChangePct(sym,5);
+      const h1=getPriceChangePct(sym,60);
+      // Performance (Yahoo or mock)
+      const d1=p?.d1??q.dp;
+      const w1=p?.w1??null;
+      const m1=p?.m1??null;
+      const m6=p?.m6??null;
+      const y1=p?.y1??null;
+      // Flow analytics (windowed)
+      const bullPct=fa?.bullPct??null;
+      const bearPct=fa?.bearPct??null;
+      // Dot indicators
+      const dots=[];
+      // Earnings proximity: check earningsCache for upcoming quarter
+      const earnData=earningsCache[sym];
+      if(earnData?.length){
+        const lastPeriod=earnData.at(-1)?.period;
+        if(lastPeriod){
+          // Approximate next earnings ~90 days from last period
+          const lastDate=new Date(lastPeriod);
+          const nextEst=new Date(lastDate.getTime()+90*86400000);
+          const daysToEarn=Math.round((nextEst-Date.now())/86400000);
+          if(daysToEarn>=0&&daysToEarn<=30)dots.push('<span class="wl-dot dot-earn" title="Earnings ~'+daysToEarn+'d away"></span>');
+        }
       }
-      // Streak badge
-      let streakBadge='';
-      if(fa?.currentStreak){
-        const sClr=fa.currentStreak.dir==='bull'?'var(--green)':'var(--red)';
-        streakBadge=`<span style="font-size:10px;color:${sClr};font-weight:600;">${fa.currentStreak.dir==='bull'?'▲':'▼'}D${fa.currentStreak.len}</span>`;
-      }
-      return `<div class="wl-item">
-        <div class="wl-item-hd" onclick="toggleWlRow('${sym}',event)">
-          <span class="wl-toggle" id="wl-tog-${sym}">▶</span>
-          <span class="wl-sym">${sym}</span>
-          <span class="wl-name">${coName}</span>
-          <span class="wl-px ${u?'up':'dn'}">${fmtPrice(sym,q.p)}</span>
-          ${mkPill('1D',d1)}
-          ${mkPill('1W',w1)}
-          ${mkPill('1M',m1)}
-          <span>${flowBadge}</span>
-          <span>${streakBadge}</span>
-        </div>
-        <div class="wl-detail" id="wl-detail-${sym}"></div>
+      // Unusual options: P/C ratio extreme
+      const chain=optionsCache[sym];
+      if(chain?.pcRatio!=null&&(chain.pcRatio<0.5||chain.pcRatio>1.5))
+        dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C '+chain.pcRatio+'"></span>');
+      return`<div class="wl-dense-row" onclick="showTickerDetail('${sym}')">
+        <span class="wl-sym" style="font-size:11px;">${sym}</span>
+        <span class="wl-name" style="font-size:10px;">${COMPANY_NAMES[sym]||sector}</span>
+        <span class="pct-cell ${priceClr}" style="font-size:11px;font-weight:700;text-align:right;">${fmtPrice(sym,q.p)}</span>
+        <span class="pct-cell ${netClr}" style="text-align:right;">${q.d>=0?'+':''}${q.d.toFixed(2)}</span>
+        ${pctCell(m5)}
+        ${pctCell(h1)}
+        ${pctCell(d1)}
+        ${pctCell(w1)}
+        ${pctCell(m1)}
+        ${pctCell(m6)}
+        ${pctCell(y1)}
+        ${bbCell(bullPct)}
+        ${bbCell(bearPct)}
+        <div class="wl-dot-wrap">${dots.join('')}</div>
       </div>`;
     }).join('');
-    // Sector summary: avg 1D%, avg flow bull%
-    const sectorDps=matched.map(s=>(histBaselines[s]?.perf?.d1??getQ(s).dp));
-    const avgDp=sectorDps.reduce((a,b)=>a+b,0)/sectorDps.length;
-    const sectorFa=matched.map(s=>getFlowAnalytics(s)).filter(Boolean);
-    const avgBull=sectorFa.length?Math.round(sectorFa.reduce((a,b)=>a+b.bullPct,0)/sectorFa.length):null;
-    const sumHtml=`<div class="wl-sector-sum">
-      <span>Avg 1D: <span class="${avgDp>=0?'up':'dn'}">${avgDp>=0?'+':''}${avgDp.toFixed(2)}%</span></span>
-      ${avgBull!==null?`<span>Avg flow: <span style="color:${avgBull>=60?'var(--green)':avgBull<=40?'var(--red)':'var(--amber)'}">${avgBull}% Bull</span></span>`:''}
-      <span style="color:var(--text3);margin-left:auto;">${matched.length} stocks</span>
-    </div>`;
-    html+=`<div class="wl-sector">
-      <div class="wl-sector-hd"><span>${sector}</span></div>
-      ${rows}
-      ${sumHtml}
-    </div>`;
+    html+=sectorHdr+`<div class="wl-sector-rows${isCollapsed?' collapsed':''}" id="wl-sec-rows-${secId}">${rows}</div>`;
   });
   body.innerHTML=html||'<div class="empty">No tickers match your filter</div>';
-  // Restore expanded rows after re-render
-  expandedTickers.forEach(sym=>{
-    const detail=document.getElementById('wl-detail-'+sym);
-    const tog=document.getElementById('wl-tog-'+sym);
-    if(detail){
-      detail.innerHTML=buildWlDetail(sym);
-      detail.classList.add('open');
-      if(tog){tog.textContent='▼';tog.classList.add('open');}
-      setTimeout(()=>{
-        const c=document.getElementById('wl-spark-'+sym);
-        if(c&&histBaselines[sym]?.recent20)drawSparkline(c,histBaselines[sym].recent20);
-      },0);
-    }
-  });
 }
 function refreshWatchlist(){if(finnhubKey)fetchLiveAll();else renderWatchlist();}
 function quickPatterns(sym,q){
@@ -2884,13 +2952,33 @@ function clearAll(){if(confirm('Clear all data?')){localStorage.clear();location
 // ============================================================
 // LIVE DATA
 // ============================================================
+function recordPriceSnapshot(sym, price){
+  if(!priceHistory[sym])priceHistory[sym]=[];
+  priceHistory[sym].push({p:price,ts:Date.now()});
+  if(priceHistory[sym].length>180)priceHistory[sym].shift(); // keep ~3hr at 1min intervals
+}
+function getPriceChangePct(sym, minutes){
+  const arr=priceHistory[sym];
+  if(!arr||arr.length<2)return null;
+  const cutoff=Date.now()-minutes*60000;
+  // Find the most recent snapshot older than `cutoff`
+  const baseline=arr.filter(e=>e.ts<=cutoff);
+  if(!baseline.length)return null;
+  const old=baseline.at(-1).p;
+  const cur=arr.at(-1).p;
+  if(!old)return null;
+  return(cur-old)/old*100;
+}
 async function fetchLiveAll(){
   if(!finnhubKey)return;
   for(const sym of Object.values(WATCHLIST).flat().slice(0,30)){
     try{
       const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${finnhubKey}`);
       const d=await r.json();
-      if(d.c)liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0};
+      if(d.c){
+        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0};
+        recordPriceSnapshot(sym,d.c);
+      }
     }catch(e){}
     await sleep(100);
   }
