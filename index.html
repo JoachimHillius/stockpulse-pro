@@ -558,6 +558,10 @@ select option{background:var(--bg2);}
               </div>
               <button onclick="refreshMktChart()" title="Reload chart for selected date" style="background:transparent;border:1px solid var(--border2);color:#ffffff;border-radius:3px;padding:2px 8px;font-size:15px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
             </div>
+            <button class="fbtn" onclick="setMktRange('1MIN',this)">1MIN</button>
+            <button class="fbtn" onclick="setMktRange('5MIN',this)">5MIN</button>
+            <button class="fbtn" onclick="setMktRange('15MIN',this)">15MIN</button>
+            <button class="fbtn" onclick="setMktRange('1HR',this)">1HR</button>
             <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
             <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
             <button class="fbtn" onclick="setMktRange('1M',this)">1M</button>
@@ -943,13 +947,13 @@ select option{background:var(--bg2);}
 <script>
 // Last trading day helper — used for chart date default
 function _lastTradingDay(){
-  // Start from yesterday, then walk back past any weekends
-  const d=new Date();
+  const d = new Date();
   d.setDate(d.getDate()-1);
-  while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1);
-  const result=d.toISOString().slice(0,10);
-  console.log('[_lastTradingDay] result:',result,'| dow:',d.getDay());
-  return result;
+  while(d.getDay()===0||d.getDay()===6)
+    d.setDate(d.getDate()-1);
+  const iso = d.toISOString().slice(0,10);
+  console.log('[lastTradingDay] returns:', iso);
+  return iso;
 }
 // ============================================================
 // STATE
@@ -1256,6 +1260,14 @@ function safeRegister(plugin){
 const yieldFn = (fn) => setTimeout(fn, 0);
 
 function initData(){
+  // Set both date pickers immediately — ensures they have a value before any fetch runs
+  const _ltd = _lastTradingDay();
+  const vixPicker = document.getElementById('vix-date-input');
+  const mktPicker = document.getElementById('mkt-date-input');
+  if(vixPicker) vixPicker.value = _ltd;
+  if(mktPicker) mktPicker.value = _ltd;
+  console.log('[initData] pickers set to:', _ltd);
+
   // Load positions from localStorage first — never lose them on page refresh
   const _savedPos=localStorage.getItem('sp_positions');
   if(_savedPos) positions=JSON.parse(_savedPos);
@@ -1405,7 +1417,7 @@ function setRiskBanner(v){
 async function fetchVixQuote(){
   if(!tdKey) return;
   try{
-    const r=await fetch(`https://api.twelvedata.com/price?symbol=VIX&exchange=CBOE&apikey=${tdKey}`);
+    const r=await fetch(`https://api.twelvedata.com/price?symbol=VIX&apikey=${tdKey}`);
     const d=await r.json();
     console.log('[VIX] quote response:', d);
     const price=parseFloat(d && d.price ? d.price : 0);
@@ -1451,10 +1463,10 @@ async function fetchVixCandles(){
     let url;
     if(isIntraday){
       // Intraday: fetch the specific day selected in the date picker
-      url = `https://api.twelvedata.com/time_series?symbol=VIX&exchange=CBOE&interval=${cfg.interval}&date=${vixDate}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
+      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&date=${vixDate}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     } else {
       // Daily/weekly: just get the last N bars
-      url = `https://api.twelvedata.com/time_series?symbol=VIX&exchange=CBOE&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
+      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     }
     console.log('[VIX] fetchVixCandles — tf:', vixTf, '| date:', vixDate, '| URL:', url);
     const res = await fetch(url);
@@ -1821,8 +1833,17 @@ const BAR_4AM=0,BAR_930AM=66,BAR_4PM=144,BAR_8PM=191;
 
 function renderMktChart(range,sym,date){
   sym=sym||_mktSym||'SPY';
-  if(range==='1D'){renderIntradayChart(sym,date||_mktDate||'');return;}
-  // Multi-day — mock price simulation
+  // Intraday ranges — set interval and render the day selected in the picker
+  if(range==='1MIN') {_mktInterval='1min';  renderIntradayChart(sym,date||''); return;}
+  if(range==='5MIN') {_mktInterval='5min';  renderIntradayChart(sym,date||''); return;}
+  if(range==='15MIN'){_mktInterval='15min'; renderIntradayChart(sym,date||''); return;}
+  if(range==='1HR')  {_mktInterval='1h';    renderIntradayChart(sym,date||''); return;}
+  if(range==='1D')   {_mktInterval='5min';  renderIntradayChart(sym,date||''); return;}
+  // Multi-day ranges — real Twelve Data daily bars
+  if(range==='1W'){renderDailyChart(sym,5);  return;}
+  if(range==='1M'){renderDailyChart(sym,21); return;}
+  if(range==='3M'){renderDailyChart(sym,63); return;}
+  // Multi-day — mock price simulation (fallback, kept for safety)
   const days=range==='1W'?7:range==='1M'?30:90;
   const base=(liveData[sym]||MOCK[sym])?.p||680;
   const vol=range==='1W'?0.010:range==='1M'?0.013:0.016;
@@ -1909,6 +1930,83 @@ function renderMktChart(range,sym,date){
   });
 }
 
+// Multi-day chart using real Twelve Data daily bars (1W=5 bars, 1M=21, 3M=63)
+async function renderDailyChart(sym, outputsize){
+  sym = sym||_mktSym||'SPY';
+  const dateEl = document.getElementById('mkt-chart-date');
+  const noticeEl = document.getElementById('mkt-notice');
+  if(noticeEl) noticeEl.style.display='none';
+
+  function showMsg(msg){
+    if(mktChart){mktChart.destroy();mktChart=null;}
+    const canvas=document.getElementById('mkt-chart');if(!canvas)return;
+    const c=canvas.getContext('2d');c.clearRect(0,0,canvas.width,canvas.height);
+    c.font='11px JetBrains Mono,monospace';c.fillStyle='#c0cfe0';
+    c.textAlign='center';c.textBaseline='middle';c.fillText(msg,canvas.width/2,canvas.height/2);
+  }
+
+  if(!tdKey){showMsg('Add Twelve Data key in Settings');return;}
+  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1day&outputsize=${outputsize}&apikey=${tdKey}`;
+  console.log('[DailyChart] URL:', url,'| sym:', sym,'| outputsize:', outputsize);
+
+  let data;
+  try{const r=await fetch(url);data=await r.json();}
+  catch(e){showMsg('Network error — '+e.message);return;}
+
+  if(data.status==='error'||!Array.isArray(data.values)||!data.values.length){
+    showMsg(data.message||('No daily data for '+sym));return;
+  }
+
+  const bars=[...data.values].reverse(); // oldest first
+  const actualDate=data.values[0].datetime.slice(0,10);
+  console.log('[DailyChart] actual data date:', actualDate,'| bars:', bars.length);
+  if(dateEl) dateEl.textContent='Showing: '+sym+' daily thru '+_fmtDateShort(actualDate);
+
+  const prices=bars.map(b=>parseFloat(parseFloat(b.close).toFixed(2)));
+  const labels=bars.map(b=>{const d=new Date(b.datetime+'T00:00:00');return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
+  const allDates=bars.map(b=>{const d=new Date(b.datetime+'T00:00:00');return d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});});
+
+  const firstP=prices[0],lastP=prices[prices.length-1];
+  const isUp=lastP>=firstP;const clr=isUp?'#00e5b0':'#ff3d5a';
+  const minP=Math.min(...prices),maxP=Math.max(...prices);
+  const step=smartStep(minP,maxP);
+  const yMin=Math.floor(minP/step)*step,yMax=Math.ceil(maxP/step)*step;
+  const gridClr=isLight?'rgba(0,0,0,0.06)':'rgba(255,255,255,0.04)';
+  const tickClr=isLight?'#5a6a80':'#7a8899';
+  const gridClr2=isLight?'rgba(0,0,0,0.08)':'rgba(255,255,255,0.06)';
+  const tooltipBg=isLight?'#ffffff':'#0d1420';
+  const tooltipBorder=isLight?'rgba(0,0,0,0.12)':'rgba(255,255,255,0.15)';
+  const tooltipTitle=isLight?'#5a6a80':'#7a8899';
+  const tooltipBody=isLight?'#1a2235':'#dde3f0';
+
+  if(mktChart)mktChart.destroy();
+  const ctx=document.getElementById('mkt-chart').getContext('2d');
+  const dlyPrevPlugin={id:'dlyPrev',afterDraw(chart){
+    const c2=chart.ctx,ys=chart.scales.y,xs=chart.scales.x;
+    const y=ys.getPixelForValue(firstP);
+    c2.save();c2.beginPath();c2.setLineDash([6,4]);c2.strokeStyle='rgba(255,255,255,0.15)';c2.lineWidth=1;
+    c2.moveTo(xs.left,y);c2.lineTo(xs.right,y);c2.stroke();c2.setLineDash([]);
+    c2.fillStyle='rgba(255,255,255,0.3)';c2.font='9px JetBrains Mono,monospace';
+    c2.fillText('Period Open $'+firstP.toFixed(2),xs.left+4,y-4);c2.restore();
+  }};
+  safeRegister(dlyPrevPlugin);
+  mktChart=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[{data:prices,borderColor:clr,backgroundColor:clr+'12',fill:true,tension:0.2,pointRadius:0,pointHoverRadius:5,pointHoverBackgroundColor:clr,pointHoverBorderColor:'#060912',pointHoverBorderWidth:2,borderWidth:1.8}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},dlyPrev:{},
+        tooltip:{enabled:true,backgroundColor:tooltipBg,borderColor:tooltipBorder,borderWidth:1,titleColor:tooltipTitle,bodyColor:tooltipBody,padding:10,displayColors:false,
+          callbacks:{title:items=>allDates[items[0].dataIndex],
+            label:item=>{const val=item.raw,chg=val-firstP,pct=((chg/firstP)*100).toFixed(2),sign=chg>=0?'+':'';
+              return[`  ${sym}:  $${val.toFixed(2)}`,`  Change:  ${sign}$${chg.toFixed(2)}  (${sign}${pct}%)`];}}}},
+      scales:{
+        x:{grid:{color:gridClr,drawBorder:false},border:{display:false},ticks:{color:tickClr,font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:10}},
+        y:{min:yMin,max:yMax,position:'right',grid:{color:gridClr2,drawBorder:false},border:{display:false},ticks:{color:tickClr,font:{size:9},stepSize:step,callback:v=>'$'+parseFloat(v).toFixed(step<5?2:0)}}
+      }
+    }
+  });
+}
+
 // Format a YYYY-MM-DD string as a human-readable date (local interpretation, no timezone shift)
 function _fmtDateStr(iso){
   const d=new Date(iso+'T00:00:00');
@@ -1981,10 +2079,10 @@ async function renderIntradayChart(sym, requestedDateStr){
     showMsg('Add Twelve Data API key in Settings to view chart — twelvedata.com, free, instant');
     return;
   }
-  // Use date= param so Twelve Data handles the market session window (9:30–16:00 ET)
-  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1min&date=${dateISO}&timezone=America%2FNew_York&outputsize=400&apikey=${tdKey}`;
+  // Use date= param + active interval (_mktInterval) — TD handles the session window
+  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${_mktInterval}&date=${dateISO}&timezone=America%2FNew_York&outputsize=400&apikey=${tdKey}`;
   console.log('[MktChart] Twelve Data URL:', url);
-  console.log('[MktChart] Fetching date:', dateISO, '| sym:', sym);
+  console.log('[MktChart] Fetching date:', dateISO, '| sym:', sym, '| interval:', _mktInterval);
 
   let data;
   try{
@@ -2007,6 +2105,11 @@ async function renderIntradayChart(sym, requestedDateStr){
 
   // Twelve Data returns newest-first — reverse to chronological
   const tdBars=[...data.values].reverse();
+
+  // Set chart title from actual data date (data.values[0] is newest bar)
+  const actualDate = data.values[0].datetime.slice(0,10);
+  console.log('[MktChart] actual data date:', actualDate);
+  if(dateEl) dateEl.textContent = 'Showing: ' + _fmtDateShort(actualDate);
   const tss    = tdBars.map(b=>Math.floor(new Date(b.datetime.replace(' ','T')+'-04:00').getTime()/1000));
   const prices = tdBars.map(b=>parseFloat(parseFloat(b.close).toFixed(2)));
   const times  = tdBars.map(b=>{ const t=new Date(b.datetime.replace(' ','T')+'-04:00'); return t.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}); });
@@ -2141,11 +2244,8 @@ async function renderIntradayChart(sym, requestedDateStr){
 }
 
 function refreshMktChart(){
-  renderMktChart('1D', typeof _mktSym!=='undefined'?_mktSym:'SPY');
-  // re-activate 1D button
-  document.querySelectorAll('#page-morning .fbtn').forEach(b=>b.classList.remove('active'));
-  const btn1d=document.querySelector('#page-morning .fbtn');
-  if(btn1d) btn1d.classList.add('active');
+  // Re-render using current interval and whatever date is in the picker
+  renderIntradayChart(_mktSym||'SPY','');
 }
 
 function setMktRange(r,btn){
@@ -4009,6 +4109,7 @@ async function saveFlowToSupabase(rows){
 let _mktSym = localStorage.getItem('sp_mkt_sym') || 'SPY';
 
 let _mktDate = localStorage.getItem('sp_mkt_date') || ''; // YYYY-MM-DD; initData() sets to last trading day if empty
+let _mktInterval = '5min'; // active intraday interval: 1min 5min 15min 1h
 
 function switchMktSym(){
   const input = document.getElementById('mkt-sym-input');
@@ -4023,9 +4124,10 @@ function switchMktSym(){
 
 function switchMktDate(){
   const input = document.getElementById('mkt-date-input');
-  const dateVal = input?.value || ''; // YYYY-MM-DD
+  const dateVal = input?.value || _lastTradingDay();
   _mktDate = dateVal;
   localStorage.setItem('sp_mkt_date', dateVal);
+  console.log('[MktChart] user changed date to:', dateVal);
 
   // Update the date label
   const dateEl = document.getElementById('mkt-chart-date');
@@ -4043,8 +4145,9 @@ function switchMktDate(){
 
 function switchVixDate(){
   const input = document.getElementById('vix-date-input');
-  const dateVal = input?.value || ''; // YYYY-MM-DD
+  const dateVal = input?.value || _lastTradingDay();
   _vixDate = dateVal;
+  console.log('[VIX] user changed date to:', dateVal);
   fetchVixCandles();
 }
 
