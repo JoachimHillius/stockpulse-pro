@@ -407,6 +407,7 @@ select option{background:var(--bg2);}
       <span id="fh-dot" style="width:6px;height:6px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
       <span id="fh-txt">No API Key</span>
     </div>
+    <div id="hdr-datetime" style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;">—</div>
     <div class="clock" id="clock">—</div>
   </div>
 </div>
@@ -526,7 +527,8 @@ select option{background:var(--bg2);}
         <div class="card-hd">
           <div>
             <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
-            <div id="mkt-chart-date" style="font-size:18px;font-weight:700;color:#ffffff;margin-top:6px;letter-spacing:0.3px;min-height:22px;">Today</div>
+            <!-- Chart date shown below title — updated by renderIntradayChart -->
+            <div id="mkt-chart-date" style="font-size:13px;font-weight:600;color:#ffffff;margin-top:4px;letter-spacing:0.2px;"></div>
           </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <!-- Symbol input -->
@@ -537,13 +539,16 @@ select option{background:var(--bg2);}
                 oninput="this.value=this.value.toUpperCase()"/>
               <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-size:10px;font-weight:700;">GO</button>
             </div>
-            <!-- Date picker -->
-            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;" title="Select trading date">
-              <input id="mkt-date-input" type="date"
-                style="background:var(--bg3);border:none;color:#ffffff;padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:130px;color-scheme:dark;"
-                onchange="switchMktDate()"/>
+            <!-- CHART DATE picker — user controls which trading day to view -->
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span style="font-size:9px;font-weight:700;color:#ffffff;letter-spacing:1px;text-transform:uppercase;">Chart Date:</span>
+              <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
+                <input id="mkt-date-input" type="date"
+                  style="background:var(--bg3);border:none;color:#ffffff;padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:130px;color-scheme:dark;"
+                  onchange="switchMktDate()"/>
+              </div>
+              <button onclick="refreshMktChart()" title="Reload chart for selected date" style="background:transparent;border:1px solid var(--border2);color:#ffffff;border-radius:3px;padding:2px 8px;font-size:15px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
             </div>
-            <button onclick="refreshMktChart()" title="Refresh chart data" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:2px 7px;font-size:13px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
             <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
             <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
             <button class="fbtn" onclick="setMktRange('1M',this)">1M</button>
@@ -919,20 +924,14 @@ select option{background:var(--bg2);}
 </div>
 
 <script>
-// ============================================================
-// TODAY'S DATE — runs first, before anything else, no API dependency
-// Element is already in DOM at this point (defined above the script tag)
-// ============================================================
-(function(){
-  var _el = document.getElementById('mkt-chart-date');
-  if(_el){
-    var _d = new Date();
-    _el.textContent = 'Today: ' + _d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
-    _el.style.color = '#ffffff';
-    _el.style.fontWeight = '700';
-    _el.style.fontSize = '18px';
-  }
-})();
+// Last trading day helper — used for chart date default
+function _lastTradingDay(){
+  const d=new Date();
+  const dow=d.getUTCDay(); // 0=Sun,6=Sat
+  if(dow===0) d.setUTCDate(d.getUTCDate()-2); // Sunday → Friday
+  else if(dow===6) d.setUTCDate(d.getUTCDate()-1); // Saturday → Friday
+  return d.toISOString().slice(0,10);
+}
 // ============================================================
 // STATE
 // ============================================================
@@ -1260,20 +1259,18 @@ function initData(){
   }
   // Restore saved market date — set input and update the date label
   const _savedDate=localStorage.getItem('sp_mkt_date')||'';
-  _mktDate=_savedDate;
+  const _defaultDate=_savedDate||_lastTradingDay();
+  _mktDate=_defaultDate;
   const _dateInp=document.getElementById('mkt-date-input');
   if(_dateInp){
     const _todayISO=new Date().toISOString().slice(0,10);
     _dateInp.max=_todayISO;
-    // Always show a date — saved date or today
-    _dateInp.value=_savedDate||_todayISO;
+    _dateInp.value=_defaultDate;
   }
-  if(_savedDate){
-    const _mcdEl2=document.getElementById('mkt-chart-date');
-    if(_mcdEl2){
-      const _d=new Date(_savedDate+'T00:00:00');
-      _mcdEl2.textContent=_d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
-    }
+  const _mcdEl2=document.getElementById('mkt-chart-date');
+  if(_mcdEl2){
+    const _d=new Date(_defaultDate+'T00:00:00');
+    _mcdEl2.textContent='Showing: '+_d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
   }
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
@@ -1339,6 +1336,9 @@ function init(){ initData(); }
 function updateClock(){
   const now=new Date();
   document.getElementById('clock').textContent=now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  // Header date+time — always white, always visible on every tab
+  const hdt=document.getElementById('hdr-datetime');
+  if(hdt) hdt.textContent=now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})+' '+now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   updateMarketStatus();
 }
 function isMarketOpen(){
@@ -1887,13 +1887,14 @@ function _barAtET(timestamps,hourET,minET){
 }
 
 async function renderIntradayChart(sym, requestedDateStr){
+  // Read key directly from localStorage — no flags, no Supabase, no delays
+  const key = localStorage.getItem('sp_fh') || '';
+  console.log('[MktChart] renderIntradayChart — key length:', key.length, '| sym:', sym||'SPY');
+
   sym = sym || 'SPY';
   // requestedDateStr: YYYY-MM-DD or '' = today
   const todayISO = new Date().toISOString().slice(0,10);
   const startISO = requestedDateStr || todayISO;
-
-  // KEY DIAGNOSTIC — always logged so we can confirm key is set when chart renders
-  console.log('[MktChart] renderIntradayChart — sym:', sym, '| startISO:', startISO, '| finnhubKey:', finnhubKey ? finnhubKey.slice(0,8)+'...(len='+finnhubKey.length+')' : 'EMPTY');
 
   const dateEl   = document.getElementById('mkt-chart-date');
   const noticeEl = document.getElementById('mkt-notice');
@@ -1940,9 +1941,8 @@ async function renderIntradayChart(sym, requestedDateStr){
     lines.forEach((l,i)=>c.fillText(l,canvas.width/2,canvas.height/2-totalH/2+i*lineH+lineH/2));
   }
 
-  if(!finnhubKey){
-    showMsg('Real market data requires a Finnhub API key — add yours in Settings');
-    // dateEl already set by _setDateLabel above
+  if(!key){
+    showMsg('Add Finnhub API key in Settings to view chart data');
     return;
   }
 
@@ -1964,7 +1964,7 @@ async function renderIntradayChart(sym, requestedDateStr){
     const effectiveTo=iso===todayISO?Math.floor(Date.now()/1000):toTs;
 
     try{
-      const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+effectiveTo+'&token='+finnhubKey;
+      const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+effectiveTo+'&token='+key;
       console.log('[MktChart] Fetching (back='+back+') iso='+iso+' fromTs='+fromTs+' toTs='+effectiveTo);
       console.log('[MktChart] Full URL:', url);
       const r=await fetch(url);
@@ -3971,7 +3971,7 @@ async function saveFlowToSupabase(rows){
 // ============================================================
 let _mktSym = localStorage.getItem('sp_mkt_sym') || 'SPY';
 
-let _mktDate = localStorage.getItem('sp_mkt_date') || ''; // YYYY-MM-DD or '' = today
+let _mktDate = localStorage.getItem('sp_mkt_date') || ''; // YYYY-MM-DD; initData() sets to last trading day if empty
 
 function switchMktSym(){
   const input = document.getElementById('mkt-sym-input');
