@@ -1328,7 +1328,7 @@ function initCharts(){
   console.log('[TV] TradingView loaded — creating widgets');
   _createMktWidget(_mktSym||'SPY', _tvMktInterval);
   _createVixWidget(_tvVixInterval);
-  if(tdKey) fetchVixQuote(); // update VIX big number
+  if(finnhubKey) fetchVixQuote(); // update VIX big number
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -1381,15 +1381,14 @@ function setRiskBanner(v){
   else{b.style.background='rgba(255,61,90,0.15)';b.style.color='var(--red)';b.style.border='1px solid rgba(255,61,90,0.4)';b.textContent='🚨 EXTREME PANIC (VIX '+v.toFixed(1)+') — Reduce size significantly. Mean-reversion plays only.';}
 }
 
-// Fetch fresh VIX quote from Twelve Data — called on load and every 5 min
+// Fetch fresh VIX quote from Finnhub — free tier supports /quote for VIX
 async function fetchVixQuote(){
-  if(!tdKey) return;
+  if(!finnhubKey) return;
   try{
-    const r=await fetch(`https://api.twelvedata.com/price?symbol=VIX&apikey=${tdKey}`);
+    const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=VIX&token=${finnhubKey}`);
     const d=await r.json();
-    console.log('[VIX] quote response:', d);
-    const price=parseFloat(d && d.price ? d.price : 0);
-    if(price>0) updateVix(price);
+    console.log('[VIX] Finnhub quote:', d);
+    if(d && d.c && d.c>0) updateVix(d.c);
   }catch(e){ console.warn('[VIX] quote fetch failed:', e.message); }
 }
 
@@ -4121,7 +4120,7 @@ function _createVixWidget(tvInterval){
   new TradingView.widget({
     width:             '100%',
     height:            260,
-    symbol:            'TVC:VIX',
+    symbol:            'CBOE:VIX',
     interval:          tvInterval,
     timezone:          'America/New_York',
     theme:             'dark',
@@ -4574,10 +4573,10 @@ initData();
 // DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
-if(tdKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
+if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
-setInterval(()=>{if(tdKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
+setInterval(()=>{if(finnhubKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load TradingView widget library — replaces Chart.js for market + VIX charts
 (function(){
