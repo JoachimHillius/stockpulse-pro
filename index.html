@@ -1309,31 +1309,21 @@ function initData(){
     yieldFn(()=>renderMoverLists());
   },5000);
 }
-// Called once finnhubKey is confirmed AND Chart.js is loaded — renders chart exactly once
+// Called once Chart.js is loaded — no API key needed (Yahoo Finance)
 function _doRenderMktChart(){
-  if(!finnhubKey || !_chartJsReady) return;
+  if(!_chartJsReady) return;
   const sym  = (typeof _mktSym  !== 'undefined' && _mktSym)  ? _mktSym  : 'SPY';
   const date = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : '';
-  console.log('[Chart] _doRenderMktChart — sym:', sym, '| date:', date||'(today)', '| finnhubKey length:', finnhubKey.length);
+  console.log('[Chart] _doRenderMktChart — sym:', sym, '| date:', date||'(last trading day)');
   try{ renderMktChart('1D', sym, date); }
   catch(e){ console.warn('[Chart] _doRenderMktChart failed:', e); }
 }
 
 function initCharts(){
   _chartJsReady = true;
-  fetchVixCandles();
-  console.log('[Chart] initCharts — finnhubKey length:', finnhubKey.length, '| _fkConfirmed:', _fkConfirmed);
-  if(finnhubKey){
-    // Key is in localStorage — render immediately, no need to wait for Supabase
-    console.log('[Chart] initCharts: localStorage key found, rendering now');
-    _fkConfirmed = true;
-    _doRenderMktChart();
-  } else {
-    // No localStorage key — show notice, wait for Supabase to provide one
-    console.log('[Chart] initCharts: no localStorage key, waiting for Supabase');
-    const notice = document.getElementById('mkt-notice');
-    if(notice){ notice.textContent='No API key in localStorage — loading from cloud…'; notice.style.display='block'; }
-  }
+  fetchVixCandles(); // VIX still uses Finnhub
+  console.log('[Chart] initCharts — Chart.js ready, rendering market chart via Yahoo Finance');
+  _doRenderMktChart();
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -1771,37 +1761,45 @@ function genIntradayPrices(base,prev,seed){
 
 const BAR_4AM=0,BAR_930AM=66,BAR_4PM=144,BAR_8PM=191;
 
-function renderMktChart(range,sym,date){
-  // Safety guard — should never be called without a key, but log if it happens
-  if(!finnhubKey){
-    console.warn('[Chart] renderMktChart called with empty finnhubKey — this is a bug, skipping');
-    const _notice=document.getElementById('mkt-notice');
-    if(_notice){_notice.textContent='No Finnhub API key — add yours in Settings';_notice.style.display='block';}
-    return;
-  }
-  sym=sym||'SPY';
-  // date: YYYY-MM-DD string or '' for today (only used in 1D mode)
-  if(range==='1D'){renderIntradayChart(sym, date||_mktDate||'');return;}
+async function renderMktChart(range,sym,date){
+  sym=sym||_mktSym||'SPY';
+  if(range==='1D'){renderIntradayChart(sym,date||_mktDate||'');return;}
+  // Multi-day — Yahoo Finance daily bars, no API key needed
   const days=range==='1W'?7:range==='1M'?30:90;
-  const base=(liveData[sym]||MOCK[sym])?.p||680;
-  const vol=range==='1W'?0.010:range==='1M'?0.013:0.016;
-  let p=base*(1-days*vol*0.3);
-  const prices=Array.from({length:days},()=>{
-    p*=(1+(Math.random()-0.485)*vol);return parseFloat(p.toFixed(2));
-  });
-  prices[prices.length-1]=base;
-  const firstP=prices[0];
-  const allDates=[],labels=[];
-  for(let i=0;i<days;i++){
-    const d=new Date();d.setDate(d.getDate()-(days-1-i));
-    const isWE=d.getDay()===0||d.getDay()===6;
-    const ds=d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    const dw=d.toLocaleDateString('en-US',{weekday:'short'});
-    const df=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-    allDates.push(`${df}  ·  Close 16:00 ET`);
-    if(isWE){labels.push('');continue;}
-    if(range==='1W') labels.push(`${dw} ${ds}\n16:00 ET`);
-    else labels.push(d.getDay()===1?`${ds}\n16:00 ET`:'');
+  const period2=Math.floor(Date.now()/1000);
+  const period1=period2-days*86400;
+  const url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(sym)+'?interval=1d&period1='+period1+'&period2='+period2;
+  console.log('[MktChart] Yahoo URL ('+range+'):', url);
+  let prices,firstP,allDates,labels;
+  try{
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const yData=await r.json();
+    const result=yData?.chart?.result?.[0];
+    console.log('[MktChart] Yahoo ('+range+') sym:', result?.meta?.symbol, '| bars:', result?.timestamp?.length);
+    if(!result?.timestamp||!result?.indicators?.quote?.[0]?.close) throw new Error('no data');
+    const rawTs=result.timestamp;
+    const rawC =result.indicators.quote[0].close;
+    const bars=rawTs.map((ts,i)=>({ts,c:rawC[i]})).filter(b=>b.c!=null);
+    if(!bars.length) throw new Error('empty');
+    prices=bars.map(b=>parseFloat(b.c.toFixed(2)));
+    firstP=prices[0];
+    allDates=[];labels=[];
+    bars.forEach(b=>{
+      const d=new Date(b.ts*1000);
+      const df=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+      allDates.push(df+'  ·  Close');
+      const ds=d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const dw=d.toLocaleDateString('en-US',{weekday:'short'});
+      if(range==='1W') labels.push(dw+' '+ds);
+      else labels.push(d.getDay()===1?ds:'');
+    });
+  }catch(e){
+    console.error('[MktChart] Yahoo ('+range+') failed:',e.message);
+    if(mktChart){mktChart.destroy();mktChart=null;}
+    const cv=document.getElementById('mkt-chart');
+    if(cv){const c=cv.getContext('2d');c.clearRect(0,0,cv.width,cv.height);c.font='11px JetBrains Mono,monospace';c.fillStyle='#c0cfe0';c.textAlign='center';c.textBaseline='middle';c.fillText('Failed to load '+range+' data — '+e.message,cv.width/2,cv.height/2);}
+    return;
   }
   const gridClr = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
   const tickClr = isLight ? '#5a6a80' : '#7a8899';
@@ -1894,23 +1892,17 @@ function _barAtET(timestamps,hourET,minET){
 }
 
 async function renderIntradayChart(sym, requestedDateStr){
-  // Read key directly from localStorage — no flags, no Supabase, no delays
-  const finnhubKey = localStorage.getItem('sp_fh') || '';
-  console.log('KEY:', finnhubKey);
-  console.log('[MktChart] renderIntradayChart — key length:', finnhubKey.length, '| sym:', sym||'SPY');
+  console.log('[MktChart] renderIntradayChart | sym:', sym||'SPY', '| date:', requestedDateStr||'(default)');
 
   sym = sym || 'SPY';
-  // Use EXACTLY the date from the picker — no guessing, no auto-fallback
   const dateISO = requestedDateStr || _lastTradingDay();
 
   const dateEl   = document.getElementById('mkt-chart-date');
   const noticeEl = document.getElementById('mkt-notice');
 
-  // Show selected date immediately
   if(dateEl) dateEl.textContent = 'Showing: ' + _fmtDateShort(dateISO);
   if(noticeEl) noticeEl.style.display='none';
 
-  // Helper: clear chart canvas and show a text message instead
   function showMsg(msg){
     if(mktChart){mktChart.destroy();mktChart=null;}
     if(noticeEl) noticeEl.style.display='none';
@@ -1935,11 +1927,6 @@ async function renderIntradayChart(sym, requestedDateStr){
     lines.forEach((l,i)=>c.fillText(l,canvas.width/2,canvas.height/2-totalH/2+i*lineH+lineH/2));
   }
 
-  if(!finnhubKey){
-    showMsg('Add Finnhub API key in Settings to view chart data');
-    return;
-  }
-
   // ET DST offset: -4 (EDT, Mar–Nov) or -5 (EST, Nov–Mar)
   function _etOffsetHours(iso){
     const [ey,em,ed]=iso.split('-').map(Number);
@@ -1956,16 +1943,16 @@ async function renderIntradayChart(sym, requestedDateStr){
   const fromTs=Math.floor(Date.UTC(ey,em-1,ed,9-etOff,30,0)/1000); // 09:30 ET
   const toTs  =Math.floor(Date.UTC(ey,em-1,ed,16-etOff,0,0)/1000); // 16:00 ET
 
-  const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+toTs+'&token='+finnhubKey;
-  console.log('[MktChart] URL:', url);
-  console.log('[MktChart] Fetching date:', dateISO, '| ET offset:', etOff, '| fromTs:', fromTs, '| toTs:', toTs);
+  // Yahoo Finance — free, no API key required
+  const url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(sym)+'?interval=5m&period1='+fromTs+'&period2='+toTs;
+  console.log('[MktChart] Yahoo URL:', url);
+  console.log('[MktChart] Date:', dateISO, '| ET offset:', etOff, '| fromTs:', fromTs, '| toTs:', toTs);
 
   let data;
   try{
     const r=await fetch(url);
     console.log('[MktChart] HTTP status:', r.status, '| date:', dateISO);
-    if(r.status===401||r.status===403){ showMsg('Invalid Finnhub API key — update it in Settings'); return; }
-    if(!r.ok){ showMsg('Finnhub error '+r.status+' — try again'); return; }
+    if(!r.ok){ showMsg('Yahoo Finance error '+r.status+' — try again'); return; }
     data=await r.json();
   }catch(e){
     showMsg('Network error — '+e.message);
@@ -1973,17 +1960,22 @@ async function renderIntradayChart(sym, requestedDateStr){
     return;
   }
 
-  console.log('[MktChart] data.s:', data.s, '| bars:', data.t?.length, '| date:', dateISO);
+  const result=data?.chart?.result?.[0];
+  console.log('[MktChart] Yahoo result sym:', result?.meta?.symbol, '| bars:', result?.timestamp?.length, '| date:', dateISO);
 
-  if(data.s!=='ok'||!Array.isArray(data.t)||data.t.length===0){
+  const rawTs=result?.timestamp||[];
+  const rawC =result?.indicators?.quote?.[0]?.close||[];
+  const validBars=rawTs.map((ts,i)=>({ts,c:rawC[i]})).filter(b=>b.c!=null);
+
+  if(!validBars.length){
     showMsg('No market data for '+_fmtDateShort(dateISO));
     return;
   }
 
-  const prices=data.c;
-  const tss=data.t; // Unix timestamps for each bar
-  const times=tss.map(ts=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}));
-  const prev=data.o[0]; // first bar's open ≈ previous close / session open
+  const tss    = validBars.map(b=>b.ts);
+  const prices = validBars.map(b=>parseFloat(b.c.toFixed(2)));
+  const times  = tss.map(ts=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}));
+  const prev   = prices[0]; // session open price
 
   // Locate pre-market / regular / after-hours boundaries from actual timestamps
   const bar930=_barAtET(tss,9,30);
