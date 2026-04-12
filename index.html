@@ -925,15 +925,14 @@ select option{background:var(--bg2);}
 <script>
 // Last trading day helper — used for chart date default
 function _lastTradingDay(){
+  // Start from today, walk back until we land on Mon-Fri
   const d=new Date();
-  d.setHours(0,0,0,0); // normalize to local midnight
-  // Walk back one day at a time — skip Sat(6) and Sun(0) only
-  do { d.setDate(d.getDate()-1); } while(d.getDay()===0||d.getDay()===6);
+  while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1);
   const y=d.getFullYear();
   const mo=String(d.getMonth()+1).padStart(2,'0');
   const dy=String(d.getDate()).padStart(2,'0');
   const result=y+'-'+mo+'-'+dy;
-  console.log('[_lastTradingDay] result:',result,'| local dow:',d.getDay());
+  console.log('[_lastTradingDay] today dow:',new Date().getDay(),'| result:',result,'| result dow:',d.getDay());
   return result;
 }
 // ============================================================
@@ -1309,9 +1308,9 @@ function initData(){
     yieldFn(()=>renderMoverLists());
   },5000);
 }
-// Called once Chart.js is loaded and finnhubKey is confirmed
+// Called once Chart.js is loaded — Yahoo Finance, no key needed for chart
 function _doRenderMktChart(){
-  if(!_chartJsReady || !finnhubKey) return;
+  if(!_chartJsReady) return;
   const sym  = (typeof _mktSym  !== 'undefined' && _mktSym)  ? _mktSym  : 'SPY';
   const date = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : '';
   console.log('[Chart] _doRenderMktChart — sym:', sym, '| date:', date||'(last trading day)', '| key length:', finnhubKey.length);
@@ -1322,8 +1321,8 @@ function _doRenderMktChart(){
 function initCharts(){
   _chartJsReady = true;
   fetchVixCandles(); // VIX still uses Finnhub
-  console.log('[Chart] initCharts — Chart.js ready | finnhubKey length:', finnhubKey.length);
-  if(finnhubKey){ _fkConfirmed=true; _doRenderMktChart(); }
+  console.log('[Chart] initCharts — Chart.js ready, rendering chart');
+  _doRenderMktChart();
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -1928,18 +1927,16 @@ async function renderIntradayChart(sym, requestedDateStr){
   const fromTs=Math.floor(Date.UTC(ey,em-1,ed,9-etOff,30,0)/1000); // 09:30 ET
   const toTs  =Math.floor(Date.UTC(ey,em-1,ed,16-etOff,0,0)/1000); // 16:00 ET
 
-  // Finnhub candle — same pattern as fetchLiveAll() which powers gainers/losers
-  if(!finnhubKey){ showMsg('Add Finnhub API key in Settings'); return; }
-  const url=`https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(sym)}&resolution=5&from=${fromTs}&to=${toTs}&token=${finnhubKey}`;
-  console.log('[MktChart] Finnhub URL:', url);
+  // Yahoo Finance candle — free, no key, works in browser
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${fromTs}&period2=${toTs}&includePrePost=false`;
+  console.log('[MktChart] Yahoo URL:', url);
   console.log('[MktChart] Date:', dateISO, '| ET offset:', etOff, '| fromTs:', fromTs, '| toTs:', toTs);
 
   let data;
   try{
     const r=await fetch(url);
     console.log('[MktChart] HTTP status:', r.status, '| date:', dateISO);
-    if(r.status===401||r.status===403){ showMsg('Finnhub key rejected — check Settings'); return; }
-    if(!r.ok){ showMsg('Finnhub error '+r.status+' — try again'); return; }
+    if(!r.ok){ showMsg('Yahoo error '+r.status+' — try again'); return; }
     data=await r.json();
   }catch(e){
     showMsg('Network error — '+e.message);
@@ -1947,17 +1944,21 @@ async function renderIntradayChart(sym, requestedDateStr){
     return;
   }
 
-  console.log('[MktChart] data.s:', data.s, '| bars:', data.t?.length, '| date:', dateISO);
+  const yResult=data?.chart?.result?.[0];
+  const rawTs  =yResult?.timestamp||[];
+  const rawC   =yResult?.indicators?.quote?.[0]?.close||[];
+  console.log('[MktChart] Yahoo bars:', rawTs.length, '| sym:', yResult?.meta?.symbol, '| date:', dateISO);
 
-  if(data.s!=='ok'||!Array.isArray(data.t)||!data.t.length){
+  const validBars=rawTs.map((ts,i)=>({ts,c:rawC[i]})).filter(b=>b.c!=null);
+  if(!validBars.length){
     showMsg('No market data for '+_fmtDateShort(dateISO));
     return;
   }
 
-  const tss    = data.t;
-  const prices = data.c.map(v=>parseFloat(v.toFixed(2)));
+  const tss    = validBars.map(b=>b.ts);
+  const prices = validBars.map(b=>parseFloat(b.c.toFixed(2)));
   const times  = tss.map(ts=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}));
-  const prev   = data.o[0]; // session open price
+  const prev   = prices[0]; // session open price
 
   // Locate pre-market / regular / after-hours boundaries from actual timestamps
   const bar930=_barAtET(tss,9,30);
