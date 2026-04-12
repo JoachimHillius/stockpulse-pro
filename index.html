@@ -477,7 +477,12 @@ select option{background:var(--bg2);}
             <button class="vix-tfbtn active" onclick="setVixTf('D',this)">1DAY</button>
             <button class="vix-tfbtn" onclick="setVixTf('W',this)">1WK</button>
           </div>
-          <div id="tradingview-vix" style="height:260px;margin-top:8px;"></div>
+          <div style="position:relative;height:200px;margin-top:8px;"><canvas id="vix-chart"></canvas></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+            <span id="vix-candle-updated" style="font-size:9px;color:#888;">—</span>
+            <a href="https://www.tradingview.com/chart/?symbol=VIX" target="_blank" rel="noopener"
+               style="font-size:9px;color:var(--cyan);text-decoration:none;letter-spacing:0.5px;font-family:var(--font);">View on TradingView →</a>
+          </div>
         </div>
       </div>
       <div class="card">
@@ -1324,11 +1329,11 @@ function _doRenderMktChart(){
 }
 
 function initCharts(){
-  _chartJsReady = true;
-  console.log('[TV] TradingView loaded — creating widgets');
+  // Called when TradingView tv.js loads — market chart only
+  console.log('[TV] TradingView loaded — creating market widget');
   _createMktWidget(_mktSym||'SPY', _tvMktInterval);
-  _createVixWidget(_tvVixInterval);
-  if(finnhubKey) fetchVixQuote(); // update VIX big number
+  // VIX chart uses Chart.js (loaded separately); VIX quote via Finnhub
+  if(finnhubKey) fetchVixQuote();
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -1417,54 +1422,68 @@ function setVixTf(tf, btn){
   vixTf = tf;
   document.querySelectorAll('.vix-tfbtn').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
-  const tvInterval = _VIX_TF_TO_TV[tf] || 'D';
-  _createVixWidget(tvInterval);
+  fetchVixCandles();
 }
 
+// Finnhub resolution and look-back for each VIX timeframe button
+const FH_VIX_RES      = {'1':'1','5':'5','15':'15','60':'60','D':'D','W':'W'};
+const FH_VIX_LOOKBACK = {'1':2,'5':2,'15':5,'60':14,'D':45,'W':548}; // look-back in days
+
 async function fetchVixCandles(){
-  // VIX chart is now TradingView — no-op. VIX number updated by fetchVixQuote().
-  return;
-  // eslint-disable-next-line no-unreachable
-  const cfg = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
-  try {
-    // Always read date directly from the DOM picker — no stale module-level variable
-    const vixDate = document.getElementById('vix-date-input')?.value || _lastTradingDay();
-    const isIntraday = ['1','5','15','60'].includes(vixTf);
-    let url;
-    if(isIntraday){
-      // Intraday: fetch the specific day selected in the date picker
-      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&date=${vixDate}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
-    } else {
-      // Daily/weekly: just get the last N bars
-      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
-    }
-    console.log('[VIX] fetchVixCandles — tf:', vixTf, '| date:', vixDate, '| URL:', url);
-    const res = await fetch(url);
-    const d   = await res.json();
-    console.log('[VIX] TD response status:', d.status, '| bars:', d.values?.length, '| message:', d.message||'ok');
-    if(d.status==='error' || !Array.isArray(d.values) || !d.values.length){
-      console.warn('[VIX] No data — falling back to mock. Response:', JSON.stringify(d).slice(0,200));
+  if(!_chartJsReady){ console.log('[VIX] Chart.js not ready'); return; }
+  if(!finnhubKey){ renderVixMockCandles(); return; }
+
+  const res         = FH_VIX_RES[vixTf]      || 'D';
+  const lookback    = FH_VIX_LOOKBACK[vixTf] || 45;
+  const toTs        = Math.floor(Date.now()/1000);
+  const fromTs      = toTs - lookback * 86400;
+  const url = `https://finnhub.io/api/v1/stock/candle?symbol=VIX&resolution=${res}&from=${fromTs}&to=${toTs}&token=${finnhubKey}`;
+  console.log('[VIX] Finnhub candle URL:', url, '| res:', res, '| from:', new Date(fromTs*1000).toISOString().slice(0,10));
+
+  try{
+    const r = await fetch(url);
+    const d = await r.json();
+    console.log('[VIX] Finnhub response: s=', d.s, '| bars:', d.t?.length, '| last close:', d.c?.at(-1));
+
+    if(d.s !== 'ok' || !Array.isArray(d.t) || !d.t.length){
+      console.warn('[VIX] No data from Finnhub (s='+d.s+') — using mock');
       renderVixMockCandles(); return;
     }
-    // Twelve Data returns newest-first — reverse to chronological
-    const bars = [...d.values].reverse();
-    vixCandles = bars.map(b=>({
-      date: cfg.fmt(b.datetime),
-      o: parseFloat(b.open), h: parseFloat(b.high),
-      l: parseFloat(b.low),  c: parseFloat(b.close)
-    }));
-    console.log('[VIX] Parsed', vixCandles.length, 'candles | last close:', vixCandles.at(-1)?.c);
-    if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
+
+    const isIntraday = ['1','5','15','60'].includes(vixTf);
+    const labels = d.t.map(ts=>{
+      const dt = new Date(ts*1000);
+      return isIntraday
+        ? dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})
+        : dt.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    });
+    const prices = d.c.map(p=>parseFloat(p.toFixed(2)));
+
+    if(prices.length) updateVix(prices[prices.length-1]);
     stampVixUpdate();
-    renderVixCandleChart(vixCandles);
-  } catch(e){
-    console.warn('[VIX] fetchVixCandles error:', e);
+    renderVixLineChart(labels, prices);
+  }catch(e){
+    console.warn('[VIX] fetchVixCandles error:', e.message);
     renderVixMockCandles();
   }
 }
 
-function renderVixMockCandles(){ return; // TV replaced canvas
-  // legacy mock code below kept for reference
+function renderVixMockCandles(){
+  // Fallback: generate mock daily VIX data for the last 30 trading days
+  if(!_chartJsReady) return;
+  const now = new Date();
+  const labels = [], prices = [];
+  let v = vixValue||18.4;
+  for(let i=44;i>=0;i--){
+    const d=new Date(now); d.setDate(now.getDate()-i);
+    if(d.getDay()===0||d.getDay()===6) continue;
+    labels.push(d.toLocaleDateString('en-US',{month:'short',day:'numeric'}));
+    prices.push(parseFloat(v.toFixed(2)));
+    v*=(1+(Math.random()-0.47)*0.06); v=Math.max(10,Math.min(80,v));
+  }
+  renderVixLineChart(labels,prices);
+  stampVixUpdate();
+  return; // keep legacy code below unreachable
   const cfg  = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
   const vol  = VIX_TF_VOL[vixTf] || 0.06;
   const bars = 10; // always exactly 10 candles
@@ -1528,7 +1547,37 @@ function stampVixUpdate(){
   if(hdr) hdr.textContent = statusLabel + ' · ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 }
 
-function renderVixCandleChart(rawCandles){ return; // TV replaced canvas
+function renderVixLineChart(labels, prices){
+  const canvas = document.getElementById('vix-chart');
+  if(!canvas || !prices.length) return;
+  if(vixCandleChart){ vixCandleChart.destroy(); vixCandleChart=null; }
+  const firstP=prices[0], lastP=prices[prices.length-1];
+  // VIX up = fear rising = red; VIX down = fear falling = green
+  const clr = lastP>firstP ? '#ff3d5a' : '#00e5b0';
+  const gridClr='rgba(255,255,255,0.04)', tickClr='#7a8899', gridClr2='rgba(255,255,255,0.06)';
+  const minP=Math.min(...prices)*0.98, maxP=Math.max(...prices)*1.02;
+  vixCandleChart=new Chart(canvas.getContext('2d'),{
+    type:'line',
+    data:{labels,datasets:[{data:prices,borderColor:clr,backgroundColor:clr+'18',fill:true,
+      tension:0.2,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:clr,borderWidth:1.8}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},
+        tooltip:{enabled:true,backgroundColor:'#0d1420',borderColor:'rgba(255,255,255,0.15)',
+          borderWidth:1,titleColor:tickClr,bodyColor:'#dde3f0',padding:8,displayColors:false,
+          callbacks:{title:items=>labels[items[0].dataIndex],
+            label:item=>`  VIX: ${item.raw.toFixed(2)}`}}},
+      scales:{
+        x:{grid:{color:gridClr,drawBorder:false},border:{display:false},
+          ticks:{color:tickClr,font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:8}},
+        y:{min:minP,max:maxP,position:'right',grid:{color:gridClr2,drawBorder:false},
+          border:{display:false},ticks:{color:tickClr,font:{size:9},callback:v=>v.toFixed(1)}}
+      }
+    }
+  });
+}
+
+function renderVixCandleChart(rawCandles){ return; // replaced by renderVixLineChart
   const canvas = document.getElementById('vix-candle-chart');
   if(!canvas) return;
 
@@ -4110,30 +4159,7 @@ function _createMktWidget(sym, tvInterval){
   if(titleEl) titleEl.textContent = 'Market Chart — ' + sym;
 }
 
-function _createVixWidget(tvInterval){
-  if(typeof TradingView==='undefined'){console.warn('[TV] TradingView not ready');return;}
-  tvInterval     = tvInterval||_tvVixInterval||'D';
-  _tvVixInterval = tvInterval;
-  const el = document.getElementById('tradingview-vix');
-  if(!el) return;
-  el.innerHTML = '';
-  new TradingView.widget({
-    width:             '100%',
-    height:            260,
-    symbol:            'CBOE:VIX',
-    interval:          tvInterval,
-    timezone:          'America/New_York',
-    theme:             'dark',
-    style:             '1',
-    locale:            'en',
-    toolbar_bg:        '#0a1628',
-    enable_publishing: false,
-    hide_top_toolbar:  false,
-    save_image:        false,
-    container_id:      'tradingview-vix'
-  });
-  console.log('[TV] VIX widget | interval:', tvInterval);
-}
+function _createVixWidget(){ /* VIX uses Chart.js + Finnhub, not TradingView */ }
 
 function switchMktSym(){
   const input = document.getElementById('mkt-sym-input');
@@ -4578,12 +4604,24 @@ setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
 setInterval(()=>{if(finnhubKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
-// Load TradingView widget library — replaces Chart.js for market + VIX charts
+// Load TradingView widget library — used for the market chart only
 (function(){
   const s=document.createElement('script');
   s.src='https://s3.tradingview.com/tv.js';
   s.onload=function(){initCharts();};
   s.onerror=function(){console.warn('TradingView failed to load');};
+  document.head.appendChild(s);
+})();
+// Load Chart.js — used for the VIX line chart
+(function(){
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  s.onload=function(){
+    _chartJsReady=true;
+    console.log('[Chart.js] loaded — fetching VIX candles');
+    fetchVixCandles();
+  };
+  s.onerror=function(){console.warn('Chart.js failed to load');};
   document.head.appendChild(s);
 })();
 // Load Supabase client async — then pull flow data from DB
