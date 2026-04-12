@@ -407,8 +407,7 @@ select option{background:var(--bg2);}
       <span id="fh-dot" style="width:6px;height:6px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
       <span id="fh-txt">No API Key</span>
     </div>
-    <div id="hdr-datetime" style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;">—</div>
-    <div class="clock" id="clock">—</div>
+    <div id="hdr-datetime" style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;">—</div>
   </div>
 </div>
 
@@ -927,10 +926,15 @@ select option{background:var(--bg2);}
 // Last trading day helper — used for chart date default
 function _lastTradingDay(){
   const d=new Date();
-  const dow=d.getUTCDay(); // 0=Sun,6=Sat
-  if(dow===0) d.setUTCDate(d.getUTCDate()-2); // Sunday → Friday
-  else if(dow===6) d.setUTCDate(d.getUTCDate()-1); // Saturday → Friday
-  return d.toISOString().slice(0,10);
+  d.setHours(0,0,0,0); // normalize to local midnight
+  // Walk back one day at a time — skip Sat(6) and Sun(0) only
+  do { d.setDate(d.getDate()-1); } while(d.getDay()===0||d.getDay()===6);
+  const y=d.getFullYear();
+  const mo=String(d.getMonth()+1).padStart(2,'0');
+  const dy=String(d.getDate()).padStart(2,'0');
+  const result=y+'-'+mo+'-'+dy;
+  console.log('[_lastTradingDay] result:',result,'| local dow:',d.getDay());
+  return result;
 }
 // ============================================================
 // STATE
@@ -1236,6 +1240,10 @@ function safeRegister(plugin){
 const yieldFn = (fn) => setTimeout(fn, 0);
 
 function initData(){
+  // Load positions from localStorage first — never lose them on page refresh
+  const _savedPos=localStorage.getItem('sp_positions');
+  if(_savedPos) positions=JSON.parse(_savedPos);
+  renderPositions();
   applyTheme();
   // Prime the flow status — Supabase will overwrite once it loads
   const _fsSt=document.getElementById('csv-status');
@@ -1335,7 +1343,6 @@ function init(){ initData(); }
 // ============================================================
 function updateClock(){
   const now=new Date();
-  document.getElementById('clock').textContent=now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   // Header date+time — always white, always visible on every tab
   const hdt=document.getElementById('hdr-datetime');
   if(hdt) hdt.textContent=now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})+' '+now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
@@ -1888,8 +1895,9 @@ function _barAtET(timestamps,hourET,minET){
 
 async function renderIntradayChart(sym, requestedDateStr){
   // Read key directly from localStorage — no flags, no Supabase, no delays
-  const key = localStorage.getItem('sp_fh') || '';
-  console.log('[MktChart] renderIntradayChart — key length:', key.length, '| sym:', sym||'SPY');
+  const finnhubKey = localStorage.getItem('sp_fh') || '';
+  console.log('KEY:', finnhubKey);
+  console.log('[MktChart] renderIntradayChart — key length:', finnhubKey.length, '| sym:', sym||'SPY');
 
   sym = sym || 'SPY';
   // requestedDateStr: YYYY-MM-DD or '' = today
@@ -1941,7 +1949,7 @@ async function renderIntradayChart(sym, requestedDateStr){
     lines.forEach((l,i)=>c.fillText(l,canvas.width/2,canvas.height/2-totalH/2+i*lineH+lineH/2));
   }
 
-  if(!key){
+  if(!finnhubKey){
     showMsg('Add Finnhub API key in Settings to view chart data');
     return;
   }
@@ -1964,7 +1972,7 @@ async function renderIntradayChart(sym, requestedDateStr){
     const effectiveTo=iso===todayISO?Math.floor(Date.now()/1000):toTs;
 
     try{
-      const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+effectiveTo+'&token='+key;
+      const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+effectiveTo+'&token='+finnhubKey;
       console.log('[MktChart] Fetching (back='+back+') iso='+iso+' fromTs='+fromTs+' toTs='+effectiveTo);
       console.log('[MktChart] Full URL:', url);
       const r=await fetch(url);
