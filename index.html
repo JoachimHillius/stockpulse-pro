@@ -1313,7 +1313,7 @@ function _doRenderMktChart(){
   if(!_chartJsReady) return;
   const sym  = (typeof _mktSym  !== 'undefined' && _mktSym)  ? _mktSym  : 'SPY';
   const date = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : '';
-  console.log('[Chart] _doRenderMktChart — sym:', sym, '| date:', date||'(last trading day)', '| key length:', finnhubKey.length);
+  console.log('[Chart] _doRenderMktChart — sym:', sym, '| date:', date||'(last trading day)');
   try{ renderMktChart('1D', sym, date); }
   catch(e){ console.warn('[Chart] _doRenderMktChart failed:', e); }
 }
@@ -1373,6 +1373,17 @@ function setRiskBanner(v){
   else if(v<28){b.style.background='rgba(255,176,32,0.08)';b.style.color='var(--amber)';b.style.border='1px solid rgba(255,176,32,0.2)';b.textContent='⚠ MODERATE RISK — Elevated volatility. Size positions carefully.';}
   else if(v<36){b.style.background='rgba(255,61,90,0.08)';b.style.color='var(--red)';b.style.border='1px solid rgba(255,61,90,0.2)';b.textContent='⛔ HIGH FEAR (VIX '+v.toFixed(1)+') — Options premiums expensive. Only highest-confidence setups.';}
   else{b.style.background='rgba(255,61,90,0.15)';b.style.color='var(--red)';b.style.border='1px solid rgba(255,61,90,0.4)';b.textContent='🚨 EXTREME PANIC (VIX '+v.toFixed(1)+') — Reduce size significantly. Mean-reversion plays only.';}
+}
+
+// Fetch fresh VIX quote from Finnhub — called on load and every 5 min
+async function fetchVixQuote(){
+  if(!finnhubKey) return;
+  try{
+    const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=VIX&token=${finnhubKey}`);
+    const d=await r.json();
+    console.log('[VIX] quote response:', d);
+    if(d && d.c && d.c>0) updateVix(d.c);
+  }catch(e){ console.warn('[VIX] quote fetch failed:', e.message); }
 }
 
 // ============================================================
@@ -1927,8 +1938,9 @@ async function renderIntradayChart(sym, requestedDateStr){
   const fromTs=Math.floor(Date.UTC(ey,em-1,ed,9-etOff,30,0)/1000); // 09:30 ET
   const toTs  =Math.floor(Date.UTC(ey,em-1,ed,16-etOff,0,0)/1000); // 16:00 ET
 
-  // Yahoo Finance candle — free, no key, works in browser
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${fromTs}&period2=${toTs}&includePrePost=false`;
+  // Yahoo Finance via CORS proxy — browser cannot fetch Yahoo directly due to CORS
+  const yahooUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${fromTs}&period2=${toTs}&includePrePost=false`;
+  const url=`https://corsproxy.io/?${yahooUrl}`;
   console.log('[MktChart] Yahoo URL:', url);
   console.log('[MktChart] Date:', dateISO, '| ET offset:', etOff, '| fromTs:', fromTs, '| toTs:', toTs);
 
@@ -2089,7 +2101,6 @@ async function renderIntradayChart(sym, requestedDateStr){
 }
 
 function refreshMktChart(){
-  _intradayMockCache=null; // clear mock cache so it regenerates fresh
   renderMktChart('1D', typeof _mktSym!=='undefined'?_mktSym:'SPY');
   // re-activate 1D button
   document.querySelectorAll('#page-morning .fbtn').forEach(b=>b.classList.remove('active'));
@@ -4343,8 +4354,10 @@ initData();
 // DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
+if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>fetchVixCandles(),300000);
+setInterval(()=>fetchVixQuote(),300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load Chart.js async so CDN latency never blocks the page
 (function(){
