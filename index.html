@@ -845,6 +845,14 @@ select option{background:var(--bg2);}
             <div style="font-size:9px;color:#e0e0e0;margin-top:3px;">finnhub.io/register — free, no credit card</div>
           </div>
           <div>
+            <div style="font-size:10px;color:#3dbeff;margin-bottom:4px;">TWELVE DATA — Market chart intraday bars (800/day free)</div>
+            <div style="display:flex;gap:6px;">
+              <input type="password" id="s-td" placeholder="Paste Twelve Data API key..."/>
+              <button class="btn btn-sm" style="background:#3dbeff;color:#000;border:none;" onclick="saveKey('td')">Save</button>
+            </div>
+            <div style="font-size:9px;color:#e0e0e0;margin-top:3px;">twelvedata.com — free, instant, no credit card</div>
+          </div>
+          <div>
             <div style="font-size:10px;color:var(--purple);margin-bottom:4px;">ALPHA VANTAGE — Deep sentiment (25/day free)</div>
             <div style="display:flex;gap:6px;">
               <input type="password" id="s-av" placeholder="Paste Alpha Vantage key..."/>
@@ -940,6 +948,7 @@ function _lastTradingDay(){
 // ============================================================
 let finnhubKey = localStorage.getItem('sp_fh') || '';
 let avKey = localStorage.getItem('sp_av') || '';
+let tdKey = localStorage.getItem('sp_td') || '';
 let flowData = JSON.parse(localStorage.getItem('sp_flow') || '[]');
 // Chart boot flags
 let _chartJsReady = false; // Chart.js CDN has loaded
@@ -1280,6 +1289,7 @@ function initData(){
     _mcdEl2.textContent='Showing: '+_d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
   }
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
+  if(tdKey) document.getElementById('s-td').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
   // Set API key indicator state immediately (before Supabase loads)
   updateFhIndicator();
@@ -1938,16 +1948,22 @@ async function renderIntradayChart(sym, requestedDateStr){
   const fromTs=Math.floor(Date.UTC(ey,em-1,ed,9-etOff,30,0)/1000); // 09:30 ET
   const toTs  =Math.floor(Date.UTC(ey,em-1,ed,16-etOff,0,0)/1000); // 16:00 ET
 
-  // Yahoo Finance — browser fetches this directly (Yahoo sends CORS headers for browser requests)
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${fromTs}&period2=${toTs}&includePrePost=false`;
-  console.log('[MktChart] Yahoo URL:', url);
-  console.log('[MktChart] Date:', dateISO, '| ET offset:', etOff, '| fromTs:', fromTs, '| toTs:', toTs);
+  // Twelve Data — CORS-safe, 800 free calls/day — get key at twelvedata.com (free, instant)
+  if(!tdKey){
+    showMsg('Add Twelve Data API key in Settings to view chart — twelvedata.com, free, instant');
+    return;
+  }
+  const startDT=`${dateISO} 09:30:00`;
+  const endDT  =`${dateISO} 16:00:00`;
+  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=5min&start_date=${encodeURIComponent(startDT)}&end_date=${encodeURIComponent(endDT)}&timezone=America%2FNew_York&outputsize=100&apikey=${tdKey}`;
+  console.log('[MktChart] Twelve Data URL:', url);
+  console.log('[MktChart] Date:', dateISO, '| start:', startDT, '| end:', endDT);
 
   let data;
   try{
     const r=await fetch(url);
     console.log('[MktChart] HTTP status:', r.status, '| date:', dateISO);
-    if(!r.ok){ showMsg('Yahoo error '+r.status+' — try again'); return; }
+    if(!r.ok){ showMsg('Twelve Data error '+r.status+' — try again'); return; }
     data=await r.json();
   }catch(e){
     showMsg('Network error — '+e.message);
@@ -1955,21 +1971,19 @@ async function renderIntradayChart(sym, requestedDateStr){
     return;
   }
 
-  const yResult=data?.chart?.result?.[0];
-  const rawTs  =yResult?.timestamp||[];
-  const rawC   =yResult?.indicators?.quote?.[0]?.close||[];
-  console.log('[MktChart] Yahoo bars:', rawTs.length, '| sym:', yResult?.meta?.symbol, '| date:', dateISO);
+  console.log('[MktChart] TD status:', data.status, '| values:', data.values?.length, '| date:', dateISO);
 
-  const validBars=rawTs.map((ts,i)=>({ts,c:rawC[i]})).filter(b=>b.c!=null);
-  if(!validBars.length){
-    showMsg('No market data for '+_fmtDateShort(dateISO));
+  if(data.status==='error'||!Array.isArray(data.values)||!data.values.length){
+    showMsg(data.message||('No market data for '+_fmtDateShort(dateISO)));
     return;
   }
 
-  const tss    = validBars.map(b=>b.ts);
-  const prices = validBars.map(b=>parseFloat(b.c.toFixed(2)));
-  const times  = tss.map(ts=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}));
-  const prev   = prices[0]; // session open price
+  // Twelve Data returns newest-first — reverse to chronological
+  const tdBars=[...data.values].reverse();
+  const tss    = tdBars.map(b=>Math.floor(new Date(b.datetime.replace(' ','T')+'-04:00').getTime()/1000));
+  const prices = tdBars.map(b=>parseFloat(parseFloat(b.close).toFixed(2)));
+  const times  = tdBars.map(b=>{ const t=new Date(b.datetime.replace(' ','T')+'-04:00'); return t.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}); });
+  const prev   = parseFloat(tdBars[0].open); // session open price
 
   // Locate pre-market / regular / after-hours boundaries from actual timestamps
   const bar930=_barAtET(tss,9,30);
@@ -3644,6 +3658,15 @@ function saveKey(type){
     showToast('API', 'Finnhub connected', 'info');
     // Start live data immediately
     setTimeout(fetchLiveAll, 300);
+  }else if(type==='td'){
+    const k = document.getElementById('s-td').value.trim();
+    if(!k || k.includes('•')) return;
+    tdKey = k;
+    localStorage.setItem('sp_td', k);
+    const ks = document.getElementById('key-status');
+    if(ks){ ks.textContent = '✓ Twelve Data key saved — market chart ready'; ks.style.color = 'var(--green)'; }
+    // Render chart immediately with new key
+    renderMktChart('1D');
   }else{
     const k = document.getElementById('s-av').value.trim();
     if(!k || k.includes('•')) return;
