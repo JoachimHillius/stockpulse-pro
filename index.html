@@ -943,14 +943,12 @@ select option{background:var(--bg2);}
 <script>
 // Last trading day helper — used for chart date default
 function _lastTradingDay(){
-  // Start from today, walk back until we land on Mon-Fri
+  // Start from yesterday, then walk back past any weekends
   const d=new Date();
+  d.setDate(d.getDate()-1);
   while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1);
-  const y=d.getFullYear();
-  const mo=String(d.getMonth()+1).padStart(2,'0');
-  const dy=String(d.getDate()).padStart(2,'0');
-  const result=y+'-'+mo+'-'+dy;
-  console.log('[_lastTradingDay] today dow:',new Date().getDay(),'| result:',result,'| result dow:',d.getDay());
+  const result=d.toISOString().slice(0,10);
+  console.log('[_lastTradingDay] result:',result,'| dow:',d.getDay());
   return result;
 }
 // ============================================================
@@ -1407,7 +1405,7 @@ function setRiskBanner(v){
 async function fetchVixQuote(){
   if(!tdKey) return;
   try{
-    const r=await fetch(`https://api.twelvedata.com/price?symbol=VIX&apikey=${tdKey}`);
+    const r=await fetch(`https://api.twelvedata.com/price?symbol=VIX&exchange=CBOE&apikey=${tdKey}`);
     const d=await r.json();
     console.log('[VIX] quote response:', d);
     const price=parseFloat(d && d.price ? d.price : 0);
@@ -1453,10 +1451,10 @@ async function fetchVixCandles(){
     let url;
     if(isIntraday){
       // Intraday: fetch the specific day selected in the date picker
-      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&date=${vixDate}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
+      url = `https://api.twelvedata.com/time_series?symbol=VIX&exchange=CBOE&interval=${cfg.interval}&date=${vixDate}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     } else {
       // Daily/weekly: just get the last N bars
-      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
+      url = `https://api.twelvedata.com/time_series?symbol=VIX&exchange=CBOE&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     }
     console.log('[VIX] fetchVixCandles — tf:', vixTf, '| date:', vixDate, '| URL:', url);
     const res = await fetch(url);
