@@ -477,24 +477,7 @@ select option{background:var(--bg2);}
             <button class="vix-tfbtn active" onclick="setVixTf('D',this)">1DAY</button>
             <button class="vix-tfbtn" onclick="setVixTf('W',this)">1WK</button>
           </div>
-          <!-- VIX date picker — intraday timeframes use this to select a specific day -->
-          <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;">
-            <span style="font-size:9px;font-weight:700;color:#ffffff;letter-spacing:1px;text-transform:uppercase;">Date:</span>
-            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
-              <input id="vix-date-input" type="date"
-                style="background:var(--bg3);border:none;color:#ffffff;padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:130px;color-scheme:dark;"
-                onchange="switchVixDate()"/>
-            </div>
-            <button onclick="fetchVixCandles()" title="Reload VIX chart" style="background:transparent;border:1px solid var(--border2);color:#ffffff;border-radius:3px;padding:2px 8px;font-size:15px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
-          </div>
-          <div style="position:relative;height:180px;"><canvas id="vix-candle-chart"></canvas></div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-            <div style="display:flex;gap:10px;font-size:9px;color:#e0e0e0;">
-              <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--green);display:inline-block;border-radius:1px;"></span>VIX Down</span>
-              <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;background:var(--red);display:inline-block;border-radius:1px;"></span>VIX Up</span>
-            </div>
-            <span id="vix-candle-updated" style="font-size:9px;color:#ffffff;">—</span>
-          </div>
+          <div id="tradingview-vix" style="height:260px;margin-top:8px;"></div>
         </div>
       </div>
       <div class="card">
@@ -548,16 +531,6 @@ select option{background:var(--bg2);}
                 oninput="this.value=this.value.toUpperCase()"/>
               <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-size:10px;font-weight:700;">GO</button>
             </div>
-            <!-- CHART DATE picker — user controls which trading day to view -->
-            <div style="display:flex;align-items:center;gap:4px;">
-              <span style="font-size:9px;font-weight:700;color:#ffffff;letter-spacing:1px;text-transform:uppercase;">Chart Date:</span>
-              <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
-                <input id="mkt-date-input" type="date"
-                  style="background:var(--bg3);border:none;color:#ffffff;padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:130px;color-scheme:dark;"
-                  onchange="switchMktDate()"/>
-              </div>
-              <button onclick="refreshMktChart()" title="Reload chart for selected date" style="background:transparent;border:1px solid var(--border2);color:#ffffff;border-radius:3px;padding:2px 8px;font-size:15px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
-            </div>
             <button class="fbtn" onclick="setMktRange('1MIN',this)">1MIN</button>
             <button class="fbtn" onclick="setMktRange('5MIN',this)">5MIN</button>
             <button class="fbtn" onclick="setMktRange('15MIN',this)">15MIN</button>
@@ -568,8 +541,7 @@ select option{background:var(--bg2);}
             <button class="fbtn" onclick="setMktRange('3M',this)">3M</button>
           </div>
         </div>
-        <div id="mkt-notice" style="display:none;font-size:10px;color:var(--amber);background:rgba(255,176,32,0.08);border:1px solid rgba(255,176,32,0.2);border-radius:3px;padding:4px 10px;margin-bottom:6px;letter-spacing:0.3px;"></div>
-        <div style="position:relative;height:280px;"><canvas id="mkt-chart"></canvas></div>
+        <div id="tradingview-market" style="height:370px;margin-top:6px;"></div>
       </div>
     </div>
   </div>
@@ -1348,19 +1320,15 @@ function initData(){
 }
 // Called once Chart.js is loaded — Yahoo Finance, no key needed for chart
 function _doRenderMktChart(){
-  if(!_chartJsReady) return;
-  const sym  = (typeof _mktSym  !== 'undefined' && _mktSym)  ? _mktSym  : 'SPY';
-  const date = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : '';
-  console.log('[Chart] _doRenderMktChart — sym:', sym, '| date:', date||'(last trading day)');
-  try{ renderMktChart('1D', sym, date); }
-  catch(e){ console.warn('[Chart] _doRenderMktChart failed:', e); }
+  // TV replaces canvas — widget already created in initCharts()
 }
 
 function initCharts(){
   _chartJsReady = true;
-  fetchVixCandles(); // VIX chart via Twelve Data
-  console.log('[Chart] initCharts — Chart.js ready, rendering chart');
-  _doRenderMktChart();
+  console.log('[TV] TradingView loaded — creating widgets');
+  _createMktWidget(_mktSym||'SPY', _tvMktInterval);
+  _createVixWidget(_tvVixInterval);
+  if(tdKey) fetchVixQuote(); // update VIX big number
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -1450,11 +1418,14 @@ function setVixTf(tf, btn){
   vixTf = tf;
   document.querySelectorAll('.vix-tfbtn').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
-  fetchVixCandles();
+  const tvInterval = _VIX_TF_TO_TV[tf] || 'D';
+  _createVixWidget(tvInterval);
 }
 
 async function fetchVixCandles(){
-  if(!tdKey){ renderVixMockCandles(); return; }
+  // VIX chart is now TradingView — no-op. VIX number updated by fetchVixQuote().
+  return;
+  // eslint-disable-next-line no-unreachable
   const cfg = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
   try {
     // Always read date directly from the DOM picker — no stale module-level variable
@@ -1493,7 +1464,8 @@ async function fetchVixCandles(){
   }
 }
 
-function renderVixMockCandles(){
+function renderVixMockCandles(){ return; // TV replaced canvas
+  // legacy mock code below kept for reference
   const cfg  = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
   const vol  = VIX_TF_VOL[vixTf] || 0.06;
   const bars = 10; // always exactly 10 candles
@@ -1557,7 +1529,7 @@ function stampVixUpdate(){
   if(hdr) hdr.textContent = statusLabel + ' · ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 }
 
-function renderVixCandleChart(rawCandles){
+function renderVixCandleChart(rawCandles){ return; // TV replaced canvas
   const canvas = document.getElementById('vix-candle-chart');
   if(!canvas) return;
 
@@ -1832,17 +1804,9 @@ function genIntradayPrices(base,prev,seed){
 const BAR_4AM=0,BAR_930AM=66,BAR_4PM=144,BAR_8PM=191;
 
 function renderMktChart(range,sym,date){
-  sym=sym||_mktSym||'SPY';
-  // Intraday ranges — set interval and render the day selected in the picker
-  if(range==='1MIN') {_mktInterval='1min';  renderIntradayChart(sym,date||''); return;}
-  if(range==='5MIN') {_mktInterval='5min';  renderIntradayChart(sym,date||''); return;}
-  if(range==='15MIN'){_mktInterval='15min'; renderIntradayChart(sym,date||''); return;}
-  if(range==='1HR')  {_mktInterval='1h';    renderIntradayChart(sym,date||''); return;}
-  if(range==='1D')   {_mktInterval='5min';  renderIntradayChart(sym,date||''); return;}
-  // Multi-day ranges — real Twelve Data daily bars
-  if(range==='1W'){renderDailyChart(sym,5);  return;}
-  if(range==='1M'){renderDailyChart(sym,21); return;}
-  if(range==='3M'){renderDailyChart(sym,63); return;}
+  // TradingView replaced Canvas — just ensure TV widget is present
+  _createMktWidget(sym||_mktSym||'SPY', _tvMktInterval);
+  // Legacy multi-day mock code below is unreachable but kept for safety
   // Multi-day — mock price simulation (fallback, kept for safety)
   const days=range==='1W'?7:range==='1M'?30:90;
   const base=(liveData[sym]||MOCK[sym])?.p||680;
@@ -2244,14 +2208,14 @@ async function renderIntradayChart(sym, requestedDateStr){
 }
 
 function refreshMktChart(){
-  // Re-render using current interval and whatever date is in the picker
-  renderIntradayChart(_mktSym||'SPY','');
+  _createMktWidget(_tvMktSym||_mktSym||'SPY', _tvMktInterval);
 }
 
 function setMktRange(r,btn){
   document.querySelectorAll('#page-morning .fbtn').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
-  renderMktChart(r);
+  const tvInterval = _MKT_RANGE_TO_TV[r] || 'D';
+  _createMktWidget(_tvMktSym||_mktSym||'SPY', tvInterval);
 }
 
 // ============================================================
@@ -4109,17 +4073,77 @@ async function saveFlowToSupabase(rows){
 let _mktSym = localStorage.getItem('sp_mkt_sym') || 'SPY';
 
 let _mktDate = localStorage.getItem('sp_mkt_date') || ''; // YYYY-MM-DD; initData() sets to last trading day if empty
-let _mktInterval = '5min'; // active intraday interval: 1min 5min 15min 1h
+let _mktInterval = '5min'; // active intraday interval: 1min 5min 15min 1h (kept for compat)
+let _tvMktInterval = '5';  // TradingView interval string for market chart
+let _tvVixInterval = 'D';  // TradingView interval string for VIX chart
+let _tvMktSym = localStorage.getItem('sp_mkt_sym') || 'SPY'; // TV market symbol
+
+// ---- TradingView widget helpers ----
+const _MKT_RANGE_TO_TV = {'1MIN':'1','5MIN':'5','15MIN':'15','1HR':'60','1D':'D','1W':'W','1M':'M','3M':'3M'};
+const _VIX_TF_TO_TV    = {'1':'1','5':'5','15':'15','60':'60','D':'D','W':'W'};
+
+function _createMktWidget(sym, tvInterval){
+  if(typeof TradingView==='undefined'){console.warn('[TV] TradingView not ready');return;}
+  sym        = (sym||_tvMktSym||'SPY').toUpperCase().trim();
+  tvInterval = tvInterval||_tvMktInterval||'5';
+  _tvMktSym      = sym;
+  _tvMktInterval = tvInterval;
+  const el = document.getElementById('tradingview-market');
+  if(!el) return;
+  el.innerHTML = '';
+  new TradingView.widget({
+    width:             '100%',
+    height:            370,
+    symbol:            sym,
+    interval:          tvInterval,
+    timezone:          'America/New_York',
+    theme:             'dark',
+    style:             '1',
+    locale:            'en',
+    toolbar_bg:        '#0a1628',
+    enable_publishing: false,
+    hide_top_toolbar:  false,
+    save_image:        false,
+    container_id:      'tradingview-market'
+  });
+  console.log('[TV] Market widget | sym:', sym, '| interval:', tvInterval);
+  const titleEl = document.getElementById('mkt-chart-title');
+  if(titleEl) titleEl.textContent = 'Market Chart — ' + sym;
+}
+
+function _createVixWidget(tvInterval){
+  if(typeof TradingView==='undefined'){console.warn('[TV] TradingView not ready');return;}
+  tvInterval     = tvInterval||_tvVixInterval||'D';
+  _tvVixInterval = tvInterval;
+  const el = document.getElementById('tradingview-vix');
+  if(!el) return;
+  el.innerHTML = '';
+  new TradingView.widget({
+    width:             '100%',
+    height:            260,
+    symbol:            'TVC:VIX',
+    interval:          tvInterval,
+    timezone:          'America/New_York',
+    theme:             'dark',
+    style:             '1',
+    locale:            'en',
+    toolbar_bg:        '#0a1628',
+    enable_publishing: false,
+    hide_top_toolbar:  false,
+    save_image:        false,
+    container_id:      'tradingview-vix'
+  });
+  console.log('[TV] VIX widget | interval:', tvInterval);
+}
 
 function switchMktSym(){
   const input = document.getElementById('mkt-sym-input');
   const sym = (input?.value || 'SPY').toUpperCase().trim();
   if(!sym) return;
   _mktSym = sym;
+  _tvMktSym = sym;
   localStorage.setItem('sp_mkt_sym', sym);
-  const titleEl = document.getElementById('mkt-chart-title');
-  if(titleEl) titleEl.textContent = 'Market Chart — ' + sym;
-  renderMktChart('1D', sym);
+  _createMktWidget(sym, _tvMktInterval);
 }
 
 function switchMktDate(){
@@ -4555,12 +4579,12 @@ setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
 setInterval(()=>{if(tdKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
-// Load Chart.js async so CDN latency never blocks the page
+// Load TradingView widget library — replaces Chart.js for market + VIX charts
 (function(){
   const s=document.createElement('script');
-  s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  s.src='https://s3.tradingview.com/tv.js';
   s.onload=function(){initCharts();};
-  s.onerror=function(){console.warn('Chart.js failed to load — charts unavailable');};
+  s.onerror=function(){console.warn('TradingView failed to load');};
   document.head.appendChild(s);
 })();
 // Load Supabase client async — then pull flow data from DB
