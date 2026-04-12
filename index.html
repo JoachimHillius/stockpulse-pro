@@ -1900,29 +1900,15 @@ async function renderIntradayChart(sym, requestedDateStr){
   console.log('[MktChart] renderIntradayChart — key length:', finnhubKey.length, '| sym:', sym||'SPY');
 
   sym = sym || 'SPY';
-  // requestedDateStr: YYYY-MM-DD or '' = today
-  const todayISO = new Date().toISOString().slice(0,10);
-  const startISO = requestedDateStr || todayISO;
+  // Use EXACTLY the date from the picker — no guessing, no auto-fallback
+  const dateISO = requestedDateStr || _lastTradingDay();
 
   const dateEl   = document.getElementById('mkt-chart-date');
   const noticeEl = document.getElementById('mkt-notice');
 
-  // Always show date label immediately — before any async fetch
-  function _setDateLabel(reqISO, foundISO){
-    if(!dateEl) return;
-    const todayFmt = _fmtDateShort(todayISO);
-    if(!foundISO || foundISO === reqISO){
-      // No fallback — show exactly what was requested
-      dateEl.textContent = (reqISO === todayISO)
-        ? 'Today: ' + todayFmt
-        : 'Showing: ' + _fmtDateShort(reqISO);
-    } else {
-      // Fallback happened — show both
-      dateEl.textContent = 'Today: ' + todayFmt + ' — Showing: ' + _fmtDateShort(foundISO);
-    }
-  }
-  // Show immediately (before async fetch completes)
-  _setDateLabel(startISO, null);
+  // Show selected date immediately
+  if(dateEl) dateEl.textContent = 'Showing: ' + _fmtDateShort(dateISO);
+  if(noticeEl) noticeEl.style.display='none';
 
   // Helper: clear chart canvas and show a text message instead
   function showMsg(msg){
@@ -1954,79 +1940,50 @@ async function renderIntradayChart(sym, requestedDateStr){
     return;
   }
 
-  // Walk backwards up to 7 days looking for a date with real data
-  const MAX_BACK=7;
-  let foundISO=null, foundData=null;
-
-  for(let back=0; back<MAX_BACK; back++){
-    // Build ISO date string by pure arithmetic to avoid local-TZ shifts from toISOString()
-    const parts=startISO.split('-').map(Number); // [YYYY, MM, DD]
-    const d=new Date(Date.UTC(parts[0],parts[1]-1,parts[2]));
-    d.setUTCDate(d.getUTCDate()-back);
-    const iso=d.toISOString().slice(0,10); // always YYYY-MM-DD in UTC
-
-    if(iso>todayISO) continue; // skip future dates
-
-    const fromTs=Math.floor(new Date(iso+'T00:00:00Z').getTime()/1000);
-    const toTs  =Math.floor(new Date(iso+'T23:59:59Z').getTime()/1000);
-    const effectiveTo=iso===todayISO?Math.floor(Date.now()/1000):toTs;
-
-    try{
-      const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+effectiveTo+'&token='+finnhubKey;
-      console.log('[MktChart] Fetching (back='+back+') iso='+iso+' fromTs='+fromTs+' toTs='+effectiveTo);
-      console.log('[MktChart] Full URL:', url);
-      const r=await fetch(url);
-      console.log('[MktChart] Response status:', r.status, 'for', iso);
-
-      // 401/403 = bad API key — stop immediately
-      if(r.status===401||r.status===403){
-        showMsg('Invalid Finnhub API key — update it in Settings');
-        return;
-      }
-      // 429 rate limit or server error — skip this date, try next
-      if(!r.ok){ console.warn('[MktChart] Non-OK status',r.status,'— trying next date'); continue; }
-
-      let data;
-      try{ data=await r.json(); }catch(parseErr){ console.warn('[MktChart] JSON parse failed:',parseErr); continue; }
-
-      console.log('[MktChart] data.s:', data.s, '| bars:', data.t?.length);
-      if(data.s==='ok'&&Array.isArray(data.t)&&data.t.length>0){
-        foundISO=iso;
-        foundData=data;
-        break;
-      }
-      // s==='no_data' → weekend/holiday → loop continues to previous day
-      console.log('[MktChart] No data for', iso, '— trying next day');
-    }catch(e){
-      console.warn('[MktChart] fetch error for',iso,':',e.message);
-      // Transient network error — try next date rather than aborting
-    }
+  // ET DST offset: -4 (EDT, Mar–Nov) or -5 (EST, Nov–Mar)
+  function _etOffsetHours(iso){
+    const [ey,em,ed]=iso.split('-').map(Number);
+    const mar=new Date(Date.UTC(ey,2,1));
+    const dstStart=8+(7-mar.getUTCDay())%7; // 2nd Sunday in March
+    const nov=new Date(Date.UTC(ey,10,1));
+    const dstEnd=1+(7-nov.getUTCDay())%7;   // 1st Sunday in November
+    const inEDT=(em>3||(em===3&&ed>=dstStart))&&(em<11||(em===11&&ed<dstEnd));
+    return inEDT?-4:-5;
   }
+  const [ey,em,ed]=dateISO.split('-').map(Number);
+  const etOff=_etOffsetHours(dateISO);
+  // 09:30 ET → UTC: 9 - etOff (etOff is negative so this adds hours)
+  const fromTs=Math.floor(Date.UTC(ey,em-1,ed,9-etOff,30,0)/1000); // 09:30 ET
+  const toTs  =Math.floor(Date.UTC(ey,em-1,ed,16-etOff,0,0)/1000); // 16:00 ET
 
-  if(!foundData){
-    showMsg('No trading data found for the selected date or the 7 previous trading days');
-    if(noticeEl) noticeEl.style.display='none';
-    // Keep the "Today: X" label already set — don't overwrite with just the date
+  const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+toTs+'&token='+finnhubKey;
+  console.log('[MktChart] URL:', url);
+  console.log('[MktChart] Fetching date:', dateISO, '| ET offset:', etOff, '| fromTs:', fromTs, '| toTs:', toTs);
+
+  let data;
+  try{
+    const r=await fetch(url);
+    console.log('[MktChart] HTTP status:', r.status, '| date:', dateISO);
+    if(r.status===401||r.status===403){ showMsg('Invalid Finnhub API key — update it in Settings'); return; }
+    if(!r.ok){ showMsg('Finnhub error '+r.status+' — try again'); return; }
+    data=await r.json();
+  }catch(e){
+    showMsg('Network error — '+e.message);
+    console.error('[MktChart] fetch failed:', e.message);
     return;
   }
 
-  // Show fallback notice if we had to go back further than the requested date
-  if(noticeEl){
-    if(foundISO!==startISO){
-      noticeEl.textContent='Market closed on '+_fmtDateStr(startISO)+' — showing '+_fmtDateStr(foundISO);
-      noticeEl.style.display='block';
-    }else{
-      noticeEl.style.display='none';
-    }
+  console.log('[MktChart] data.s:', data.s, '| bars:', data.t?.length, '| date:', dateISO);
+
+  if(data.s!=='ok'||!Array.isArray(data.t)||data.t.length===0){
+    showMsg('No market data for '+_fmtDateShort(dateISO));
+    return;
   }
 
-  // Update date label — shows "Today: Apr 11, 2026 — Showing: Apr 10, 2026" if fallback happened
-  _setDateLabel(startISO, foundISO);
-
-  const prices=foundData.c;
-  const tss=foundData.t; // Unix timestamps for each bar
+  const prices=data.c;
+  const tss=data.t; // Unix timestamps for each bar
   const times=tss.map(ts=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}));
-  const prev=foundData.o[0]; // first bar's open ≈ previous close / session open
+  const prev=data.o[0]; // first bar's open ≈ previous close / session open
 
   // Locate pre-market / regular / after-hours boundaries from actual timestamps
   const bar930=_barAtET(tss,9,30);
@@ -2038,7 +1995,7 @@ async function renderIntradayChart(sym, requestedDateStr){
   const lastPrice=prices[prices.length-1];
   const isUp=lastPrice>=prev;
   const clr=isUp?'#00e5b0':'#ff3d5a';
-  const displayDate=_fmtDateStr(foundISO);
+  const displayDate=_fmtDateStr(dateISO);
 
   if(mktChart) mktChart.destroy();
   const ctx=document.getElementById('mkt-chart').getContext('2d');
