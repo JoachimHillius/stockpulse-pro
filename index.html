@@ -925,6 +925,9 @@ select option{background:var(--bg2);}
 let finnhubKey = localStorage.getItem('sp_fh') || '';
 let avKey = localStorage.getItem('sp_av') || '';
 let flowData = JSON.parse(localStorage.getItem('sp_flow') || '[]');
+// Chart boot flags
+let _chartJsReady = false; // Chart.js CDN has loaded
+let _fkConfirmed  = false; // finnhubKey has been verified as non-empty and ready
 let newsData = JSON.parse(localStorage.getItem('sp_news') || '[]');
 let historyData = JSON.parse(localStorage.getItem('sp_hist') || '[]');
 let predictions = [];
@@ -1224,9 +1227,14 @@ function initData(){
   // Prime the flow status — Supabase will overwrite once it loads
   const _fsSt=document.getElementById('csv-status');
   if(_fsSt){_fsSt.textContent='Connecting to database…';_fsSt.style.color='#e0e0e0';}
-  // Set market chart date immediately — visible before chart renders
+  // Set market chart date immediately — always visible before chart renders
+  const _todayFmt = (function(){
+    const _t=new Date().toISOString().slice(0,10);
+    const _d=new Date(_t+'T00:00:00');
+    return _d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  })();
   const _mcdEl=document.getElementById('mkt-chart-date');
-  if(_mcdEl) _mcdEl.textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+  if(_mcdEl) _mcdEl.textContent='Today: '+_todayFmt+' — Loading chart…';
   // Restore saved market symbol
   const _savedSym=localStorage.getItem('sp_mkt_sym');
   if(_savedSym){
@@ -1282,16 +1290,27 @@ function initData(){
     yieldFn(()=>renderMoverLists());
   },5000);
 }
+// Called once finnhubKey is confirmed AND Chart.js is loaded — renders chart exactly once
+function _doRenderMktChart(){
+  if(!finnhubKey || !_chartJsReady) return;
+  const sym  = (typeof _mktSym  !== 'undefined' && _mktSym)  ? _mktSym  : 'SPY';
+  const date = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : '';
+  console.log('[Chart] _doRenderMktChart — sym:', sym, '| date:', date||'(today)', '| finnhubKey length:', finnhubKey.length);
+  try{ renderMktChart('1D', sym, date); }
+  catch(e){ console.warn('[Chart] _doRenderMktChart failed:', e); }
+}
+
 function initCharts(){
+  _chartJsReady = true;
   fetchVixCandles();
-  if(finnhubKey){
-    // Key already in localStorage — render immediately
-    try{renderMktChart('1D', typeof _mktSym!=='undefined'?_mktSym:'SPY', typeof _mktDate!=='undefined'?_mktDate:'');}catch(e){console.warn('Chart init failed:',e);}
+  console.log('[Chart] initCharts — Chart.js ready | _fkConfirmed:', _fkConfirmed, '| finnhubKey length:', finnhubKey.length);
+  // NEVER render here regardless of localStorage — always wait for _fkConfirmed
+  // (localStorage key may be stale; Supabase provides the authoritative key)
+  if(_fkConfirmed && finnhubKey){
+    _doRenderMktChart();
   } else {
-    // Key not yet available — loadFinnhubKeyFromSupabase() will trigger renderMktChart() once it restores the key
-    console.log('[Chart] No Finnhub key at Chart.js load — market chart deferred until key is restored');
     const notice = document.getElementById('mkt-notice');
-    if(notice){ notice.textContent='Waiting for API key to load chart…'; notice.style.display='block'; }
+    if(notice){ notice.textContent='Loading API key… chart will appear shortly'; notice.style.display='block'; }
   }
 }
 // keep legacy name in case anything calls it
@@ -1729,20 +1748,13 @@ function genIntradayPrices(base,prev,seed){
 const BAR_4AM=0,BAR_930AM=66,BAR_4PM=144,BAR_8PM=191;
 
 function renderMktChart(range,sym,date){
-  // GUARD: never render with an empty key — retry every 2s until key is ready
+  // Safety guard — should never be called without a key, but log if it happens
   if(!finnhubKey){
+    console.warn('[Chart] renderMktChart called with empty finnhubKey — this is a bug, skipping');
     const _notice=document.getElementById('mkt-notice');
-    if(_notice){_notice.textContent='Loading API key… chart will appear automatically';_notice.style.display='block';}
-    console.log('[Chart] renderMktChart deferred — finnhubKey is empty');
-    if(!window._mktKeyRetry){
-      const _r=range,_s=sym,_d=date; // capture params for retry
-      window._mktKeyRetry=setInterval(function(){
-        if(finnhubKey){clearInterval(window._mktKeyRetry);window._mktKeyRetry=null;renderMktChart(_r,_s,_d);}
-      },2000);
-    }
+    if(_notice){_notice.textContent='No Finnhub API key — add yours in Settings';_notice.style.display='block';}
     return;
   }
-  if(window._mktKeyRetry){clearInterval(window._mktKeyRetry);window._mktKeyRetry=null;}
   sym=sym||'SPY';
   // date: YYYY-MM-DD string or '' for today (only used in 1D mode)
   if(range==='1D'){renderIntradayChart(sym, date||_mktDate||'');return;}
@@ -1837,6 +1849,11 @@ function _fmtDateStr(iso){
   const d=new Date(iso+'T00:00:00');
   return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
 }
+// Short format: "Apr 11, 2026" — used in the Today/Showing label
+function _fmtDateShort(iso){
+  const d=new Date(iso+'T00:00:00');
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
 
 // Find the bar index in a Unix-timestamp array nearest to a given ET wall-clock time
 function _barAtET(timestamps,hourET,minET){
@@ -1858,8 +1875,28 @@ async function renderIntradayChart(sym, requestedDateStr){
   const todayISO = new Date().toISOString().slice(0,10);
   const startISO = requestedDateStr || todayISO;
 
+  // KEY DIAGNOSTIC — always logged so we can confirm key is set when chart renders
+  console.log('[MktChart] renderIntradayChart — sym:', sym, '| startISO:', startISO, '| finnhubKey:', finnhubKey ? finnhubKey.slice(0,8)+'...(len='+finnhubKey.length+')' : 'EMPTY');
+
   const dateEl   = document.getElementById('mkt-chart-date');
   const noticeEl = document.getElementById('mkt-notice');
+
+  // Always show date label immediately — before any async fetch
+  function _setDateLabel(reqISO, foundISO){
+    if(!dateEl) return;
+    const todayFmt = _fmtDateShort(todayISO);
+    if(!foundISO || foundISO === reqISO){
+      // No fallback — show exactly what was requested
+      dateEl.textContent = (reqISO === todayISO)
+        ? 'Today: ' + todayFmt
+        : 'Showing: ' + _fmtDateShort(reqISO);
+    } else {
+      // Fallback happened — show both
+      dateEl.textContent = 'Today: ' + todayFmt + ' — Showing: ' + _fmtDateShort(foundISO);
+    }
+  }
+  // Show immediately (before async fetch completes)
+  _setDateLabel(startISO, null);
 
   // Helper: clear chart canvas and show a text message instead
   function showMsg(msg){
@@ -1888,7 +1925,7 @@ async function renderIntradayChart(sym, requestedDateStr){
 
   if(!finnhubKey){
     showMsg('Real market data requires a Finnhub API key — add yours in Settings');
-    if(dateEl) dateEl.textContent=_fmtDateStr(startISO);
+    // dateEl already set by _setDateLabel above
     return;
   }
 
@@ -1911,7 +1948,10 @@ async function renderIntradayChart(sym, requestedDateStr){
 
     try{
       const url='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(sym)+'&resolution=5&from='+fromTs+'&to='+effectiveTo+'&token='+finnhubKey;
+      console.log('[MktChart] Fetching (back='+back+') iso='+iso+' fromTs='+fromTs+' toTs='+effectiveTo);
+      console.log('[MktChart] Full URL:', url);
       const r=await fetch(url);
+      console.log('[MktChart] Response status:', r.status, 'for', iso);
 
       // 401/403 = bad API key — stop immediately
       if(r.status===401||r.status===403){
@@ -1919,17 +1959,19 @@ async function renderIntradayChart(sym, requestedDateStr){
         return;
       }
       // 429 rate limit or server error — skip this date, try next
-      if(!r.ok) continue;
+      if(!r.ok){ console.warn('[MktChart] Non-OK status',r.status,'— trying next date'); continue; }
 
       let data;
-      try{ data=await r.json(); }catch(parseErr){ continue; }
+      try{ data=await r.json(); }catch(parseErr){ console.warn('[MktChart] JSON parse failed:',parseErr); continue; }
 
+      console.log('[MktChart] data.s:', data.s, '| bars:', data.t?.length);
       if(data.s==='ok'&&Array.isArray(data.t)&&data.t.length>0){
         foundISO=iso;
         foundData=data;
         break;
       }
       // s==='no_data' → weekend/holiday → loop continues to previous day
+      console.log('[MktChart] No data for', iso, '— trying next day');
     }catch(e){
       console.warn('[MktChart] fetch error for',iso,':',e.message);
       // Transient network error — try next date rather than aborting
@@ -1939,7 +1981,7 @@ async function renderIntradayChart(sym, requestedDateStr){
   if(!foundData){
     showMsg('No trading data found for the selected date or the 7 previous trading days');
     if(noticeEl) noticeEl.style.display='none';
-    if(dateEl) dateEl.textContent=_fmtDateStr(startISO);
+    // Keep the "Today: X" label already set — don't overwrite with just the date
     return;
   }
 
@@ -1953,8 +1995,8 @@ async function renderIntradayChart(sym, requestedDateStr){
     }
   }
 
-  // Update date label to the date we're actually showing
-  if(dateEl) dateEl.textContent=_fmtDateStr(foundISO);
+  // Update date label — shows "Today: Apr 11, 2026 — Showing: Apr 10, 2026" if fallback happened
+  _setDateLabel(startISO, foundISO);
 
   const prices=foundData.c;
   const tss=foundData.t; // Unix timestamps for each bar
@@ -3582,35 +3624,47 @@ async function saveFinnhubKeyToSupabase(key){
   }
 }
 
-// Load Finnhub key from Supabase — called after Supabase client loads if localStorage was empty
+// Load Finnhub key from Supabase — ALWAYS called on page load.
+// Supabase is the source of truth: it will overwrite a stale localStorage key.
 async function loadFinnhubKeyFromSupabase(){
   const supa = getSupabase();
-  if(!supa) return;
+  if(!supa){ _fkFallbackToLocalStorage(); return; }
   try{
     const {data, error} = await supa.from('user_settings').select('value').eq('key','finnhub_api_key').single();
-    if(error || !data || !data.value) return;
-    const key = data.value;
-    if(key && !finnhubKey){
-      // localStorage was empty — restore from Supabase
-      finnhubKey = key;
-      localStorage.setItem('sp_fh', key);
+    const supaKey = (!error && data && data.value) ? data.value.trim() : null;
+    if(supaKey){
+      const hadKey = !!finnhubKey;
+      // Always use Supabase key — overrides stale localStorage value
+      finnhubKey = supaKey;
+      localStorage.setItem('sp_fh', supaKey);
       updateFhIndicator();
-      // Mask the input if Settings tab is open
       const inp = document.getElementById('s-finnhub');
       if(inp) inp.value = '••••••••';
-      // Kick off live data now that we have a key
-      setTimeout(fetchLiveAll, 500);
-      showToast('API', 'Finnhub key restored from cloud backup', 'info');
-      console.log('[Settings] Finnhub key restored from Supabase');
-      // Re-init market chart — it may have failed earlier when key wasn't available yet
-      if(window.Chart){
-        const sym  = (typeof _mktSym  !== 'undefined' && _mktSym)  ? _mktSym  : 'SPY';
-        const date = (typeof _mktDate !== 'undefined' && _mktDate) ? _mktDate : '';
-        renderMktChart('1D', sym, date);
-      }
+      if(!hadKey) setTimeout(fetchLiveAll, 500); // kick off live data only if key was missing
+      console.log('[Settings] Finnhub key confirmed from Supabase (length:', supaKey.length, ')');
+      showToast('API', 'Finnhub key ready', 'info');
+    } else if(finnhubKey){
+      // Supabase has no key but localStorage does — accept localStorage key as-is
+      console.log('[Settings] Supabase has no Finnhub key — using localStorage key');
+    } else {
+      console.log('[Settings] No Finnhub key found in Supabase or localStorage');
+      return; // no key at all — don't confirm, don't render
     }
+    // Key is now confirmed (from Supabase or localStorage fallback)
+    _fkConfirmed = true;
+    if(_chartJsReady) _doRenderMktChart();
   }catch(e){
-    console.warn('[Settings] Could not load Finnhub key from Supabase:', e);
+    console.warn('[Settings] Supabase key load failed:', e.message, '— falling back to localStorage');
+    _fkFallbackToLocalStorage();
+  }
+}
+
+// Fall back to localStorage key when Supabase is unavailable
+function _fkFallbackToLocalStorage(){
+  if(finnhubKey){
+    console.log('[Settings] Using localStorage key as fallback (Supabase unavailable)');
+    _fkConfirmed = true;
+    if(_chartJsReady) _doRenderMktChart();
   }
 }
 
@@ -3806,13 +3860,14 @@ async function loadFlowFromSupabase(){
   const statusEl=document.getElementById('csv-status');
   const updEl=document.getElementById('flow-last-update');
   try{
-    const since=new Date(Date.now()-30*86400000).toISOString();
+    // No date filter — fetch all available data (limit 2000) so old uploads are not excluded
+    console.log('[Flow] loadFlowFromSupabase — querying omen_flow...');
     const{data,error}=await supa
       .from('omen_flow')
       .select('*')
-      .gte('upload_date',since)
       .order('upload_date',{ascending:false})
       .limit(2000);
+    console.log('[Flow] Supabase returned:', data?.length, 'rows | error:', error?.message||'none');
     if(error)throw error;
     _setDbStatus('● DB connected','#00e5b0');
     if(!data||!data.length){
@@ -4353,8 +4408,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
   s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
   s.onload=function(){
     loadFlowFromSupabase();
-    // If localStorage had no Finnhub key, try to restore from Supabase cloud backup
-    if(!finnhubKey) loadFinnhubKeyFromSupabase();
+    // ALWAYS fetch key from Supabase — it overrides any stale localStorage key
+    loadFinnhubKeyFromSupabase();
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
@@ -4362,6 +4417,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     const cached=JSON.parse(localStorage.getItem('sp_flow')||'[]');
     if(cached.length){flowData=cached;renderFlowStats();renderFlowBody();updateStatusCounts();}
     else{const st=document.getElementById('csv-status');if(st){st.textContent='Upload a CSV to load flow data';st.style.color='#e0e0e0';}}
+    // Supabase failed — fall back to localStorage key so chart can still render
+    _fkFallbackToLocalStorage();
   };
   document.head.appendChild(s);
 })();
