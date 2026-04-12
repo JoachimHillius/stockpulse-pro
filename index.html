@@ -1938,9 +1938,8 @@ async function renderIntradayChart(sym, requestedDateStr){
   const fromTs=Math.floor(Date.UTC(ey,em-1,ed,9-etOff,30,0)/1000); // 09:30 ET
   const toTs  =Math.floor(Date.UTC(ey,em-1,ed,16-etOff,0,0)/1000); // 16:00 ET
 
-  // Yahoo Finance via CORS proxy — browser cannot fetch Yahoo directly due to CORS
-  const yahooUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${fromTs}&period2=${toTs}&includePrePost=false`;
-  const url=`https://corsproxy.io/?${yahooUrl}`;
+  // Yahoo Finance — browser fetches this directly (Yahoo sends CORS headers for browser requests)
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${fromTs}&period2=${toTs}&includePrePost=false`;
   console.log('[MktChart] Yahoo URL:', url);
   console.log('[MktChart] Date:', dateISO, '| ET offset:', etOff, '| fromTs:', fromTs, '| toTs:', toTs);
 
