@@ -477,6 +477,16 @@ select option{background:var(--bg2);}
             <button class="vix-tfbtn active" onclick="setVixTf('D',this)">1DAY</button>
             <button class="vix-tfbtn" onclick="setVixTf('W',this)">1WK</button>
           </div>
+          <!-- VIX date picker — intraday timeframes use this to select a specific day -->
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;">
+            <span style="font-size:9px;font-weight:700;color:#ffffff;letter-spacing:1px;text-transform:uppercase;">Date:</span>
+            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
+              <input id="vix-date-input" type="date"
+                style="background:var(--bg3);border:none;color:#ffffff;padding:3px 6px;font-family:var(--font);font-size:10px;outline:none;cursor:pointer;width:130px;color-scheme:dark;"
+                onchange="switchVixDate()"/>
+            </div>
+            <button onclick="fetchVixCandles()" title="Reload VIX chart" style="background:transparent;border:1px solid var(--border2);color:#ffffff;border-radius:3px;padding:2px 8px;font-size:15px;cursor:pointer;line-height:1;font-family:var(--font);">↻</button>
+          </div>
           <div style="position:relative;height:180px;"><canvas id="vix-candle-chart"></canvas></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
             <div style="display:flex;gap:10px;font-size:9px;color:#e0e0e0;">
@@ -1288,6 +1298,14 @@ function initData(){
     const _d=new Date(_defaultDate+'T00:00:00');
     _mcdEl2.textContent='Showing: '+_d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
   }
+  // Initialize VIX date picker to last trading day
+  const _vixDateInp=document.getElementById('vix-date-input');
+  if(_vixDateInp){
+    const _todayISO=new Date().toISOString().slice(0,10);
+    _vixDateInp.max=_todayISO;
+    _vixDate=_lastTradingDay();
+    _vixDateInp.value=_vixDate;
+  }
   if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
   if(tdKey) document.getElementById('s-td').value='••••••••';
   if(avKey) document.getElementById('s-av').value='••••••••';
@@ -1330,7 +1348,7 @@ function _doRenderMktChart(){
 
 function initCharts(){
   _chartJsReady = true;
-  fetchVixCandles(); // VIX still uses Finnhub
+  fetchVixCandles(); // VIX chart via Twelve Data
   console.log('[Chart] initCharts — Chart.js ready, rendering chart');
   _doRenderMktChart();
 }
@@ -1385,32 +1403,34 @@ function setRiskBanner(v){
   else{b.style.background='rgba(255,61,90,0.15)';b.style.color='var(--red)';b.style.border='1px solid rgba(255,61,90,0.4)';b.textContent='🚨 EXTREME PANIC (VIX '+v.toFixed(1)+') — Reduce size significantly. Mean-reversion plays only.';}
 }
 
-// Fetch fresh VIX quote from Finnhub — called on load and every 5 min
+// Fetch fresh VIX quote from Twelve Data — called on load and every 5 min
 async function fetchVixQuote(){
-  if(!finnhubKey) return;
+  if(!tdKey) return;
   try{
-    const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=VIX&token=${finnhubKey}`);
+    const r=await fetch(`https://api.twelvedata.com/price?symbol=VIX&apikey=${tdKey}`);
     const d=await r.json();
     console.log('[VIX] quote response:', d);
-    if(d && d.c && d.c>0) updateVix(d.c);
+    const price=parseFloat(d && d.price ? d.price : 0);
+    if(price>0) updateVix(price);
   }catch(e){ console.warn('[VIX] quote fetch failed:', e.message); }
 }
 
 // ============================================================
-// VIX CANDLE CHART — multi-timeframe via Finnhub or mock
+// VIX CANDLE CHART — multi-timeframe via Twelve Data or mock
 // ============================================================
 let vixCandleChart = null;
 let vixCandles = [];
 let vixTf = 'D'; // current timeframe: 1 5 15 60 D W
+let _vixDate = ''; // YYYY-MM-DD; set by date picker or defaults to last trading day
 
-// Finnhub resolution → look-back seconds and bar count
+// Twelve Data interval mapping for VIX chart
 const VIX_TF_CFG = {
-  '1':  {secs: 60*14,       bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
-  '5':  {secs: 60*5*14,     bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
-  '15': {secs: 60*15*14,    bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
-  '60': {secs: 3600*14,     bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false})},
-  'D':  {secs: 86400*14,    bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'})},
-  'W':  {secs: 86400*7*14,  bars:10, fmt:(ts)=>new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'})},
+  '1':  {interval:'1min',  outputsize:390, fmt:(dt)=>dt.slice(11,16)},
+  '5':  {interval:'5min',  outputsize:78,  fmt:(dt)=>dt.slice(11,16)},
+  '15': {interval:'15min', outputsize:26,  fmt:(dt)=>dt.slice(11,16)},
+  '60': {interval:'1h',    outputsize:7,   fmt:(dt)=>dt.slice(11,16)},
+  'D':  {interval:'1day',  outputsize:30,  fmt:(dt)=>{const d=new Date(dt+'T00:00:00');return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}},
+  'W':  {interval:'1week', outputsize:30,  fmt:(dt)=>{const d=new Date(dt+'T00:00:00');return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}},
 };
 
 // Volatility per bar by timeframe — drives how much mock VIX moves each bar
@@ -1424,26 +1444,39 @@ function setVixTf(tf, btn){
 }
 
 async function fetchVixCandles(){
-  if(!finnhubKey){ renderVixMockCandles(); return; }
+  if(!tdKey){ renderVixMockCandles(); return; }
   const cfg = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
   try {
-    const to   = Math.floor(Date.now()/1000);
-    const from = to - cfg.secs;
-    const url  = `https://finnhub.io/api/v1/stock/candle?symbol=VIX&resolution=${vixTf}&from=${from}&to=${to}&token=${finnhubKey}`;
-    const res  = await fetch(url);
-    const d    = await res.json();
-    if(d.s==='ok' && d.t && d.t.length){
-      vixCandles = d.t.map((ts,i)=>({
-        date: cfg.fmt(ts),
-        o: d.o[i], h: d.h[i], l: d.l[i], c: d.c[i]
-      })).slice(-cfg.bars);
-      if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
-      stampVixUpdate();
-      renderVixCandleChart(vixCandles);
+    const isIntraday = ['1','5','15','60'].includes(vixTf);
+    let url;
+    if(isIntraday){
+      // For intraday timeframes, fetch a specific trading day
+      const dateForVix = _vixDate || _lastTradingDay();
+      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&date=${dateForVix}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     } else {
-      renderVixMockCandles();
+      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     }
-  } catch(e){ renderVixMockCandles(); }
+    console.log('[VIX] fetchVixCandles URL:', url);
+    const res = await fetch(url);
+    const d   = await res.json();
+    if(d.status==='error' || !Array.isArray(d.values) || !d.values.length){
+      console.warn('[VIX] TD error or no data:', d.message||d);
+      renderVixMockCandles(); return;
+    }
+    // Twelve Data returns newest-first — reverse to chronological
+    const bars = [...d.values].reverse();
+    vixCandles = bars.map(b=>({
+      date: cfg.fmt(b.datetime),
+      o: parseFloat(b.open), h: parseFloat(b.high),
+      l: parseFloat(b.low),  c: parseFloat(b.close)
+    }));
+    if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
+    stampVixUpdate();
+    renderVixCandleChart(vixCandles);
+  } catch(e){
+    console.warn('[VIX] fetchVixCandles error:', e);
+    renderVixMockCandles();
+  }
 }
 
 function renderVixMockCandles(){
@@ -1500,11 +1533,14 @@ function renderVixMockCandles(){
 }
 
 function stampVixUpdate(){
+  const open = isMarketOpen();
+  // When market is open, VIX from Twelve Data is delayed ~15min; when closed it's last session close
+  const statusLabel = open ? 'Delayed' : 'Last close';
+  const timeStr = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const el = document.getElementById('vix-candle-updated');
-  if(el) el.textContent = 'Updated '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  // Keep the header pill in sync too
+  if(el) el.textContent = statusLabel + ' · ' + timeStr;
   const hdr = document.getElementById('vix-last-update');
-  if(hdr) hdr.textContent = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  if(hdr) hdr.textContent = statusLabel + ' · ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 }
 
 function renderVixCandleChart(rawCandles){
@@ -1932,32 +1968,14 @@ async function renderIntradayChart(sym, requestedDateStr){
     lines.forEach((l,i)=>c.fillText(l,canvas.width/2,canvas.height/2-totalH/2+i*lineH+lineH/2));
   }
 
-  // ET DST offset: -4 (EDT, Mar–Nov) or -5 (EST, Nov–Mar)
-  function _etOffsetHours(iso){
-    const [ey,em,ed]=iso.split('-').map(Number);
-    const mar=new Date(Date.UTC(ey,2,1));
-    const dstStart=8+(7-mar.getUTCDay())%7; // 2nd Sunday in March
-    const nov=new Date(Date.UTC(ey,10,1));
-    const dstEnd=1+(7-nov.getUTCDay())%7;   // 1st Sunday in November
-    const inEDT=(em>3||(em===3&&ed>=dstStart))&&(em<11||(em===11&&ed<dstEnd));
-    return inEDT?-4:-5;
-  }
-  const [ey,em,ed]=dateISO.split('-').map(Number);
-  const etOff=_etOffsetHours(dateISO);
-  // 09:30 ET → UTC: 9 - etOff (etOff is negative so this adds hours)
-  const fromTs=Math.floor(Date.UTC(ey,em-1,ed,9-etOff,30,0)/1000); // 09:30 ET
-  const toTs  =Math.floor(Date.UTC(ey,em-1,ed,16-etOff,0,0)/1000); // 16:00 ET
-
   // Twelve Data — CORS-safe, 800 free calls/day — get key at twelvedata.com (free, instant)
   if(!tdKey){
     showMsg('Add Twelve Data API key in Settings to view chart — twelvedata.com, free, instant');
     return;
   }
-  const startDT=`${dateISO} 09:30:00`;
-  const endDT  =`${dateISO} 16:00:00`;
-  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=5min&start_date=${encodeURIComponent(startDT)}&end_date=${encodeURIComponent(endDT)}&timezone=America%2FNew_York&outputsize=100&apikey=${tdKey}`;
+  // Use date= param so Twelve Data handles the market session window (9:30–16:00 ET)
+  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1min&date=${dateISO}&timezone=America%2FNew_York&outputsize=400&apikey=${tdKey}`;
   console.log('[MktChart] Twelve Data URL:', url);
-  console.log('[MktChart] Date:', dateISO, '| start:', startDT, '| end:', endDT);
 
   let data;
   try{
@@ -3637,6 +3655,40 @@ async function loadFinnhubKeyFromSupabase(){
   }
 }
 
+// Save Twelve Data key to Supabase user_settings table (fire-and-forget)
+async function saveTdKeyToSupabase(key){
+  const supa = getSupabase();
+  if(!supa) return;
+  try{
+    await supa.from('user_settings').upsert({key:'twelve_data_api_key', value:key},{onConflict:'key'});
+    console.log('[Settings] Twelve Data key saved to Supabase');
+  }catch(e){
+    console.warn('[Settings] Could not save TD key to Supabase:', e);
+  }
+}
+
+// Load Twelve Data key from Supabase — only fills in if localStorage was empty
+async function loadTdKeyFromSupabase(){
+  const supa = getSupabase();
+  if(!supa) return;
+  try{
+    const {data, error} = await supa.from('user_settings').select('value').eq('key','twelve_data_api_key').single();
+    if(error || !data || !data.value) return;
+    const supaKey = data.value.trim();
+    if(!supaKey) return;
+    if(!tdKey){
+      tdKey = supaKey;
+      localStorage.setItem('sp_td', supaKey);
+      console.log('[Settings] Twelve Data key restored from Supabase');
+      renderMktChart('1D');
+      fetchVixCandles();
+      fetchVixQuote();
+    }
+  }catch(e){
+    console.warn('[Settings] Could not load TD key from Supabase:', e);
+  }
+}
+
 // Fall back to localStorage key when Supabase CDN is unavailable
 function _fkFallbackToLocalStorage(){
   if(finnhubKey && !_fkConfirmed){
@@ -3663,10 +3715,13 @@ function saveKey(type){
     if(!k || k.includes('•')) return;
     tdKey = k;
     localStorage.setItem('sp_td', k);
+    saveTdKeyToSupabase(k);
     const ks = document.getElementById('key-status');
-    if(ks){ ks.textContent = '✓ Twelve Data key saved — market chart ready'; ks.style.color = 'var(--green)'; }
-    // Render chart immediately with new key
+    if(ks){ ks.textContent = '✓ Twelve Data key saved & backed up to cloud'; ks.style.color = 'var(--green)'; }
+    // Render chart and VIX immediately with new key
     renderMktChart('1D');
+    fetchVixCandles();
+    fetchVixQuote();
   }else{
     const k = document.getElementById('s-av').value.trim();
     if(!k || k.includes('•')) return;
@@ -3975,6 +4030,13 @@ function switchMktDate(){
   }
 
   renderMktChart('1D', _mktSym, dateVal);
+}
+
+function switchVixDate(){
+  const input = document.getElementById('vix-date-input');
+  const dateVal = input?.value || ''; // YYYY-MM-DD
+  _vixDate = dateVal;
+  fetchVixCandles();
 }
 
 // ============================================================
@@ -4376,10 +4438,10 @@ initData();
 // DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
-if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
+if(tdKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
-setInterval(()=>fetchVixCandles(),300000);
-setInterval(()=>fetchVixQuote(),300000); // refresh VIX quote every 5 min
+setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
+setInterval(()=>{if(tdKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load Chart.js async so CDN latency never blocks the page
 (function(){
@@ -4397,6 +4459,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     loadFlowFromSupabase();
     // Backup key restore — only acts if localStorage was empty
     loadFinnhubKeyFromSupabase();
+    loadTdKeyFromSupabase();
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
