@@ -526,7 +526,7 @@ select option{background:var(--bg2);}
         <div class="card-hd">
           <div>
             <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
-            <div id="mkt-chart-date" style="font-size:16px;font-weight:700;color:#ffffff;margin-top:4px;letter-spacing:0.3px;"></div>
+            <div id="mkt-chart-date" style="font-size:18px;font-weight:700;color:#ffffff;margin-top:6px;letter-spacing:0.3px;min-height:22px;">Today</div>
           </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <!-- Symbol input -->
@@ -920,6 +920,20 @@ select option{background:var(--bg2);}
 
 <script>
 // ============================================================
+// TODAY'S DATE — runs first, before anything else, no API dependency
+// Element is already in DOM at this point (defined above the script tag)
+// ============================================================
+(function(){
+  var _el = document.getElementById('mkt-chart-date');
+  if(_el){
+    var _d = new Date();
+    _el.textContent = 'Today: ' + _d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+    _el.style.color = '#ffffff';
+    _el.style.fontWeight = '700';
+    _el.style.fontSize = '18px';
+  }
+})();
+// ============================================================
 // STATE
 // ============================================================
 let finnhubKey = localStorage.getItem('sp_fh') || '';
@@ -1303,14 +1317,17 @@ function _doRenderMktChart(){
 function initCharts(){
   _chartJsReady = true;
   fetchVixCandles();
-  console.log('[Chart] initCharts — Chart.js ready | _fkConfirmed:', _fkConfirmed, '| finnhubKey length:', finnhubKey.length);
-  // NEVER render here regardless of localStorage — always wait for _fkConfirmed
-  // (localStorage key may be stale; Supabase provides the authoritative key)
-  if(_fkConfirmed && finnhubKey){
+  console.log('[Chart] initCharts — finnhubKey length:', finnhubKey.length, '| _fkConfirmed:', _fkConfirmed);
+  if(finnhubKey){
+    // Key is in localStorage — render immediately, no need to wait for Supabase
+    console.log('[Chart] initCharts: localStorage key found, rendering now');
+    _fkConfirmed = true;
     _doRenderMktChart();
   } else {
+    // No localStorage key — show notice, wait for Supabase to provide one
+    console.log('[Chart] initCharts: no localStorage key, waiting for Supabase');
     const notice = document.getElementById('mkt-notice');
-    if(notice){ notice.textContent='Loading API key… chart will appear shortly'; notice.style.display='block'; }
+    if(notice){ notice.textContent='No API key in localStorage — loading from cloud…'; notice.style.display='block'; }
   }
 }
 // keep legacy name in case anything calls it
@@ -3624,47 +3641,42 @@ async function saveFinnhubKeyToSupabase(key){
   }
 }
 
-// Load Finnhub key from Supabase — ALWAYS called on page load.
-// Supabase is the source of truth: it will overwrite a stale localStorage key.
+// Load Finnhub key from Supabase — backup only.
+// Only runs when localStorage was empty. If localStorage already has a key,
+// initCharts() already rendered the chart, so this does nothing for the chart.
 async function loadFinnhubKeyFromSupabase(){
   const supa = getSupabase();
-  if(!supa){ _fkFallbackToLocalStorage(); return; }
+  if(!supa) return;
   try{
     const {data, error} = await supa.from('user_settings').select('value').eq('key','finnhub_api_key').single();
-    const supaKey = (!error && data && data.value) ? data.value.trim() : null;
-    if(supaKey){
-      const hadKey = !!finnhubKey;
-      // Always use Supabase key — overrides stale localStorage value
+    if(error || !data || !data.value) return;
+    const supaKey = data.value.trim();
+    if(!supaKey) return;
+    if(!finnhubKey){
+      // localStorage was empty — restore from Supabase and render chart
       finnhubKey = supaKey;
       localStorage.setItem('sp_fh', supaKey);
       updateFhIndicator();
       const inp = document.getElementById('s-finnhub');
       if(inp) inp.value = '••••••••';
-      if(!hadKey) setTimeout(fetchLiveAll, 500); // kick off live data only if key was missing
-      console.log('[Settings] Finnhub key confirmed from Supabase (length:', supaKey.length, ')');
-      showToast('API', 'Finnhub key ready', 'info');
-    } else if(finnhubKey){
-      // Supabase has no key but localStorage does — accept localStorage key as-is
-      console.log('[Settings] Supabase has no Finnhub key — using localStorage key');
+      setTimeout(fetchLiveAll, 500);
+      showToast('API', 'Finnhub key restored from cloud', 'info');
+      console.log('[Settings] Finnhub key restored from Supabase (localStorage was empty)');
+      _fkConfirmed = true;
+      if(_chartJsReady) _doRenderMktChart();
     } else {
-      console.log('[Settings] No Finnhub key found in Supabase or localStorage');
-      return; // no key at all — don't confirm, don't render
+      // localStorage already had a key — chart already rendered, just ensure Supabase is in sync
+      console.log('[Settings] Supabase key loaded (localStorage already had key — no re-render needed)');
     }
-    // Key is now confirmed (from Supabase or localStorage fallback)
-    _fkConfirmed = true;
-    if(_chartJsReady) _doRenderMktChart();
   }catch(e){
-    console.warn('[Settings] Supabase key load failed:', e.message, '— falling back to localStorage');
-    _fkFallbackToLocalStorage();
+    console.warn('[Settings] Could not load Finnhub key from Supabase:', e.message);
   }
 }
 
-// Fall back to localStorage key when Supabase is unavailable
+// Fall back to localStorage key when Supabase CDN is unavailable
 function _fkFallbackToLocalStorage(){
-  if(finnhubKey){
-    console.log('[Settings] Using localStorage key as fallback (Supabase unavailable)');
-    _fkConfirmed = true;
-    if(_chartJsReady) _doRenderMktChart();
+  if(finnhubKey && !_fkConfirmed){
+    console.log('[Settings] Supabase unavailable — localStorage key already in use');
   }
 }
 
@@ -4408,7 +4420,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
   s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
   s.onload=function(){
     loadFlowFromSupabase();
-    // ALWAYS fetch key from Supabase — it overrides any stale localStorage key
+    // Backup key restore — only acts if localStorage was empty
     loadFinnhubKeyFromSupabase();
   };
   s.onerror=function(){
