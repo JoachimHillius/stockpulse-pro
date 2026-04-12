@@ -1447,20 +1447,23 @@ async function fetchVixCandles(){
   if(!tdKey){ renderVixMockCandles(); return; }
   const cfg = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
   try {
+    // Always read date directly from the DOM picker — no stale module-level variable
+    const vixDate = document.getElementById('vix-date-input')?.value || _lastTradingDay();
     const isIntraday = ['1','5','15','60'].includes(vixTf);
     let url;
     if(isIntraday){
-      // For intraday timeframes, fetch a specific trading day
-      const dateForVix = _vixDate || _lastTradingDay();
-      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&date=${dateForVix}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
+      // Intraday: fetch the specific day selected in the date picker
+      url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&date=${vixDate}&timezone=America%2FNew_York&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     } else {
+      // Daily/weekly: just get the last N bars
       url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
     }
-    console.log('[VIX] fetchVixCandles URL:', url);
+    console.log('[VIX] fetchVixCandles — tf:', vixTf, '| date:', vixDate, '| URL:', url);
     const res = await fetch(url);
     const d   = await res.json();
+    console.log('[VIX] TD response status:', d.status, '| bars:', d.values?.length, '| message:', d.message||'ok');
     if(d.status==='error' || !Array.isArray(d.values) || !d.values.length){
-      console.warn('[VIX] TD error or no data:', d.message||d);
+      console.warn('[VIX] No data — falling back to mock. Response:', JSON.stringify(d).slice(0,200));
       renderVixMockCandles(); return;
     }
     // Twelve Data returns newest-first — reverse to chronological
@@ -1470,6 +1473,7 @@ async function fetchVixCandles(){
       o: parseFloat(b.open), h: parseFloat(b.high),
       l: parseFloat(b.low),  c: parseFloat(b.close)
     }));
+    console.log('[VIX] Parsed', vixCandles.length, 'candles | last close:', vixCandles.at(-1)?.c);
     if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
     stampVixUpdate();
     renderVixCandleChart(vixCandles);
@@ -1933,10 +1937,16 @@ function _barAtET(timestamps,hourET,minET){
 }
 
 async function renderIntradayChart(sym, requestedDateStr){
-  console.log('[MktChart] renderIntradayChart | sym:', sym||'SPY', '| date:', requestedDateStr||'(default)');
-
   sym = sym || 'SPY';
-  const dateISO = requestedDateStr || _lastTradingDay();
+
+  // Always read the date picker directly from the DOM — most reliable source of truth
+  // requestedDateStr is only used when called programmatically (e.g. switchMktDate)
+  const chartDate = requestedDateStr
+    || document.getElementById('mkt-date-input')?.value
+    || _lastTradingDay();
+  const dateISO = chartDate;
+
+  console.log('[MktChart] renderIntradayChart | sym:', sym, '| requestedDateStr:', requestedDateStr||'none', '| pickerVal:', document.getElementById('mkt-date-input')?.value||'(empty)', '| using dateISO:', dateISO);
 
   const dateEl   = document.getElementById('mkt-chart-date');
   const noticeEl = document.getElementById('mkt-notice');
@@ -1976,6 +1986,7 @@ async function renderIntradayChart(sym, requestedDateStr){
   // Use date= param so Twelve Data handles the market session window (9:30–16:00 ET)
   const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1min&date=${dateISO}&timezone=America%2FNew_York&outputsize=400&apikey=${tdKey}`;
   console.log('[MktChart] Twelve Data URL:', url);
+  console.log('[MktChart] Fetching date:', dateISO, '| sym:', sym);
 
   let data;
   try{
