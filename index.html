@@ -922,6 +922,16 @@ select option{background:var(--bg2);}
 </div>
 
 <script>
+// ============================================================
+// EMERGENCY KEY RESTORE — runs before ANYTHING else
+// ============================================================
+(function(){
+  try{
+    const fh = localStorage.getItem('sp_fh');
+    if(fh) window._fhKey = fh;
+  }catch(e){ console.warn('[BOOT] Emergency key restore failed:', e.message); }
+})();
+
 // Last trading day helper — used for chart date default
 function _lastTradingDay(){
   const d = new Date();
@@ -3912,14 +3922,35 @@ async function fetchLiveAll(){
 }
 
 // ============================================================
-// NAVIGATION
+// NAVIGATION — goPage and switchTab are always safe to call
 // ============================================================
-function goPage(name,btn){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  if(btn)btn.classList.add('active');
-  else document.querySelectorAll('.nav-btn').forEach(b=>{if(b.onclick?.toString().includes(name))b.classList.add('active');});
+function goPage(name, btn){
+  try{
+    const pages = document.querySelectorAll('.page');
+    pages.forEach(p => p.classList.remove('active'));
+    const target = document.getElementById('page-'+name);
+    if(!target){ console.error('[goPage] No element found: #page-'+name); return; }
+    target.classList.add('active');
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    else document.querySelectorAll('.nav-btn').forEach(b => {
+      if(b.onclick && b.onclick.toString().includes(name)) b.classList.add('active');
+    });
+  }catch(e){
+    console.error('[goPage] Navigation error:', e.message);
+    // Last-resort: just show the target page by brute force
+    try{
+      document.querySelectorAll('.page').forEach(p => p.style.display='none');
+      const t = document.getElementById('page-'+name);
+      if(t) t.style.display='block';
+    }catch(_){}
+  }
+}
+
+// switchTab() — alias used by emergency button and any inline callers
+function switchTab(name){
+  try{ goPage(name, null); }
+  catch(e){ console.error('[switchTab] Error:', e.message); }
 }
 
 // ============================================================
@@ -4713,5 +4744,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     <div id="pos-empty" style="text-align:center;color:#e0e0e0;font-size:10px;padding:14px 0;">No positions — click + Add to start tracking</div>
   </div>
 </div>
+<!-- EMERGENCY SETTINGS BUTTON — always visible, always works, z-index above everything -->
+<button
+  id="emergency-settings-btn"
+  onclick="(function(){ try{ switchTab('settings'); } catch(e){ try{ goPage('settings',null); } catch(e2){ document.querySelectorAll('.page').forEach(p=>p.style.display='none'); var t=document.getElementById('page-settings'); if(t)t.style.display='block'; } } })()"
+  title="Open Settings"
+  style="position:fixed;bottom:20px;right:20px;z-index:99999;background:#e02040;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-family:monospace;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.5);letter-spacing:0.5px;">
+  ⚙ SETTINGS
+</button>
 </body>
 </html>
