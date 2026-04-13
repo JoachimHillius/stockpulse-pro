@@ -935,17 +935,29 @@ function _lastTradingDay(){
 // ============================================================
 // STATE
 // ============================================================
+// Safe localStorage JSON parse — a corrupted value must NEVER kill the entire script
+function _safeLS(key, dflt){
+  try{
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : dflt;
+  }catch(e){
+    console.warn('[localStorage] Corrupted value for key "'+key+'" — clearing it. Error:', e.message);
+    try{ localStorage.removeItem(key); }catch(_){}
+    return dflt;
+  }
+}
+// Keys restored from localStorage immediately — BEFORE any other code runs
 let finnhubKey = localStorage.getItem('sp_fh') || '';
 let avKey = localStorage.getItem('sp_av') || '';
 let tdKey = localStorage.getItem('sp_td') || '';
-let flowData = JSON.parse(localStorage.getItem('sp_flow') || '[]');
+let flowData = _safeLS('sp_flow', []);
 // Chart boot flags
 let _chartJsReady = false; // Chart.js CDN has loaded
 let _fkConfirmed  = false; // finnhubKey has been verified as non-empty and ready
-let newsData = JSON.parse(localStorage.getItem('sp_news') || '[]');
-let historyData = JSON.parse(localStorage.getItem('sp_hist') || '[]');
+let newsData = _safeLS('sp_news', []);
+let historyData = _safeLS('sp_hist', []);
 let predictions = [];
-let alerts = JSON.parse(localStorage.getItem('sp_alerts') || '[]');
+let alerts = _safeLS('sp_alerts', []);
 let scanTimer = null, scanCountdown = null, scanRunning = false;
 let mktChart = null;
 let _intradayMockCache = null; // {sym, date, prices, times, prev} — stable per session/day
@@ -954,10 +966,10 @@ let currentFlowFilter = 'all';
 let currentWlFilter = 'all';
 let vixValue = 18.4;
 let tapePeriod = '1d';
-let flowHistory = JSON.parse(localStorage.getItem('sp_flowHist') || '[]');
+let flowHistory = _safeLS('sp_flowHist', []);
 let earningsCache = {};
-let histBaselines = JSON.parse(localStorage.getItem('sp_histBaselines') || '{}');
-let optionsCache = JSON.parse(localStorage.getItem('sp_optChain') || '{}');
+let histBaselines = _safeLS('sp_histBaselines', {});
+let optionsCache = _safeLS('sp_optChain', {});
 let syncRunning = false;
 const expandedTickers = new Set();
 const collapsedSectors = new Set();
@@ -1245,9 +1257,15 @@ function initData(){
   if(mktPicker) mktPicker.value = _ltd;
   console.log('[initData] pickers set to:', _ltd);
 
-  // Load positions from localStorage first — never lose them on page refresh
-  const _savedPos=localStorage.getItem('sp_positions');
-  if(_savedPos) positions=JSON.parse(_savedPos);
+  // Load positions from localStorage — re-sync in case changed since top-level init
+  try{
+    const _savedPos = localStorage.getItem('sp_positions');
+    if(_savedPos) positions = JSON.parse(_savedPos);
+  }catch(e){
+    console.warn('[Positions] Corrupted sp_positions in initData — using empty array');
+    positions = [];
+    try{ localStorage.removeItem('sp_positions'); }catch(_){}
+  }
   renderPositions();
   applyTheme();
   // Prime the flow status — Supabase will overwrite once it loads
@@ -1293,9 +1311,10 @@ function initData(){
     _vixDate=_lastTradingDay();
     _vixDateInp.value=_vixDate;
   }
-  if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
-  if(tdKey) document.getElementById('s-td').value='••••••••';
-  if(avKey) document.getElementById('s-av').value='••••••••';
+  // Null-checked — elements exist in DOM but guard defensively
+  if(finnhubKey){ const el=document.getElementById('s-finnhub'); if(el) el.value='••••••••'; }
+  if(tdKey){ const el=document.getElementById('s-td'); if(el) el.value='••••••••'; }
+  if(avKey){ const el=document.getElementById('s-av'); if(el) el.value='••••••••'; }
   // Set API key indicator state immediately (before Supabase loads)
   updateFhIndicator();
   updateClock();
@@ -4203,7 +4222,7 @@ function switchVixDate(){
 // ============================================================
 // FLOATING POSITIONS TRACKER
 // ============================================================
-let positions = JSON.parse(localStorage.getItem('sp_positions') || '[]');
+let positions = _safeLS('sp_positions', []);
 let _posCollapsed = localStorage.getItem('sp_pos_collapsed') === '1';
 let _posAddOpen = false;
 
@@ -4601,7 +4620,7 @@ document.addEventListener('DOMContentLoaded', _initPosPanel);
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
 if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
-setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
+setInterval(()=>{if(finnhubKey)fetchVixCandles();},300000); // VIX uses Finnhub, not Twelve Data
 setInterval(()=>{if(finnhubKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load TradingView widget library — used for the market chart only
