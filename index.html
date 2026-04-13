@@ -1488,57 +1488,6 @@ function renderVixMockCandles(){
   }
   renderVixLineChart(labels,prices);
   stampVixUpdate();
-  return; // keep legacy code below unreachable
-  const cfg  = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
-  const vol  = VIX_TF_VOL[vixTf] || 0.06;
-  const bars = 10; // always exactly 10 candles
-  const base = vixValue || 18.4;
-  const now  = new Date();
-  let v = base * (1 - (bars * vol * 0.3));
-
-  // Generate bar timestamps working backwards, then reverse
-  const times = [];
-  if(vixTf === 'D'){
-    // Skip weekends — step calendar days back until we have 10 trading days
-    let offset = bars + 4; // extra headroom for weekends
-    for(let i=0; times.length < bars && offset >= 0; offset--){
-      const d = new Date(now); d.setDate(now.getDate() - offset);
-      if(d.getDay() !== 0 && d.getDay() !== 6) times.push(d);
-    }
-  } else if(vixTf === 'W'){
-    for(let i=bars-1; i>=0; i--){
-      const d = new Date(now); d.setDate(now.getDate() - i*7);
-      times.push(d);
-    }
-  } else {
-    const secs = {'1':60,'5':300,'15':900,'60':3600}[vixTf] || 300;
-    for(let i=bars-1; i>=0; i--){
-      const d = new Date(now.getTime() - i*secs*1000);
-      times.push(d);
-    }
-  }
-
-  const fmtTime = (d) => {
-    if(vixTf === 'D') return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    if(vixTf === 'W') return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
-  };
-
-  const candles = times.map(d=>{
-    const o = parseFloat(v.toFixed(2));
-    // Mean-revert toward base so mock data looks realistic
-    const drift = (base - v) * 0.08;
-    const c = parseFloat((v * (1 + (Math.random()-0.47)*vol) + drift).toFixed(2));
-    const h = parseFloat((Math.max(o,c) * (1 + Math.random()*vol*0.4)).toFixed(2));
-    const l = parseFloat((Math.min(o,c) * (1 - Math.random()*vol*0.4)).toFixed(2));
-    v = c;
-    return {date: fmtTime(d), o, h, l, c};
-  });
-
-  vixCandles = candles;
-  if(vixCandles.length) updateVix(vixCandles[vixCandles.length-1].c);
-  stampVixUpdate();
-  try{ renderVixCandleChart(vixCandles); }catch(e){ console.warn('VIX chart error:',e); }
 }
 
 function stampVixUpdate(){
