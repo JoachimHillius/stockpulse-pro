@@ -922,16 +922,6 @@ select option{background:var(--bg2);}
 </div>
 
 <script>
-// ============================================================
-// EMERGENCY KEY RESTORE — runs before ANYTHING else
-// ============================================================
-(function(){
-  try{
-    const fh = localStorage.getItem('sp_fh');
-    if(fh) window._fhKey = fh;
-  }catch(e){ console.warn('[BOOT] Emergency key restore failed:', e.message); }
-})();
-
 // Last trading day helper — used for chart date default
 function _lastTradingDay(){
   const d = new Date();
@@ -945,18 +935,11 @@ function _lastTradingDay(){
 // ============================================================
 // STATE
 // ============================================================
-// Safe localStorage JSON parse — a corrupted value must NEVER kill the entire script
+// Safe localStorage JSON parse — corrupted value must NEVER kill the script
 function _safeLS(key, dflt){
-  try{
-    const v = localStorage.getItem(key);
-    return v ? JSON.parse(v) : dflt;
-  }catch(e){
-    console.warn('[localStorage] Corrupted value for key "'+key+'" — clearing it. Error:', e.message);
-    try{ localStorage.removeItem(key); }catch(_){}
-    return dflt;
-  }
+  try{ const v=localStorage.getItem(key); return v?JSON.parse(v):dflt; }
+  catch(e){ console.warn('[localStorage] Bad JSON for "'+key+'" — clearing'); try{localStorage.removeItem(key);}catch(_){} return dflt; }
 }
-// Keys restored from localStorage immediately — BEFORE any other code runs
 let finnhubKey = localStorage.getItem('sp_fh') || '';
 let avKey = localStorage.getItem('sp_av') || '';
 let tdKey = localStorage.getItem('sp_td') || '';
@@ -1267,15 +1250,9 @@ function initData(){
   if(mktPicker) mktPicker.value = _ltd;
   console.log('[initData] pickers set to:', _ltd);
 
-  // Load positions from localStorage — re-sync in case changed since top-level init
-  try{
-    const _savedPos = localStorage.getItem('sp_positions');
-    if(_savedPos) positions = JSON.parse(_savedPos);
-  }catch(e){
-    console.warn('[Positions] Corrupted sp_positions in initData — using empty array');
-    positions = [];
-    try{ localStorage.removeItem('sp_positions'); }catch(_){}
-  }
+  // Load positions from localStorage first — never lose them on page refresh
+  const _savedPos=localStorage.getItem('sp_positions');
+  if(_savedPos) positions=JSON.parse(_savedPos);
   renderPositions();
   applyTheme();
   // Prime the flow status — Supabase will overwrite once it loads
@@ -1321,10 +1298,9 @@ function initData(){
     _vixDate=_lastTradingDay();
     _vixDateInp.value=_vixDate;
   }
-  // Null-checked — elements exist in DOM but guard defensively
-  if(finnhubKey){ const el=document.getElementById('s-finnhub'); if(el) el.value='••••••••'; }
-  if(tdKey){ const el=document.getElementById('s-td'); if(el) el.value='••••••••'; }
-  if(avKey){ const el=document.getElementById('s-av'); if(el) el.value='••••••••'; }
+  if(finnhubKey) document.getElementById('s-finnhub').value='••••••••';
+  if(tdKey) document.getElementById('s-td').value='••••••••';
+  if(avKey) document.getElementById('s-av').value='••••••••';
   // Set API key indicator state immediately (before Supabase loads)
   updateFhIndicator();
   updateClock();
@@ -3922,35 +3898,14 @@ async function fetchLiveAll(){
 }
 
 // ============================================================
-// NAVIGATION — goPage and switchTab are always safe to call
+// NAVIGATION
 // ============================================================
-function goPage(name, btn){
-  try{
-    const pages = document.querySelectorAll('.page');
-    pages.forEach(p => p.classList.remove('active'));
-    const target = document.getElementById('page-'+name);
-    if(!target){ console.error('[goPage] No element found: #page-'+name); return; }
-    target.classList.add('active');
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    if(btn) btn.classList.add('active');
-    else document.querySelectorAll('.nav-btn').forEach(b => {
-      if(b.onclick && b.onclick.toString().includes(name)) b.classList.add('active');
-    });
-  }catch(e){
-    console.error('[goPage] Navigation error:', e.message);
-    // Last-resort: just show the target page by brute force
-    try{
-      document.querySelectorAll('.page').forEach(p => p.style.display='none');
-      const t = document.getElementById('page-'+name);
-      if(t) t.style.display='block';
-    }catch(_){}
-  }
-}
-
-// switchTab() — alias used by emergency button and any inline callers
-function switchTab(name){
-  try{ goPage(name, null); }
-  catch(e){ console.error('[switchTab] Error:', e.message); }
+function goPage(name,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  else document.querySelectorAll('.nav-btn').forEach(b=>{if(b.onclick?.toString().includes(name))b.classList.add('active');});
 }
 
 // ============================================================
@@ -4651,7 +4606,7 @@ document.addEventListener('DOMContentLoaded', _initPosPanel);
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
 if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
-setInterval(()=>{if(finnhubKey)fetchVixCandles();},300000); // VIX uses Finnhub, not Twelve Data
+setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
 setInterval(()=>{if(finnhubKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load TradingView widget library — used for the market chart only
@@ -4744,13 +4699,5 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     <div id="pos-empty" style="text-align:center;color:#e0e0e0;font-size:10px;padding:14px 0;">No positions — click + Add to start tracking</div>
   </div>
 </div>
-<!-- EMERGENCY SETTINGS BUTTON — always visible, always works, z-index above everything -->
-<button
-  id="emergency-settings-btn"
-  onclick="(function(){ try{ switchTab('settings'); } catch(e){ try{ goPage('settings',null); } catch(e2){ document.querySelectorAll('.page').forEach(p=>p.style.display='none'); var t=document.getElementById('page-settings'); if(t)t.style.display='block'; } } })()"
-  title="Open Settings"
-  style="position:fixed;bottom:20px;right:20px;z-index:99999;background:#e02040;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-family:monospace;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.5);letter-spacing:0.5px;">
-  ⚙ SETTINGS
-</button>
 </body>
 </html>
