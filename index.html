@@ -400,6 +400,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('flow',this)">Options Flow</button>
     <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
     <button class="nav-btn" onclick="goPage('predictor',this)">Predictor</button>
+    <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
   </nav>
@@ -802,6 +803,19 @@ select option{background:var(--bg2);}
   </div>
 </div>
 
+<!-- ============ PAGE: FLOW PREDICTOR ============ -->
+<div id="page-flowpredict" class="page">
+  <div class="card" style="padding:40px;text-align:center;">
+    <div style="font-size:48px;margin-bottom:16px;">🎯</div>
+    <div style="font-size:18px;font-weight:600;margin-bottom:8px;color:var(--text);">Flow Predictor — Phase 1</div>
+    <div style="font-size:13px;color:#c0c8d0;max-width:600px;margin:0 auto;line-height:1.5;">
+      The new Today × Cumulative options-flow prediction model.
+      Coming online once we wire the v3 math to your OMEN history and Anthropic AI drill-down.
+      No existing functionality is affected.
+    </div>
+  </div>
+</div>
+
 <!-- ============ PAGE: HISTORY ============ -->
 <div id="page-history" class="page">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
@@ -860,6 +874,15 @@ select option{background:var(--bg2);}
               <button class="btn btn-sm" style="background:var(--purple);color:white;border:none;" onclick="saveKey('av')">Save</button>
             </div>
             <div style="color:#e0e0e0;margin-top:3px;">alphavantage.co/support — free</div>
+          </div>
+          <div>
+            <div style="color:#d97757;margin-bottom:4px;">ANTHROPIC — AI ticker drill-down (Haiku 4.5, ~$0.003/question)</div>
+            <div style="display:flex;gap:6px;">
+              <input type="password" id="s-anthropic" placeholder="Paste Anthropic API key (starts with sk-ant-)..."/>
+              <button class="btn btn-sm" style="background:#d97757;color:#000;border:none;" onclick="saveKey('anthropic')">Save</button>
+            </div>
+            <div style="color:#e0e0e0;margin-top:3px;">console.anthropic.com/settings/keys — pay-as-you-go, ~$5 covers months of use</div>
+            <div id="key-status-anthropic" style="margin-top:3px;"></div>
           </div>
           <div id="key-status"></div>
         </div>
@@ -953,6 +976,7 @@ function _safeLS(key, dflt){
 let finnhubKey = localStorage.getItem('sp_fh') || '';
 let avKey = localStorage.getItem('sp_av') || '';
 let tdKey = localStorage.getItem('sp_td') || '';
+let anthropicKey = localStorage.getItem('sp_anthropic') || '';
 let flowData = _safeLS('sp_flow', []);
 // Chart boot flags
 let _chartJsReady = false; // Chart.js CDN has loaded
@@ -3768,6 +3792,41 @@ async function loadTdKeyFromSupabase(){
   }
 }
 
+async function saveAnthropicKeyToSupabase(key){
+  const supa = getSupabase();
+  if(!supa || !key) return;
+  try{
+    await supa.from('user_settings').upsert({key:'anthropic_api_key', value:key},{onConflict:'key'});
+    console.log('[Settings] Anthropic key saved to Supabase');
+  }catch(e){
+    console.warn('[Anthropic] Supabase save failed, using localStorage only:', e.message);
+  }
+}
+
+async function loadAnthropicKeyFromSupabase(){
+  const supa = getSupabase();
+  if(!supa) return null;
+  try{
+    const {data, error} = await supa.from('user_settings').select('value').eq('key','anthropic_api_key').single();
+    if(error || !data || !data.value) return null;
+    const supaKey = data.value.trim();
+    if(!supaKey) return null;
+    if(!anthropicKey){
+      anthropicKey = supaKey;
+      localStorage.setItem('sp_anthropic', supaKey);
+      const inp = document.getElementById('s-anthropic');
+      if(inp) inp.value = '••••••••';
+      const ks = document.getElementById('key-status-anthropic');
+      if(ks){ ks.textContent = '● Anthropic key active'; ks.style.color = '#00e5b0'; }
+      console.log('[Settings] Anthropic key restored from Supabase');
+    }
+    return anthropicKey;
+  }catch(e){
+    console.warn('[Anthropic] Supabase load failed:', e.message);
+    return null;
+  }
+}
+
 // Fall back to localStorage key when Supabase CDN is unavailable
 function _fkFallbackToLocalStorage(){
   if(finnhubKey && !_fkConfirmed){
@@ -3801,13 +3860,26 @@ function saveKey(type){
     renderMktChart('1D');
     fetchVixCandles();
     fetchVixQuote();
-  }else{
+  }else if(type==='av'){
     const k = document.getElementById('s-av').value.trim();
     if(!k || k.includes('•')) return;
     avKey = k;
     localStorage.setItem('sp_av', k);
     const ks = document.getElementById('key-status');
     if(ks){ ks.textContent = '✓ Alpha Vantage key saved'; ks.style.color = 'var(--green)'; }
+  }else if(type==='anthropic'){
+    const k = document.getElementById('s-anthropic').value.trim();
+    if(!k || k.includes('•')) return;
+    const ks = document.getElementById('key-status-anthropic');
+    if(!k.startsWith('sk-ant-')){
+      if(ks){ ks.textContent = '✗ Key must start with sk-ant-'; ks.style.color = 'var(--red)'; }
+      return;
+    }
+    anthropicKey = k;
+    localStorage.setItem('sp_anthropic', k);
+    saveAnthropicKeyToSupabase(k);
+    if(ks){ ks.textContent = '● Anthropic key active'; ks.style.color = '#00e5b0'; }
+    showToast('API', 'Anthropic key saved', 'info');
   }
 }
 
@@ -4600,6 +4672,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     // Backup key restore — only acts if localStorage was empty
     loadFinnhubKeyFromSupabase();
     loadTdKeyFromSupabase();
+    loadAnthropicKeyFromSupabase();
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
