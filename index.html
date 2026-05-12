@@ -43,13 +43,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12
 .nav-btn:hover{color:var(--text);background:rgba(255,255,255,0.03);}
 .nav-btn.active{color:var(--cyan);border-bottom-color:var(--cyan);}
 .header-right{display:flex;align-items:center;gap:12px;margin-left:auto;}
-.mkt-pill{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:3px;border:1px solid var(--border2);font-size:10px;}
+.mkt-pill{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:3px;border:1px solid var(--border2);font-size:13px;font-weight:600;}
 .dot{width:6px;height:6px;border-radius:50%;}
 .dot.on{background:var(--green);animation:blink 2s infinite;}
 .dot.off{background:var(--red);}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
 .clock{font-size:11px;color:#ffffff;letter-spacing:1px;}
-.vix-pill{padding:3px 10px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:0.5px;}
+.vix-pill{padding:5px 10px;border-radius:3px;font-size:13px;font-weight:600;letter-spacing:0.5px;}
 
 /* TICKER TAPE */
 .tape-wrap{background:var(--bg3);border-bottom:1px solid var(--border);}
@@ -403,7 +403,7 @@ select option{background:var(--bg2);}
       <span id="mkt-txt">—</span>
     </div>
     <div class="vix-pill" id="hdr-vix">VIX —</div>
-    <div id="fh-pill" style="display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:3px;border:1px solid rgba(255,61,90,0.4);font-size:10px;font-weight:600;color:#ff3d5a;cursor:pointer;letter-spacing:0.3px;" onclick="goPage('settings',null)" title="Finnhub API status — click to configure">
+    <div id="fh-pill" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:3px;border:1px solid rgba(255,61,90,0.4);font-size:13px;font-weight:600;color:#ff3d5a;cursor:pointer;letter-spacing:0.3px;" onclick="goPage('settings',null)" title="Finnhub API status — click to configure">
       <span id="fh-dot" style="width:6px;height:6px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
       <span id="fh-txt">No API Key</span>
     </div>
@@ -1436,33 +1436,27 @@ const FH_VIX_LOOKBACK = {'1':2,'5':2,'15':5,'60':14,'D':45,'W':548}; // look-bac
 
 async function fetchVixCandles(){
   if(!_chartJsReady){ console.log('[VIX] Chart.js not ready'); return; }
-  if(!finnhubKey){ renderVixMockCandles(); return; }
+  const tdKey = localStorage.getItem('sp_td');
+  if(!tdKey){ renderVixMockCandles(); return; }
 
-  const res         = FH_VIX_RES[vixTf]      || 'D';
-  const lookback    = FH_VIX_LOOKBACK[vixTf] || 45;
-  const toTs        = Math.floor(Date.now()/1000);
-  const fromTs      = toTs - lookback * 86400;
-  const url = `https://finnhub.io/api/v1/stock/candle?symbol=VIX&resolution=${res}&from=${fromTs}&to=${toTs}&token=${finnhubKey}`;
-  console.log('[VIX] Finnhub candle URL:', url, '| res:', res, '| from:', new Date(fromTs*1000).toISOString().slice(0,10));
+  const cfg = VIX_TF_CFG[vixTf] || VIX_TF_CFG['D'];
+  const url = `https://api.twelvedata.com/time_series?symbol=VIX&interval=${cfg.interval}&outputsize=${cfg.outputsize}&apikey=${tdKey}`;
+  console.log('[VIX] Twelve Data candle URL:', url);
 
   try{
     const r = await fetch(url);
     const d = await r.json();
-    console.log('[VIX] Finnhub response: s=', d.s, '| bars:', d.t?.length, '| last close:', d.c?.at(-1));
+    console.log('[VIX] Twelve Data response: status=', d.status, '| bars:', d.values?.length);
 
-    if(d.s !== 'ok' || !Array.isArray(d.t) || !d.t.length){
-      console.warn('[VIX] No data from Finnhub (s='+d.s+') — using mock');
+    if(d.status === 'error' || !Array.isArray(d.values) || !d.values.length){
+      console.warn('[VIX] No data from Twelve Data — using mock');
       renderVixMockCandles(); return;
     }
 
-    const isIntraday = ['1','5','15','60'].includes(vixTf);
-    const labels = d.t.map(ts=>{
-      const dt = new Date(ts*1000);
-      return isIntraday
-        ? dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})
-        : dt.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    });
-    const prices = d.c.map(p=>parseFloat(p.toFixed(2)));
+    // Twelve Data returns newest-first; reverse for oldest-first chart rendering
+    const bars = [...d.values].reverse();
+    const labels = bars.map(b => cfg.fmt(b.datetime));
+    const prices = bars.map(b => parseFloat(b.close));
 
     if(prices.length) updateVix(prices[prices.length-1]);
     stampVixUpdate();
@@ -3966,7 +3960,16 @@ function _supaRowToFlow(r){
 
 function _setDbStatus(text,color){
   const el=document.getElementById('db-status');
-  if(el){el.textContent=text;el.style.color=color;el.style.background=color==='#00e5b0'?'rgba(0,229,176,0.1)':color==='#ff3d5a'?'rgba(255,61,90,0.1)':'rgba(255,255,255,0.06)';}
+  if(el){
+    el.textContent=text;
+    el.style.color=color;
+    el.style.background=color==='#00e5b0'?'rgba(0,229,176,0.1)':color==='#ff3d5a'?'rgba(255,61,90,0.1)':'rgba(255,255,255,0.06)';
+    el.style.fontSize='14px';
+    el.style.fontWeight='600';
+    el.style.padding='6px 12px';
+    el.style.borderRadius='4px';
+    el.style.letterSpacing='0.5px';
+  }
 }
 
 async function loadFlowFromSupabase(){
@@ -4556,7 +4559,7 @@ if(finnhubKey)setTimeout(fetchLiveAll,1000);
 if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
-setInterval(()=>{if(finnhubKey)fetchVixQuote();},300000); // refresh VIX quote every 5 min
+setInterval(()=>{if(finnhubKey&&isMarketOpen())fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load TradingView widget library — used for the market chart only
 (function(){
