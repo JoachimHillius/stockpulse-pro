@@ -96,8 +96,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 
 /* STAT BOXES */
 .stat-box{background:var(--bg3);border-radius:5px;padding:12px 14px;}
-.stat-lbl{font-size:11px;color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}
-.stat-val{font-size:22px;font-weight:700;letter-spacing:-1px;}
+.stat-lbl{font-size:12px;color:#c0c8d0;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;font-weight:600;}
+.stat-val{font-size:24px;font-weight:700;letter-spacing:-1px;line-height:1.2;}
 .stat-sub{font-size:10px;margin-top:3px;}
 
 /* VIX GAUGE */
@@ -357,8 +357,17 @@ select option{background:var(--bg2);}
 .toggle input:checked+.tslider{background:var(--green);}
 .toggle input:checked+.tslider:before{transform:translateX(15px);}
 
-.empty{text-align:center;padding:40px 20px;color:#e0e0e0;font-size:13px;}
+.empty{text-align:center;padding:40px 20px;color:#c0c8d0;font-size:13px;}
 .empty-icon{font-size:36px;margin-bottom:10px;}
+
+/* GLOBAL TYPOGRAPHY — stat labels, status text, conviction badges, bar labels */
+.stat-label,.stat-cap,.stat-title{font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#c0c8d0;}
+.stat-value,.stat-num{font-size:24px;font-weight:700;line-height:1.2;}
+.empty-text,.csv-status,.status-text,.feed-status{font-size:13px;color:#c0c8d0;}
+[id$="-status"]:not(button){font-size:13px;color:#c0c8d0;}
+.conv-badge,.conv-pct,.conv-lbl,.side-badge,.badge-val,.badge-lbl{font-size:13px;font-weight:600;}
+.badge-sub,.conv-sub{font-size:11px;color:#8a96a8;}
+.bar-lbl,.side-lbl,.bull-bar-lbl,.bear-bar-lbl{font-size:12px;font-weight:600;}
 
 @media(max-width:800px){
   .g4{grid-template-columns:1fr 1fr;}
@@ -425,8 +434,8 @@ select option{background:var(--bg2);}
     <button class="tpbtn" onclick="setTapePeriod('1h',this)">1H</button>
     <button class="tpbtn" onclick="setTapePeriod('15m',this)">15M</button>
     <button class="tpbtn" onclick="setTapePeriod('5m',this)">5M</button>
-    <span style="margin-left:8px;font-size:9px;color:var(--green);">▲ GAINERS</span>
-    <span style="margin-left:12px;font-size:9px;color:var(--red);">▼ LOSERS</span>
+    <span style="margin-left:8px;color:var(--green);">▲ GAINERS</span>
+    <span style="margin-left:12px;color:var(--red);">▼ LOSERS</span>
   </div>
 </div>
 
@@ -571,7 +580,7 @@ select option{background:var(--bg2);}
   </div>
   <!-- Bull/Bear window selector -->
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding:5px 8px;background:var(--bg2);border-radius:4px;border:1px solid var(--border);">
-    <span style="font-size:9px;color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;">Avg Bull/Bear Window:</span>
+    <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;">Avg Bull/Bear Window:</span>
     <div class="bb-tf-bar">
       <button class="bb-tf-btn" onclick="setFlowWindow('5D',this)">5D</button>
       <button class="bb-tf-btn active" onclick="setFlowWindow('30D',this)">30D</button>
@@ -579,7 +588,7 @@ select option{background:var(--bg2);}
       <button class="bb-tf-btn" onclick="setFlowWindow('6M',this)">6M</button>
       <button class="bb-tf-btn" onclick="setFlowWindow('1Y',this)">1Y</button>
     </div>
-    <span style="font-size:9px;color:#e0e0e0;margin-left:auto;">Based on uploaded OMEN CSVs</span>
+    <span style="color:#e0e0e0;margin-left:auto;">Based on uploaded OMEN CSVs</span>
   </div>
   <!-- Column header (sticky) -->
   <div class="wl-col-hdr">
@@ -607,7 +616,7 @@ select option{background:var(--bg2);}
     <div class="card">
       <div class="card-hd">
         <span class="card-title">Upload OMEN CSV</span>
-        <span id="db-status" style="font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.06);color:#e0e0e0;letter-spacing:0.5px;">● DB connecting…</span>
+        <span id="db-status" style="padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.06);letter-spacing:0.5px;">● DB connecting…</span>
       </div>
       <div class="upload-zone" id="drop-zone" onclick="document.getElementById('csv-input').click()"
         ondragover="event.preventDefault();this.classList.add('drag')"
@@ -615,11 +624,11 @@ select option{background:var(--bg2);}
         ondrop="handleDrop(event)">
         <div class="upload-icon">📂</div>
         <div class="upload-text">Click or drag & drop one or more OMEN CSVs<br>
-        <span style="color:#e0e0e0;font-size:10px;">Export from OMEN → Download CSV — multiple days supported</span></div>
+        <span style="color:#e0e0e0;">Export from OMEN → Download CSV — multiple days supported</span></div>
       </div>
       <input type="file" id="csv-input" accept=".csv" multiple style="display:none" onchange="handleMultipleCSV(this.files)"/>
-      <div style="margin-top:8px;font-size:10px;color:#e0e0e0;" id="csv-status">No file loaded</div>
-      <div style="margin-top:3px;font-size:9px;color:#ffffff;" id="flow-last-update"></div>
+      <div style="margin-top:8px;" id="csv-status">No file loaded</div>
+      <div style="margin-top:3px;color:#ffffff;" id="flow-last-update"></div>
     </div>
     <div class="g2" style="gap:8px;">
       <div class="stat-box"><div class="stat-lbl">Total Trades</div><div class="stat-val" id="flow-total" style="color:var(--blue)">0</div></div>
@@ -632,24 +641,24 @@ select option{background:var(--bg2);}
   </div>
 
   <!-- DATABASE STATS BAR -->
-  <div id="flow-db-stats" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:10px;">
+  <div id="flow-db-stats" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px;">
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
       <div style="display:flex;align-items:center;gap:6px;">
-        <span style="color:#e0e0e0;letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">All-Time</span>
+        <span style="color:#e0e0e0;letter-spacing:0.8px;text-transform:uppercase;">All-Time</span>
         <span id="db-stat-total" style="color:var(--blue);font-weight:700;font-size:13px;">—</span>
         <span style="color:#e0e0e0;">rows in DB</span>
       </div>
       <div style="width:1px;height:16px;background:var(--border2);"></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <span style="color:#e0e0e0;letter-spacing:0.8px;text-transform:uppercase;font-size:9px;">Today</span>
+        <span style="color:#e0e0e0;letter-spacing:0.8px;text-transform:uppercase;">Today</span>
         <span id="db-stat-today" style="color:var(--cyan);font-weight:700;font-size:13px;">—</span>
         <span style="color:#e0e0e0;">uploaded</span>
       </div>
       <div style="width:1px;height:16px;background:var(--border2);"></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <span id="db-stat-range" style="color:#e0e0e0;font-size:10px;">—</span>
+        <span id="db-stat-range" style="color:#e0e0e0;">—</span>
       </div>
-      <div style="margin-left:auto;font-size:9px;color:#e0e0e0;font-style:italic;" id="db-stat-window">
+      <div style="margin-left:auto;color:#e0e0e0;font-style:italic;" id="db-stat-window">
         Displaying last 30 days · Full history used for conviction analytics
       </div>
     </div>
@@ -661,14 +670,14 @@ select option{background:var(--bg2);}
       <!-- Bar + percentages -->
       <div style="flex:1;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;">Flow Sentiment</span>
-          <span id="flow-sentiment-signal" style="font-size:11px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">—</span>
+          <span style="letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;">Flow Sentiment</span>
+          <span id="flow-sentiment-signal" style="font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">—</span>
         </div>
         <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bg3);">
           <div id="flow-bull-bar" style="height:100%;background:var(--green);transition:width 0.5s ease;width:0%;"></div>
           <div id="flow-bear-bar" style="height:100%;background:var(--red);transition:width 0.5s ease;width:0%;"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;margin-top:7px;font-size:10px;">
+        <div style="display:flex;justify-content:space-between;margin-top:7px;">
           <span style="color:var(--green);">▲ CALLS &nbsp;<span id="flow-bull-pct" style="font-weight:700;">—</span>&nbsp;·&nbsp;<span id="flow-bull-dollar">$0</span></span>
           <span style="color:var(--red);"><span id="flow-bear-dollar">$0</span>&nbsp;·&nbsp;<span id="flow-bear-pct" style="font-weight:700;">—</span>&nbsp; PUTS ▼</span>
         </div>
@@ -676,8 +685,8 @@ select option{background:var(--bg2);}
       <!-- Conviction badge -->
       <div id="flow-conviction-badge" style="flex-shrink:0;min-width:130px;text-align:center;padding:10px 16px;border-radius:6px;background:var(--bg3);border:1px solid var(--border2);">
         <div id="flow-conv-pct" style="font-size:26px;font-weight:700;letter-spacing:1px;line-height:1;">—</div>
-        <div id="flow-conv-lbl" style="font-size:9px;letter-spacing:1.5px;margin-top:3px;color:#e0e0e0;">NO DATA</div>
-        <div style="font-size:8px;color:#e0e0e0;margin-top:4px;">premium-weighted</div>
+        <div id="flow-conv-lbl" style="letter-spacing:1.5px;margin-top:3px;color:#e0e0e0;">NO DATA</div>
+        <div style="color:#e0e0e0;margin-top:4px;">premium-weighted</div>
       </div>
     </div>
   </div>
@@ -686,7 +695,7 @@ select option{background:var(--bg2);}
     <div class="card-hd">
       <span class="card-title">Options Flow Feed</span>
       <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-size:9px;font-weight:700;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Filter:</span>
+        <span style="font-weight:700;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Filter:</span>
         <div class="filter-row" style="margin:0;background:var(--bg3);border-radius:4px;padding:3px;gap:2px;border:1px solid var(--border);">
           <button class="fbtn active" onclick="setFlowFilter('all',this)">All</button>
           <button class="fbtn" onclick="setFlowFilter('Call',this)">Calls</button>
@@ -719,13 +728,13 @@ select option{background:var(--bg2);}
       </div>
       <div class="scan-bar">
         <div class="dot" id="scan-dot" style="background:var(--text3)"></div>
-        <span id="scan-status" style="font-size:10px;color:#e0e0e0;">Idle</span>
+        <span id="scan-status">Idle</span>
         <div class="scan-prog"><div class="scan-fill" id="scan-fill" style="width:0%"></div></div>
-        <span id="scan-countdown" style="font-size:10px;color:var(--blue);">—</span>
+        <span id="scan-countdown" style="color:var(--blue);">—</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div>
-          <div style="font-size:10px;color:#e0e0e0;margin-bottom:4px;">Interval</div>
+          <div style="color:#e0e0e0;margin-bottom:4px;">Interval</div>
           <select id="scan-interval" onchange="updateScanInterval()">
             <option value="120">2 minutes</option>
             <option value="300" selected>5 minutes</option>
@@ -735,7 +744,7 @@ select option{background:var(--bg2);}
           </select>
         </div>
         <div>
-          <div style="font-size:10px;color:#e0e0e0;margin-bottom:4px;">Sentiment Filter</div>
+          <div style="color:#e0e0e0;margin-bottom:4px;">Sentiment Filter</div>
           <select id="news-sent-filter">
             <option value="all">All news</option>
             <option value="bull">Bullish only</option>
@@ -745,11 +754,11 @@ select option{background:var(--bg2);}
         </div>
       </div>
       <div style="margin-top:10px;">
-        <div style="font-size:10px;color:#e0e0e0;margin-bottom:6px;">Notifications</div>
+        <div style="color:#e0e0e0;margin-bottom:6px;">Notifications</div>
         <div style="display:flex;flex-direction:column;gap:6px;">
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">In-app toasts<label class="toggle"><input type="checkbox" id="n-inapp" checked><span class="tslider"></span></label></label>
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">Browser push<label class="toggle"><input type="checkbox" id="n-push" onchange="reqPush()"><span class="tslider"></span></label></label>
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">Sound alert<label class="toggle"><input type="checkbox" id="n-sound" checked><span class="tslider"></span></label></label>
+          <label style="display:flex;align-items:center;justify-content:space-between;">In-app toasts<label class="toggle"><input type="checkbox" id="n-inapp" checked><span class="tslider"></span></label></label>
+          <label style="display:flex;align-items:center;justify-content:space-between;">Browser push<label class="toggle"><input type="checkbox" id="n-push" onchange="reqPush()"><span class="tslider"></span></label></label>
+          <label style="display:flex;align-items:center;justify-content:space-between;">Sound alert<label class="toggle"><input type="checkbox" id="n-sound" checked><span class="tslider"></span></label></label>
         </div>
       </div>
     </div>
@@ -776,8 +785,8 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: PREDICTOR ============ -->
 <div id="page-predictor" class="page">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
-    <div style="font-size:10px;color:#e0e0e0;">Last scored:</div>
-    <div style="font-size:11px;" id="pred-time">Never — upload options CSV + run news scan first</div>
+    <div style="color:#e0e0e0;">Last scored:</div>
+    <div id="pred-time">Never — upload options CSV + run news scan first</div>
     <button class="btn btn-cyan btn-sm" onclick="runPredictor()" style="margin-left:auto;">⚡ Score Now</button>
     <button class="btn btn-ghost btn-sm" onclick="savePrediction()">Save to History</button>
   </div>
@@ -795,7 +804,7 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: HISTORY ============ -->
 <div id="page-history" class="page">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-    <span style="font-size:10px;color:#e0e0e0;">30-day prediction log — tracks what worked</span>
+    <span style="color:#e0e0e0;">30-day prediction log — tracks what worked</span>
     <button class="btn btn-ghost btn-sm" onclick="clearHistory()" style="margin-left:auto;">Clear History</button>
   </div>
   <div class="g4" style="margin-bottom:14px;">
@@ -825,38 +834,38 @@ select option{background:var(--bg2);}
           <!-- Finnhub status badge — visible before scrolling -->
           <div id="fh-status-badge" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:5px;background:rgba(255,61,90,0.08);border:1px solid rgba(255,61,90,0.3);">
             <span id="fh-badge-dot" style="width:8px;height:8px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
-            <span id="fh-badge-txt" style="font-size:11px;font-weight:700;color:#ff3d5a;">● No Finnhub Key — live data unavailable</span>
+            <span id="fh-badge-txt" style="font-weight:700;color:#ff3d5a;">● No Finnhub Key — live data unavailable</span>
           </div>
           <div>
-            <div style="font-size:10px;color:var(--cyan);margin-bottom:4px;">FINNHUB — Live prices + news (free)</div>
+            <div style="color:var(--cyan);margin-bottom:4px;">FINNHUB — Live prices + news (free)</div>
             <div style="display:flex;gap:6px;">
               <input type="password" id="s-finnhub" placeholder="Paste Finnhub API key..."/>
               <button class="btn btn-cyan btn-sm" onclick="saveKey('finnhub')">Save</button>
             </div>
-            <div style="font-size:9px;color:#e0e0e0;margin-top:3px;">finnhub.io/register — free, no credit card</div>
+            <div style="color:#e0e0e0;margin-top:3px;">finnhub.io/register — free, no credit card</div>
           </div>
           <div>
-            <div style="font-size:10px;color:#3dbeff;margin-bottom:4px;">TWELVE DATA — Market chart intraday bars (800/day free)</div>
+            <div style="color:#3dbeff;margin-bottom:4px;">TWELVE DATA — Market chart intraday bars (800/day free)</div>
             <div style="display:flex;gap:6px;">
               <input type="password" id="s-td" placeholder="Paste Twelve Data API key..."/>
               <button class="btn btn-sm" style="background:#3dbeff;color:#000;border:none;" onclick="saveKey('td')">Save</button>
             </div>
-            <div style="font-size:9px;color:#e0e0e0;margin-top:3px;">twelvedata.com — free, instant, no credit card</div>
+            <div style="color:#e0e0e0;margin-top:3px;">twelvedata.com — free, instant, no credit card</div>
           </div>
           <div>
-            <div style="font-size:10px;color:var(--purple);margin-bottom:4px;">ALPHA VANTAGE — Deep sentiment (25/day free)</div>
+            <div style="color:var(--purple);margin-bottom:4px;">ALPHA VANTAGE — Deep sentiment (25/day free)</div>
             <div style="display:flex;gap:6px;">
               <input type="password" id="s-av" placeholder="Paste Alpha Vantage key..."/>
               <button class="btn btn-sm" style="background:var(--purple);color:white;border:none;" onclick="saveKey('av')">Save</button>
             </div>
-            <div style="font-size:9px;color:#e0e0e0;margin-top:3px;">alphavantage.co/support — free</div>
+            <div style="color:#e0e0e0;margin-top:3px;">alphavantage.co/support — free</div>
           </div>
-          <div id="key-status" style="font-size:10px;color:#e0e0e0;"></div>
+          <div id="key-status"></div>
         </div>
       </div>
       <div class="card">
         <div class="card-hd"><span class="card-title">Scoring Weights</span></div>
-        <div style="display:flex;flex-direction:column;gap:8px;font-size:11px;">
+        <div style="display:flex;flex-direction:column;gap:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">Options Flow (C/P Ratio)<span style="color:var(--cyan)">25%</span></div>
           <div style="display:flex;justify-content:space-between;align-items:center;">Sweep / At-Ask Signals<span style="color:var(--cyan)">25%</span></div>
           <div style="display:flex;justify-content:space-between;align-items:center;">News Sentiment<span style="color:var(--cyan)">20%</span></div>
@@ -870,9 +879,9 @@ select option{background:var(--bg2);}
       <div class="card">
         <div class="card-hd"><span class="card-title">Alert Settings</span></div>
         <div style="display:flex;flex-direction:column;gap:8px;">
-          <label style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Bullish signals only<label class="toggle"><input type="checkbox" id="s-bullonly"><span class="tslider"></span></label></label>
-          <label style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">Market hours only<label class="toggle"><input type="checkbox" id="s-mktonly" checked><span class="tslider"></span></label></label>
-          <div style="font-size:10px;color:#e0e0e0;margin-top:4px;">Min confidence to alert</div>
+          <label style="display:flex;justify-content:space-between;align-items:center;">Bullish signals only<label class="toggle"><input type="checkbox" id="s-bullonly"><span class="tslider"></span></label></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;">Market hours only<label class="toggle"><input type="checkbox" id="s-mktonly" checked><span class="tslider"></span></label></label>
+          <div style="color:#e0e0e0;margin-top:4px;">Min confidence to alert</div>
           <select id="s-threshold">
             <option value="0.2">Any signal (20%+)</option>
             <option value="0.4" selected>Moderate (40%+)</option>
@@ -883,7 +892,7 @@ select option{background:var(--bg2);}
       </div>
       <div class="card">
         <div class="card-hd"><span class="card-title">Data Status</span></div>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;">
+        <div style="display:flex;flex-direction:column;gap:6px;">
           <div style="display:flex;justify-content:space-between;">Watchlist tickers<span id="st-tickers" style="color:var(--cyan)">130</span></div>
           <div style="display:flex;justify-content:space-between;">News articles cached<span id="st-news" style="color:var(--cyan)">0</span></div>
           <div style="display:flex;justify-content:space-between;">Options rows loaded<span id="st-flow" style="color:var(--cyan)">0</span></div>
@@ -894,7 +903,7 @@ select option{background:var(--bg2);}
       </div>
       <div class="card">
         <div class="card-hd"><span class="card-title">Data Sync</span></div>
-        <div style="font-size:10px;color:#e0e0e0;margin-bottom:10px;line-height:1.6;">
+        <div style="color:#e0e0e0;margin-bottom:10px;line-height:1.6;">
           Phase 1: Yahoo Finance prices (no key) — ~40s<br>
           Phase 2: Finnhub earnings 8Q (needs key) — ~5m<br>
           Phase 3: Finnhub options chain (needs key) — ~5m
@@ -903,16 +912,16 @@ select option{background:var(--bg2);}
         <div id="sync-progress-wrap" style="display:none;margin-bottom:6px;">
           <div class="sync-phase" id="sync-phase"></div>
           <div class="sync-progress-outer"><div class="sync-progress-inner" id="sync-progress-bar"></div></div>
-          <div id="sync-status" style="font-size:10px;color:#e0e0e0;margin-top:3px;"></div>
+          <div id="sync-status" style="margin-top:3px;"></div>
         </div>
-        <div id="sync-last" style="font-size:10px;color:#e0e0e0;margin-bottom:10px;"></div>
-        <div style="font-size:9px;color:#e0e0e0;margin-bottom:6px;letter-spacing:0.5px;">QUICK LOAD (Yahoo Finance prices only)</div>
+        <div id="sync-last" style="color:#e0e0e0;margin-bottom:10px;"></div>
+        <div style="color:#e0e0e0;margin-bottom:6px;letter-spacing:0.5px;">QUICK LOAD (Yahoo Finance prices only)</div>
         <div style="display:flex;gap:6px;margin-bottom:8px;">
           <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="startLoadHistory()">Top 20</button>
           <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="loadAllBaselines()">All 130</button>
         </div>
-        <div id="hist-load-status" style="font-size:10px;color:#e0e0e0;min-height:14px;"></div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:8px;">
+        <div id="hist-load-status" style="min-height:14px;"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;">
           <span style="color:#e0e0e0;">Price baselines cached</span>
           <span id="st-baselines" style="color:var(--cyan)">0</span>
         </div>
