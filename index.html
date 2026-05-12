@@ -212,7 +212,8 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 #pos-panel.collapsed #pos-panel-hdr{border-radius:8px;border-bottom:none;}
 #pos-panel-body{padding:10px 12px;max-height:320px;overflow-y:auto;}
 .pos-tbl{width:100%;border-collapse:collapse;font-size:10px;}
-.pos-tbl th{color:#e0e0e0;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;font-size:12px;padding:3px 5px;border-bottom:1px solid var(--border2);white-space:nowrap;text-align:left;}
+.pos-tbl th{color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-size:12px;padding:3px 5px;border-bottom:1px solid var(--border2);white-space:nowrap;text-align:left;}
+table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th,[class*="-tbl"] th{font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#c0c8d0;}
 .pos-tbl td{padding:5px 5px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap;}
 .pos-tbl tr:last-child td{border-bottom:none;}
 .pos-tbl tr:hover td{background:rgba(255,255,255,0.03);}
@@ -292,7 +293,7 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 
 /* HISTORY */
 .hist-row{display:grid;grid-template-columns:80px 70px 60px 60px 60px 60px 1fr;gap:6px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
-.hist-hd{font-size:9px;color:#e0e0e0;font-weight:600;}
+.hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
 .win{color:var(--green);}
 .loss{color:var(--red);}
 
@@ -300,7 +301,7 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 input[type=text],input[type=password],select{background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:6px 10px;color:var(--text);font-family:var(--font);font-size:11px;outline:none;width:100%;}
 input:focus,select:focus{border-color:var(--blue);}
 select option{background:var(--bg2);}
-.btn{border:none;border-radius:3px;padding:7px 14px;font-family:var(--font);font-size:11px;font-weight:600;cursor:pointer;letter-spacing:0.5px;transition:filter 0.12s;}
+.btn{border:none;border-radius:3px;padding:7px 14px;font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:0.5px;transition:filter 0.12s;}
 .btn:hover{filter:brightness(1.15);}
 .btn-cyan{background:var(--cyan);color:#000;}
 .btn-green{background:var(--green);color:#000;}
@@ -308,7 +309,7 @@ select option{background:var(--bg2);}
 .btn-ghost{background:transparent;color:#e0e0e0;border:1px solid var(--border2);}
 .btn-ghost:hover{color:var(--text);background:var(--bg3);}
 .btn-red{background:rgba(255,61,90,0.15);color:var(--red);border:1px solid rgba(255,61,90,0.25);}
-.btn-sm{padding:4px 10px;font-size:10px;}
+.btn-sm{padding:4px 10px;font-size:12px;}
 
 /* UPLOAD ZONE */
 .upload-zone{border:2px dashed rgba(61,158,255,0.4);border-radius:6px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.15s;background:rgba(61,158,255,0.04);}
@@ -543,7 +544,7 @@ select option{background:var(--bg2);}
                 style="width:56px;background:var(--bg3);border:none;color:var(--text);padding:3px 6px;font-family:var(--font);font-size:11px;font-weight:700;text-transform:uppercase;outline:none;"
                 onkeydown="if(event.key==='Enter')switchMktSym()"
                 oninput="this.value=this.value.toUpperCase()"/>
-              <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-size:10px;font-weight:700;">GO</button>
+              <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-weight:700;">GO</button>
             </div>
             <button class="fbtn" onclick="setMktRange('1MIN',this)">1MIN</button>
             <button class="fbtn" onclick="setMktRange('5MIN',this)">5MIN</button>
@@ -4626,8 +4627,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     <span id="pos-count" style="font-size:9px;background:var(--bg4);padding:1px 7px;border-radius:10px;color:#e0e0e0;">0</span>
     <span id="pos-total-pnl" style="font-size:12px;font-weight:700;margin-left:4px;"></span>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-      <button onclick="event.stopPropagation();toggleAddPosForm()" style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--cyan);border-radius:3px;padding:2px 9px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">+ Add</button>
-      <button onclick="event.stopPropagation();togglePosPanel()" id="pos-collapse-btn" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:var(--font);">▼</button>
+      <button onclick="event.stopPropagation();toggleAddPosForm()" style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--cyan);border-radius:3px;padding:2px 9px;font-weight:700;cursor:pointer;font-family:var(--font);">+ Add</button>
+      <button onclick="event.stopPropagation();togglePosPanel()" id="pos-collapse-btn" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--font);">▼</button>
     </div>
   </div>
   <div id="pos-panel-body">
@@ -4642,8 +4643,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
         <label>Entry $<input id="pf-entry" type="number" placeholder="3.50" step="0.01" style="width:68px;"/></label>
         <label>Current $<input id="pf-current" type="number" placeholder="0.00" step="0.01" style="width:68px;"/></label>
         <div style="display:flex;gap:6px;align-items:flex-end;padding-bottom:1px;">
-          <button onclick="submitPosition()" style="background:var(--green);border:none;color:#000;border-radius:3px;padding:5px 14px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">Save</button>
-          <button onclick="toggleAddPosForm()" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:5px 10px;font-size:10px;cursor:pointer;font-family:var(--font);">Cancel</button>
+          <button onclick="submitPosition()" style="background:var(--green);border:none;color:#000;border-radius:3px;padding:5px 14px;font-weight:700;cursor:pointer;font-family:var(--font);">Save</button>
+          <button onclick="toggleAddPosForm()" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:5px 10px;cursor:pointer;font-family:var(--font);">Cancel</button>
         </div>
       </div>
       <div style="font-size:9px;color:#e0e0e0;margin-top:6px;">Current $ defaults to 0 — type a price manually, or set a Finnhub API key to auto-fetch</div>
