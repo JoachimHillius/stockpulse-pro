@@ -631,6 +631,12 @@ select option{background:var(--bg2);}
       <input type="file" id="csv-input" accept=".csv" multiple style="display:none" onchange="handleMultipleCSV(this.files)"/>
       <div style="margin-top:8px;" id="csv-status">No file loaded</div>
       <div style="margin-top:3px;color:#ffffff;" id="flow-last-update"></div>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e0e0e0;font-size:12px;">
+          <input type="checkbox" id="force-replace-toggle" style="width:14px;height:14px;cursor:pointer;">
+          Force replace finalized dates
+        </label>
+      </div>
     </div>
     <div class="g2" style="gap:8px;">
       <div class="stat-box"><div class="stat-lbl">Total Trades</div><div class="stat-val" id="flow-total" style="color:var(--blue)">0</div></div>
@@ -2793,6 +2799,26 @@ function detectDateFromFile(filename,rows){
   return new Date().toISOString().slice(0,10);
 }
 
+// Detect source (omen/smartmoney) and snapshot_type (intraday/eod) from filename
+function detectFileMetadata(filename){
+  const base=filename.replace(/\.csv$/i,'').toUpperCase();
+  const source=/SMARTMONEY/.test(base)?'smartmoney':'omen';
+  const timeMatch=base.match(/(\d{3,4})(AM|PM)/i);
+  let snapshot_type='eod';
+  if(timeMatch){
+    const raw=timeMatch[1];
+    const isPM=timeMatch[2].toUpperCase()==='PM';
+    let hours,mins;
+    if(raw.length<=2){hours=parseInt(raw);mins=0;}
+    else if(raw.length===3){hours=parseInt(raw.slice(0,1));mins=parseInt(raw.slice(1));}
+    else{hours=parseInt(raw.slice(0,2));mins=parseInt(raw.slice(2));}
+    if(isPM&&hours<12)hours+=12;
+    if(!isPM&&hours===12)hours=0;
+    snapshot_type=(hours*60+mins)<=(15*60+45)?'intraday':'eod';
+  }
+  return{source,snapshot_type};
+}
+
 // Build a compact per-ticker summary from parsed rows (stored in flowHistory, not raw rows)
 function buildTickerSummary(rows){
   const summary={};
@@ -2847,6 +2873,8 @@ async function handleMultipleCSV(files){
       if(!rows.length)continue;
 
       const dateKey=detectDateFromFile(file.name,rows);
+      const meta=detectFileMetadata(file.name);
+      rows.forEach(r=>{r.source=meta.source;r.trading_date=dateKey;r.snapshot_type=meta.snapshot_type;});
       if(!allDates.includes(dateKey))allDates.push(dateKey);
       loadedFiles++;
       if(!mostRecentDate||dateKey>mostRecentDate)mostRecentDate=dateKey;
@@ -2860,6 +2888,13 @@ async function handleMultipleCSV(files){
       const skipped=rows.length-newRows.length;
       totalNew+=newRows.length;
       totalSkipped+=skipped;
+
+      // Per-file status feedback
+      if(statusEl){
+        statusEl.textContent=`✓ ${file.name} → ${rows.length} rows · ${meta.source} · ${meta.snapshot_type} · ${dateKey}`;
+        statusEl.style.color=newRows.length>0?'var(--green)':'var(--amber)';
+      }
+      await new Promise(r=>setTimeout(r,0));
 
       if(!newRows.length)continue; // all dupes — nothing to merge
 
@@ -2924,7 +2959,7 @@ async function handleMultipleCSV(files){
   renderFlowStats();
   renderFlowBody();
   updateStatusCounts();
-  showToast('OMEN',`${totalNew} new trades${totalSkipped?`, ${totalSkipped} dupes skipped`:''}  ·  ${rangeStr}`,'info');
+  showToast('Upload',`Uploaded ${loadedFiles} file${loadedFiles!==1?'s':''} · ${totalNew} rows total`,'info');
 }
 
 // Legacy single-file handler (kept for any external callers)
@@ -2963,6 +2998,9 @@ function parseOMENcsv(text){
       iv:       obj['impliedvol']||'',
       earnings: obj['earningsdate']||'',
     };
+    const rawEa=(obj['earningalerts']||obj['earningalert']||'').trim();
+    const eaMap={'approaching':'Approaching','today':'Today','post-earnings':'Post-Earnings','postearnings':'Post-Earnings'};
+    row.earnings_context=eaMap[rawEa.toLowerCase()]||null;
     row.id=makeTradeId(row);
     // Fix swapped strike/expiry: if strike looks like a date, swap with expiry
     if(row.strike && /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(row.strike.trim())){
@@ -4141,17 +4179,71 @@ async function renderDbStats(){
 async function saveFlowToSupabase(rows){
   const supa=getSupabase();
   if(!supa||!rows.length)return;
+  const forceReplace=document.getElementById('force-replace-toggle')?.checked||false;
   const uploadDate=new Date().toISOString();
-  // Map to exact Supabase table columns
-  const payload=rows.map(r=>({
-    upload_date:uploadDate,
-    symbol:r.symbol,expiry:r.expiry,strike:r.strike,cp:r.cp,
-    flag:r.flag,time:r.time,spread:r.spread,premium:r.premium,
-    stocklast:r.stocklast,size:r.size,score:r.score,iv:r.iv,
-  }));
-  const{error}=await supa.from('omen_flow').insert(payload);
-  if(error)throw error;
-  console.log('[Supabase] Inserted',rows.length,'rows');
+
+  // Group rows by trading_date+source+snapshot_type
+  const groups=new Map();
+  for(const r of rows){
+    const key=`${r.trading_date}|${r.source||'omen'}|${r.snapshot_type||'eod'}`;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(r);
+  }
+
+  let totalInserted=0;
+  for(const[key,groupRows]of groups){
+    const[trading_date,source,snapshot_type]=key.split('|');
+
+    if(snapshot_type==='eod'){
+      // EOD upload: delete any prior intraday rows for same date+source
+      const{error:delErr,count:delCount}=await supa.from('omen_flow')
+        .delete()
+        .eq('trading_date',trading_date)
+        .eq('source',source)
+        .eq('snapshot_type','intraday');
+      if(delErr)console.warn('[Supabase] Intraday delete error:',delErr.message);
+      else if(delCount>0)console.log(`[Supabase] Replaced ${delCount} intraday rows with EOD for ${trading_date} (${source})`);
+    } else {
+      // Intraday upload: check if EOD already exists
+      const{data:existing,error:chkErr}=await supa.from('omen_flow')
+        .select('id',{count:'exact',head:true})
+        .eq('trading_date',trading_date)
+        .eq('source',source)
+        .eq('snapshot_type','eod');
+      if(chkErr)console.warn('[Supabase] EOD check error:',chkErr.message);
+      if(!chkErr&&existing!==null){
+        const eodCount=existing.length??0;
+        if(eodCount>0&&!forceReplace){
+          showToast(`⚠ EOD data already exists for ${trading_date} (${source}). Check "Force replace" to overwrite.`,'warn');
+          console.warn(`[Supabase] Skipped intraday for ${trading_date} (${source}) — EOD exists`);
+          continue;
+        }
+        if(eodCount>0&&forceReplace){
+          await supa.from('omen_flow')
+            .delete()
+            .eq('trading_date',trading_date)
+            .eq('source',source)
+            .eq('snapshot_type','eod');
+          console.log(`[Supabase] Force-replaced EOD with intraday for ${trading_date} (${source})`);
+        }
+      }
+    }
+
+    const payload=groupRows.map(r=>({
+      upload_date:uploadDate,
+      symbol:r.symbol,expiry:r.expiry,strike:r.strike,cp:r.cp,
+      flag:r.flag,time:r.time,spread:r.spread,premium:r.premium,
+      stocklast:r.stocklast,size:r.size,score:r.score,iv:r.iv,
+      source:r.source||'omen',
+      trading_date:r.trading_date,
+      snapshot_type:r.snapshot_type||'eod',
+      earnings_context:r.earnings_context||null,
+    }));
+    const{error}=await supa.from('omen_flow').insert(payload);
+    if(error)throw error;
+    totalInserted+=payload.length;
+  }
+  console.log('[Supabase] Inserted',totalInserted,'rows total');
 }
 
 // ============================================================
