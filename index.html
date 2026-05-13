@@ -963,6 +963,28 @@ select option{background:var(--bg2);}
           <span id="st-baselines" style="color:var(--cyan)">0</span>
         </div>
       </div>
+      <div class="card" style="padding:16px;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:12px;">
+          <div style="flex:1;">
+            <div style="font-size:14px;font-weight:600;color:var(--text);">PRICE HISTORY</div>
+            <div style="font-size:11px;color:#8090a0;margin-top:2px;">3 years of daily OHLCV from Yahoo Finance for every ticker in your flow data. Powers baselines, backtests, and the volatility regime indicator. ~1,066 tickers, ~5-8 min total.</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button id="btn-price-sync" class="btn btn-sm" onclick="startPriceSync(false)" style="background:var(--cyan);color:#000;border:1px solid var(--border);font-weight:600;padding:6px 14px;">Sync Now</button>
+            <button class="btn btn-sm" onclick="if(confirm('Re-fetch ALL tickers (overrides 7-day cache)?')) startPriceSync(true)" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:6px 14px;">Force Refresh</button>
+          </div>
+        </div>
+        <div id="price-sync-progress" style="display:none;margin-top:12px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#a0a8c0;margin-bottom:4px;">
+            <span id="price-sync-status-text">Starting…</span>
+            <span id="price-sync-counts">0 / 0</span>
+          </div>
+          <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;">
+            <div id="price-sync-bar" style="height:100%;background:var(--cyan);width:0%;transition:width 0.3s;"></div>
+          </div>
+        </div>
+        <div id="price-sync-summary" style="margin-top:12px;padding:10px;background:var(--bg3);border-radius:4px;font-size:11px;color:#a0a8c0;display:none;"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -4051,6 +4073,9 @@ function goPage(name,btn){
   if(name==='flowpredict'){
     setTimeout(initFlowPredictor,50);
   }
+  if(name==='settings'){
+    setTimeout(refreshPriceHistoryStatus,50);
+  }
 }
 
 // ============================================================
@@ -4267,6 +4292,82 @@ async function renderDbStats(){
   }catch(err){
     console.warn('DB stats query failed:',err);
   }
+}
+
+const PRICE_SYNC_URL='https://siwrhqcojoyxxwaxnopc.supabase.co/functions/v1/sync-price-history';
+const PRICE_SYNC_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpd3JocWNvam95eHh3YXhub3BjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MjEwMDUsImV4cCI6MjA5NDE5NzAwNX0._Dp0woo3iIcCCN5yQGgIGbBHZW8evf5MLUqIaudVlaU';
+let _priceSyncRunning=false;
+
+async function startPriceSync(forceRefresh){
+  if(_priceSyncRunning){console.warn('[PriceSync] Already running');return;}
+  _priceSyncRunning=true;
+  const btn=document.getElementById('btn-price-sync');
+  const progressEl=document.getElementById('price-sync-progress');
+  const summaryEl=document.getElementById('price-sync-summary');
+  const statusEl=document.getElementById('price-sync-status-text');
+  const countsEl=document.getElementById('price-sync-counts');
+  const barEl=document.getElementById('price-sync-bar');
+  if(btn){btn.disabled=true;btn.textContent='Syncing…';btn.style.opacity='0.6';}
+  if(progressEl)progressEl.style.display='block';
+  if(summaryEl)summaryEl.style.display='none';
+  let totalProcessed=0,totalSucceeded=0,totalFailed=0,totalRows=0;
+  const startTime=Date.now();
+  try{
+    while(true){
+      const r=await fetch(PRICE_SYNC_URL,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+PRICE_SYNC_ANON_KEY,'apikey':PRICE_SYNC_ANON_KEY},
+        body:JSON.stringify({max_batch:30,force_refresh:!!forceRefresh}),
+      });
+      if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()));
+      const data=await r.json();
+      totalProcessed+=data.processed||0;
+      totalSucceeded+=data.succeeded||0;
+      totalFailed+=data.failed||0;
+      totalRows+=data.total_rows_inserted||0;
+      const remaining=data.remaining||0;
+      const done=totalProcessed;
+      const total=done+remaining;
+      const pct=total>0?Math.round((done/total)*100):100;
+      if(statusEl)statusEl.textContent='Syncing… last batch: '+(data.succeeded||0)+'/'+(data.processed||0)+' ok · '+((data.total_rows_inserted||0).toLocaleString())+' rows';
+      if(countsEl)countsEl.textContent=done+' / '+total;
+      if(barEl)barEl.style.width=pct+'%';
+      console.log('[PriceSync] batch:',data);
+      if((data.processed||0)===0||(data.remaining||0)===0)break;
+      if(totalProcessed>5000){console.warn('[PriceSync] safety stop at 5000');break;}
+      await new Promise(r=>setTimeout(r,250));
+    }
+    const elapsed=Math.round((Date.now()-startTime)/1000);
+    if(statusEl)statusEl.textContent='✓ Complete';
+    if(barEl)barEl.style.width='100%';
+    if(summaryEl){
+      summaryEl.style.display='block';
+      summaryEl.innerHTML='<strong style="color:var(--green);">✓ Sync complete</strong> · '+totalSucceeded+' tickers · '+totalRows.toLocaleString()+' price rows · '+totalFailed+' failures · '+elapsed+'s';
+    }
+  }catch(e){
+    console.error('[PriceSync] failed:',e);
+    if(statusEl)statusEl.textContent='✗ Failed: '+e.message;
+    if(summaryEl){summaryEl.style.display='block';summaryEl.style.color='var(--red)';summaryEl.textContent='Sync failed: '+e.message;}
+  }finally{
+    _priceSyncRunning=false;
+    if(btn){btn.disabled=false;btn.textContent='Sync Now';btn.style.opacity='1';}
+  }
+}
+
+async function refreshPriceHistoryStatus(){
+  const supa=getSupabase();
+  if(!supa)return;
+  try{
+    const{count:priceCount}=await supa.from('price_history').select('*',{count:'exact',head:true});
+    const{data:syncStats}=await supa.from('price_sync_status').select('symbol,last_status,last_synced_at').order('last_synced_at',{ascending:false}).limit(1);
+    const summaryEl=document.getElementById('price-sync-summary');
+    if(summaryEl&&priceCount>0){
+      const last=syncStats&&syncStats[0]?syncStats[0].last_synced_at:null;
+      const lastStr=last?new Date(last).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'never';
+      summaryEl.style.display='block';
+      summaryEl.innerHTML='Current: '+priceCount.toLocaleString()+' price rows in database · Last sync: '+lastStr;
+    }
+  }catch(e){console.warn('[PriceSync] status check failed:',e);}
 }
 
 async function logUploadToSupabase(entry){
