@@ -2935,13 +2935,11 @@ async function handleMultipleCSV(files){
 
   // Persist sorted history (90-day cap keeps localStorage manageable)
   flowHistory=flowHistory.sort((a,b)=>a.date>b.date?1:-1).slice(-90);
-  localStorage.setItem('sp_flowHist',JSON.stringify(flowHistory));
-
-  // Save all newly-added rows to Supabase then refresh DB stats
-  const allNewRows=Object.values(rawByDate).flat();
-  saveFlowToSupabase(allNewRows)
-    .then(()=>renderDbStats())
-    .catch(e=>console.warn('Supabase save:',e));
+  try{
+    localStorage.setItem('sp_flowHist',JSON.stringify(flowHistory));
+  }catch(e){
+    console.warn('[Upload] localStorage history cache full — skipping (Supabase is the source of truth)',e.message);
+  }
 
   // Update live flowData: merge new rows for the most recent date into existing
   if(rawByDate[mostRecentDate]){
@@ -2949,8 +2947,18 @@ async function handleMultipleCSV(files){
     const existingIds=new Set(existingRaw.map(r=>r.id).filter(Boolean));
     const freshRows=rawByDate[mostRecentDate].filter(r=>!existingIds.has(r.id));
     flowData=[...existingRaw,...freshRows];
-    localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
+    try{
+      localStorage.setItem('sp_flow',JSON.stringify(flowData.slice(0,500)));
+    }catch(e){
+      console.warn('[Upload] localStorage flow cache full — skipping (Supabase is the source of truth)',e.message);
+    }
   }
+
+  // Save all newly-added rows to Supabase then refresh DB stats
+  const allNewRows=Object.values(rawByDate).flat();
+  saveFlowToSupabase(allNewRows)
+    .then(()=>renderDbStats())
+    .catch(e=>console.warn('Supabase save:',e));
 
   // Final status message
   allDates.sort();
