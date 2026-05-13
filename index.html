@@ -1427,6 +1427,13 @@ function isMarketOpen(){
   const n=new Date(),d=n.getDay(),h=n.getHours(),m=n.getMinutes(),mins=h*60+m;
   return d>=1&&d<=5&&mins>=570&&mins<960;
 }
+function isInTradingWindow(){
+  const now=new Date();
+  const hour=parseInt(now.toLocaleString('en-US',{timeZone:'America/New_York',hour:'numeric',hour12:false}).match(/\d+/)?.[0]||'0');
+  const dayName=now.toLocaleString('en-US',{timeZone:'America/New_York',weekday:'short'});
+  if(dayName==='Sat'||dayName==='Sun')return false;
+  return hour>=4&&hour<20;
+}
 function updateMarketStatus(){
   const open=isMarketOpen();
   document.getElementById('mkt-dot').className='dot '+(open?'on':'off');
@@ -1464,6 +1471,7 @@ function setRiskBanner(v){
 // Fetch fresh VIX quote from Finnhub — free tier supports /quote for VIX
 async function fetchVixQuote(){
   if(!finnhubKey) return;
+  if(!isInTradingWindow()){console.log('[VIX] Outside trading window — skipping quote fetch');return;}
   try{
     const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=VIX&token=${finnhubKey}`);
     const d=await r.json();
@@ -4046,6 +4054,7 @@ function getPriceChangePct(sym, minutes){
 }
 async function fetchLiveAll(){
   if(!finnhubKey)return;
+  if(!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
   for(const sym of Object.values(WATCHLIST).flat().slice(0,30)){
     try{
       const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${finnhubKey}`);
