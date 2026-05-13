@@ -818,7 +818,7 @@ select option{background:var(--bg2);}
 </div>
 
 <!-- ============ PAGE: FLOW PREDICTOR ============ -->
-<section id="page-flowpredict" class="page" style="display:none;">
+<section id="page-flowpredict" class="page">
   <div style="padding:14px;text-align:center;color:#8090a0;font-size:13px;">Loading predictor...</div>
 </section>
 
@@ -4128,6 +4128,8 @@ function _supaRowToFlow(r){
     symbol:(r.symbol||'').toUpperCase(),expiry:r.expiry||'',strike:r.strike||'',
     cp:r.cp||'',price:'',spread:r.spread||'',premium:r.premium||'',
     stocklast:r.stocklast||'',size:r.size||'',oi:'',iv:r.iv||'',earnings:'',
+    trading_date:r.trading_date||'',source:r.source||'omen',snapshot_type:r.snapshot_type||'eod',
+    earnings_context:r.earnings_context||null,
   };
   row.id=makeTradeId(row);
   // Fix swapped strike/expiry (same validation as CSV parser)
