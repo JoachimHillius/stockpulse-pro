@@ -2801,22 +2801,24 @@ function detectDateFromFile(filename,rows){
 
 // Detect source (omen/smartmoney) and snapshot_type (intraday/eod) from filename
 function detectFileMetadata(filename){
-  const base=filename.replace(/\.csv$/i,'').toUpperCase();
-  const source=/SMARTMONEY/.test(base)?'smartmoney':'omen';
-  const timeMatch=base.match(/(\d{3,4})(AM|PM)/i);
+  const base=filename.replace(/\.csv$/i,'');
+  // Extract YYYYMMDD from filename prefix → "YYYY-MM-DD"
+  const dateMatch=base.match(/^(\d{4})(\d{2})(\d{2})/);
+  const trading_date=dateMatch?`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`:new Date().toISOString().slice(0,10);
+  const upper=base.toUpperCase();
+  const source=/SMARTMONEY/.test(upper)?'smartmoney':'omen';
+  // Match time patterns like "130pm", "0130pm", "330PM"
+  const timeMatch=base.match(/(\d{1,2})(\d{2})(am|pm)/i);
   let snapshot_type='eod';
   if(timeMatch){
-    const raw=timeMatch[1];
-    const isPM=timeMatch[2].toUpperCase()==='PM';
-    let hours,mins;
-    if(raw.length<=2){hours=parseInt(raw);mins=0;}
-    else if(raw.length===3){hours=parseInt(raw.slice(0,1));mins=parseInt(raw.slice(1));}
-    else{hours=parseInt(raw.slice(0,2));mins=parseInt(raw.slice(2));}
+    let hours=parseInt(timeMatch[1]);
+    const mins=parseInt(timeMatch[2]);
+    const isPM=timeMatch[3].toLowerCase()==='pm';
     if(isPM&&hours<12)hours+=12;
     if(!isPM&&hours===12)hours=0;
-    snapshot_type=(hours*60+mins)<=(15*60+45)?'intraday':'eod';
+    snapshot_type=(hours*60+mins)<=945?'intraday':'eod';
   }
-  return{source,snapshot_type};
+  return{source,snapshot_type,trading_date};
 }
 
 // Build a compact per-ticker summary from parsed rows (stored in flowHistory, not raw rows)
@@ -2872,9 +2874,12 @@ async function handleMultipleCSV(files){
       const rows=await readFileAsCSV(file);
       if(!rows.length)continue;
 
-      const dateKey=detectDateFromFile(file.name,rows);
       const meta=detectFileMetadata(file.name);
+      const dateKey=meta.trading_date||detectDateFromFile(file.name,rows);
+      meta.trading_date=dateKey;
       rows.forEach(r=>{r.source=meta.source;r.trading_date=dateKey;r.snapshot_type=meta.snapshot_type;});
+      console.log('[Upload]',file.name,'→',meta);
+      console.log('[Upload] First row trading_date:',rows[0]?.trading_date,'source:',rows[0]?.source);
       if(!allDates.includes(dateKey))allDates.push(dateKey);
       loadedFiles++;
       if(!mostRecentDate||dateKey>mostRecentDate)mostRecentDate=dateKey;
@@ -2970,14 +2975,35 @@ function makeTradeId(r){
   return [r.time,r.symbol,r.strike,r.expiry,r.cp,r.size].join('|');
 }
 
+function parseCsvLine(line){
+  const out=[];
+  let cur='';
+  let inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(inQ){
+      if(c==='"'){
+        if(line[i+1]==='"'){cur+='"';i++;}
+        else{inQ=false;}
+      }else{cur+=c;}
+    }else{
+      if(c==='"')inQ=true;
+      else if(c===','){out.push(cur);cur='';}
+      else cur+=c;
+    }
+  }
+  out.push(cur);
+  return out.map(s=>s.trim());
+}
+
 function parseOMENcsv(text){
   if(!text)return[];
   const lines=text.trim().split(/\r?\n/);
   if(lines.length<2)return[];
   // Strip all non-letter chars so "Call/Put"→"callput", "Expiration Date"→"expirationdate", "Implied Vol."→"impliedvol"
-  const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/[^a-z]/g,''));
+  const headers=parseCsvLine(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z]/g,''));
   return lines.slice(1).filter(l=>l.trim()).map(line=>{
-    const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
+    const vals=parseCsvLine(line);
     const obj={};
     headers.forEach((h,i)=>{obj[h]=vals[i]||'';});
     const row={
