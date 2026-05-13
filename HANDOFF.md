@@ -215,3 +215,91 @@ supabase.auth.onAuthStateChange((event, session) => {
 });
 ```
 
+
+---
+
+## Auth + Admin — Full Spec (from Joachim, May 12 2026 night, v2)
+
+### Schema additions needed
+
+```sql
+-- Profiles table extends auth.users with app-specific fields
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT,
+  full_name TEXT,
+  role TEXT DEFAULT 'viewer' CHECK (role IN ('admin','trader','viewer')),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+-- Usage tracking
+CREATE TABLE user_activity (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  occurred_at TIMESTAMPTZ DEFAULT now(),
+  event_type TEXT,        -- 'login', 'page_view', 'csv_upload', 'predictor_run', 'sync_started'
+  event_detail JSONB
+);
+CREATE INDEX idx_user_activity_user ON user_activity(user_id, occurred_at DESC);
+CREATE INDEX idx_user_activity_event ON user_activity(event_type, occurred_at DESC);
+```
+
+### Tighten RLS on existing tables
+
+Currently all tables have permissive anon policies. After Auth is wired:
+- Drop `anon_all_*` policies on omen_flow, omen_daily_summary, predictor_runs, upload_log, price_history, price_sync_status, user_settings
+- Replace with `authenticated_all_*` policies that require `auth.uid() IS NOT NULL`
+- Admin-only tables (user_settings, all writes to user_activity, profiles updates) get role-checked policies
+
+### UI changes
+
+1. **Login screen** at app entry. Block all tabs until signed in. Email + password form. "Sign up" link.
+2. **First user becomes admin** — bootstrap via SQL once Joachim signs up:
+   ```sql
+   UPDATE profiles SET role='admin' WHERE email='[joachim email]';
+   ```
+3. **Settings tab** — visible to admins only. Other roles see "Access denied — admin only".
+4. **New "Admin" tab** (admins only) showing:
+   - Table of all profiles (email, role, created_at, last_login_at)
+   - Recent user_activity stream (last 100 events with user + event type)
+   - Daily active users chart (last 30 days)
+5. **Sign out button** in top-right.
+
+### Activity tracking hooks
+
+Add lightweight `logActivity(eventType, detail)` helper called from:
+- Login success: `'login'`
+- `goPage`: `'page_view'` with `{page}`
+- `handleMultipleCSV`: `'csv_upload'` with `{filename, source, rows_stored}`
+- `initFlowPredictor`: `'predictor_run'` with `{timeframe}`
+- `startPriceSync`: `'sync_started'`
+
+Fire-and-forget inserts. Don't block UI.
+
+### Suggested step order for tomorrow
+
+- Step 28a: Create profiles + user_activity tables (Supabase MCP).
+- Step 28b: Enable email/password provider in Supabase Auth (Settings → Authentication).
+- Step 28c: Add login screen + signOut button to index.html.
+- Step 28d: Wire Supabase Auth client in JS, gate all tabs.
+- Step 28e: Bootstrap Joachim as admin via SQL after first signup.
+- Step 28f: Build Admin tab UI (profiles list + activity stream).
+- Step 28g: Wire logActivity hooks at the 5 event points.
+- Step 28h: Tighten RLS — drop anon_all_* policies, add authenticated_* policies.
+- Step 28i: Test by creating a second test user, verify they can't see Settings/Admin.
+
+### Cost / risk
+
+- Supabase Auth is free on all plans up to 50K MAU.
+- RLS hardening is the highest-risk step — break order is important. Test on a single table first.
+- Hardcoded anon key in index.html stays (it's safe with proper RLS).
+
+### What NOT to do
+
+- Don't use a single shared password. That's not auth, it's a speed bump.
+- Don't store passwords in user_settings or anywhere outside auth.users.
+- Don't disable RLS to "make it work" — fix the policy.
+- Don't expose service_role key in the browser. Ever.
+
+End of Auth + Admin full spec.
