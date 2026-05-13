@@ -133,3 +133,85 @@ All keys stored in browser localStorage + Supabase user_settings backup:
 All product decisions: Joachim Hillius. This file is the canonical source of project state. Update on every milestone.
 
 End of HANDOFF.md.
+
+---
+
+## Next Phase: Auth + Admin (Tomorrow's Work)
+
+### Requirements (from Joachim, May 12 2026 night)
+
+1. **Password protection on Settings tab.** API keys, Sync buttons, and admin actions must be locked behind login.
+2. **Admin dashboard for usage visibility.** Joachim wants to see who is using the app — which users, when they last logged in, what they viewed/uploaded.
+3. **Email + password login.** Email is the username. Standard auth, not magic links.
+
+### Recommended Stack
+
+Use Supabase Auth (already enabled by default on the project). Email/password provider. No SSO yet.
+
+### Schema additions needed
+
+```sql
+-- Track page visits and key actions per user
+CREATE TABLE IF NOT EXISTS public.activity_log (
+  id          bigserial PRIMARY KEY,
+  user_id     uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  event       text NOT NULL,       -- 'page_view', 'csv_upload', 'price_sync', 'login'
+  detail      text,                -- e.g. tab name, filename, ticker count
+  created_at  timestamptz DEFAULT now()
+);
+
+-- Admin flag — only Joachim's user_id gets is_admin = true
+CREATE TABLE IF NOT EXISTS public.admin_users (
+  user_id     uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  granted_at  timestamptz DEFAULT now()
+);
+```
+
+### RLS changes needed
+
+- Tighten `omen_flow`, `omen_daily_summary`, `upload_log`: require `auth.role() = 'authenticated'`
+- `activity_log`: users can INSERT their own rows; only admin can SELECT all
+- `admin_users`: only service role can INSERT; authenticated users can SELECT their own row
+
+### UI changes needed (index.html)
+
+1. **Login modal** — shown on page load if `supabase.auth.getSession()` returns null
+2. **Settings tab guard** — if not authenticated, show login prompt instead of tab content
+3. **Auth state listener** — `supabase.auth.onAuthStateChange` updates global `_currentUser`
+4. **Admin panel tab** (new tab, hidden unless `_currentUser` is in admin_users)
+   - Table: users list (email, last_sign_in_at, created_at)
+   - Table: recent activity_log (last 100 rows across all users)
+   - Stat boxes: uploads today, price syncs today, active users (7d)
+
+### Implementation order
+
+1. Enable email/password in Supabase Dashboard → Auth → Providers
+2. Create Joachim's account manually via Dashboard or SQL
+3. Add `activity_log` and `admin_users` tables + RLS
+4. Add login modal to index.html (Supabase JS `signInWithPassword`)
+5. Guard Settings tab — check session before rendering
+6. Add activity logging to `handleMultipleCSV` and `startPriceSync`
+7. Build Admin tab
+
+### Key Supabase Auth calls (vanilla JS, no framework)
+
+```javascript
+// Sign in
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'joachim@example.com',
+  password: '...'
+});
+
+// Get current session
+const { data: { session } } = await supabase.auth.getSession();
+
+// Sign out
+await supabase.auth.signOut();
+
+// Listen for auth changes
+supabase.auth.onAuthStateChange((event, session) => {
+  _currentUser = session?.user || null;
+  updateAuthUI();
+});
+```
+
