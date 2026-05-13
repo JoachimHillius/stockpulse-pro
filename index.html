@@ -423,6 +423,11 @@ select option{background:var(--bg2);}
 </div>
 
 <!-- TICKER TAPE -->
+<div style="display:flex;align-items:center;gap:8px;padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bg2);font-size:10px;">
+  <span data-market-status></span>
+  <span style="color:#8090a0;margin-left:auto;">Quotes updated <span data-refresh-label="carousel">never</span></span>
+  <button onclick="manualRefreshCarousel()" title="Force refresh quotes now" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:3px 10px;font-size:10px;border-radius:3px;cursor:pointer;">↻</button>
+</div>
 <div class="tape-wrap">
   <div class="tape">
     <div class="tape-row tape-row-up"><div class="tape-inner" id="tape-top"></div></div>
@@ -614,6 +619,11 @@ select option{background:var(--bg2);}
 
 <!-- ============ PAGE: OPTIONS FLOW ============ -->
 <div id="page-flow" class="page">
+  <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px;padding:0 4px;">
+    <span data-market-status style="font-size:11px;color:#a0a8c0;"></span>
+    <span style="font-size:10px;color:#8090a0;">Updated <span data-refresh-label="options_flow">never</span></span>
+    <button class="btn btn-sm" onclick="refreshOptionsFlow()" title="Reload flow data from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:5px 12px;font-size:11px;">↻ Refresh</button>
+  </div>
   <div class="g2" style="margin-bottom:14px;">
     <div class="card">
       <div class="card-hd">
@@ -1430,13 +1440,44 @@ function isMarketOpen(){
   const n=new Date(),d=n.getDay(),h=n.getHours(),m=n.getMinutes(),mins=h*60+m;
   return d>=1&&d<=5&&mins>=570&&mins<960;
 }
-function isInTradingWindow(){
+function getMarketStatus(){
   const now=new Date();
-  const hour=parseInt(now.toLocaleString('en-US',{timeZone:'America/New_York',hour:'numeric',hour12:false}).match(/\d+/)?.[0]||'0');
+  const estParts=now.toLocaleString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'numeric',hour12:false}).match(/(\d+):(\d+)/);
+  const estHour=estParts?parseInt(estParts[1]):0;
+  const estMin=estParts?parseInt(estParts[2]):0;
+  const totalMin=estHour*60+estMin;
   const dayName=now.toLocaleString('en-US',{timeZone:'America/New_York',weekday:'short'});
-  if(dayName==='Sat'||dayName==='Sun')return false;
-  return hour>=4&&hour<20;
+  const isWeekend=dayName==='Sat'||dayName==='Sun';
+  if(isWeekend)return{state:'closed',label:'Weekend — Market Closed',color:'#888'};
+  if(totalMin<240)return{state:'closed',label:'Overnight — Market Closed',color:'#888'};
+  if(totalMin<570)return{state:'premarket',label:'Premarket',color:'#ffb020'};
+  if(totalMin<960)return{state:'open',label:'Market Open',color:'#00e5b0'};
+  if(totalMin<1200)return{state:'afterhours',label:'After Hours',color:'#ffb020'};
+  return{state:'closed',label:'Overnight — Market Closed',color:'#888'};
 }
+function isInTradingWindow(){
+  return getMarketStatus().state!=='closed';
+}
+const _lastRefresh={carousel:null,options_flow:null,flow_predictor:null,watchlist:null};
+function setRefreshed(key){_lastRefresh[key]=new Date();updateRefreshLabels();}
+function fmtRefreshTime(d){
+  if(!d)return'never';
+  const diffSec=Math.round((new Date()-d)/1000);
+  if(diffSec<60)return diffSec+'s ago';
+  if(diffSec<3600)return Math.round(diffSec/60)+'m ago';
+  return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+}
+function updateRefreshLabels(){
+  document.querySelectorAll('[data-refresh-label]').forEach(el=>{
+    el.textContent=fmtRefreshTime(_lastRefresh[el.getAttribute('data-refresh-label')]);
+  });
+  document.querySelectorAll('[data-market-status]').forEach(el=>{
+    const s=getMarketStatus();
+    el.innerHTML='<span style="display:inline-block;width:8px;height:8px;background:'+s.color+';border-radius:50%;margin-right:4px;vertical-align:middle;"></span>'+s.label;
+  });
+}
+setInterval(updateRefreshLabels,15000);
+setTimeout(updateRefreshLabels,200);
 function updateMarketStatus(){
   const open=isMarketOpen();
   document.getElementById('mkt-dot').className='dot '+(open?'on':'off');
@@ -4055,8 +4096,8 @@ function getPriceChangePct(sym, minutes){
   if(!old)return null;
   return(cur-old)/old*100;
 }
-async function fetchLiveAll(){
-  if(!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
+async function fetchLiveAll(force){
+  if(!force&&!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
   const tdKey=localStorage.getItem('sp_td')||'';
   if(!tdKey){console.warn('[Ticker] No Twelve Data key — skipping live quotes');return;}
   for(const sym of Object.values(WATCHLIST).flat().slice(0,30)){
@@ -4074,6 +4115,7 @@ async function fetchLiveAll(){
   }
   renderWatchlist();renderMoverLists();renderTape();
   document.getElementById('st-refresh').textContent=new Date().toLocaleTimeString();
+  setRefreshed('carousel');
 }
 
 // ============================================================
@@ -4255,6 +4297,7 @@ async function loadFlowFromSupabase(){
     if(updEl)updEl.textContent='Last upload: '+lastStr;
     renderFlowStats();renderFlowBody();updateStatusCounts();
     renderDbStats();
+    try{setRefreshed('options_flow');}catch(e){}
   }catch(err){
     console.warn('Supabase load failed:',err);
     _setDbStatus('● DB error','#ff3d5a');
@@ -4990,6 +5033,7 @@ async function loadPredictorData(){
     }
     _predData=all;
     console.log('[Predictor] Loaded',_predData.length,'daily summaries total');
+    try{setRefreshed('flow_predictor');}catch(e){}
     return _predData;
   }catch(e){
     console.error('[Predictor] Load failed:',e);
@@ -5203,6 +5247,8 @@ function renderFlowPredictor(){
           <div style="font-size:11px;color:#8090a0;margin-top:2px;">${tfStats.dateRange}</div>
         </div>
         <div style="display:flex;gap:4px;align-items:center;">
+          <span data-market-status style="font-size:11px;color:#a0a8c0;margin-right:10px;"></span>
+          <span style="font-size:10px;color:#8090a0;margin-right:6px;">Updated <span data-refresh-label="flow_predictor">never</span></span>
           <button class="btn btn-sm" onclick="refreshFlowPredictor()" title="Reload from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:6px 10px;margin-right:4px;">↻ Refresh</button>
           ${['D','W','M','Y'].map(tf=>`<button class="btn btn-sm" onclick="setPredTimeframe('${tf}')" style="${_predTimeframe===tf?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);">${tf}</button>`).join('')}
         </div>
@@ -5276,10 +5322,21 @@ function setPredLabelMode(m){
   renderFlowPredictor();
 }
 
+function manualRefreshCarousel(){
+  fetchLiveAll(true).catch(e=>console.warn('[Carousel] manual refresh failed:',e));
+}
+
+async function refreshOptionsFlow(){
+  await loadFlowFromSupabase();
+  setRefreshed('options_flow');
+  console.log('[OptionsFlow] Manual refresh complete');
+}
+
 async function refreshFlowPredictor(){
   _predData=null;
   await loadPredictorData();
   renderFlowPredictor();
+  setRefreshed('flow_predictor');
   console.log('[Predictor] Manual refresh complete');
 }
 
