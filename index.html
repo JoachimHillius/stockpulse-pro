@@ -638,6 +638,13 @@ select option{background:var(--bg2);}
         </label>
       </div>
     </div>
+    <div class="card" style="margin:14px 0;padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-size:12px;font-weight:600;color:var(--text);letter-spacing:1px;">UPLOAD LOG <span style="color:#8090a0;font-weight:400;font-size:10px;">— last 20 uploads</span></div>
+        <button class="btn btn-sm" onclick="renderUploadLog()" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);font-size:10px;">Refresh</button>
+      </div>
+      <div id="upload-log-list" style="max-height:240px;overflow-y:auto;background:var(--bg);border-radius:4px;"></div>
+    </div>
     <div class="g2" style="gap:8px;">
       <div class="stat-box"><div class="stat-lbl">Total Trades</div><div class="stat-val" id="flow-total" style="color:var(--blue)">0</div></div>
       <div class="stat-box"><div class="stat-lbl">Call Premium</div><div class="stat-val" id="flow-call-$" style="color:var(--green)">$0</div></div>
@@ -2902,6 +2909,21 @@ async function handleMultipleCSV(files){
       }
       await new Promise(r=>setTimeout(r,0));
 
+      // Log this file to Supabase upload_log
+      logUploadToSupabase({
+        filename:file.name,
+        source:meta.source,
+        trading_date:dateKey,
+        snapshot_type:meta.snapshot_type,
+        rows_in_file:rows.length,
+        rows_parsed:rows.length,
+        rows_stored:newRows.length,
+        rows_duplicate:skipped,
+        rows_invalid:0,
+        status:newRows.length>0?'success':(rows.length>0?'warning':'error'),
+        notes:newRows.length===0&&rows.length>0?'All rows were duplicates':null,
+      }).catch(e=>console.warn('[UploadLog]',e));
+
       if(!newRows.length)continue; // all dupes — nothing to merge
 
       // Add new IDs to the set
@@ -2974,6 +2996,7 @@ async function handleMultipleCSV(files){
   renderFlowBody();
   updateStatusCounts();
   showToast('Upload',`Uploaded ${loadedFiles} file${loadedFiles!==1?'s':''} · ${totalNew} rows total`,'info');
+  renderUploadLog();
 }
 
 // Legacy single-file handler (kept for any external callers)
@@ -4246,6 +4269,64 @@ async function renderDbStats(){
   }
 }
 
+async function logUploadToSupabase(entry){
+  const supa=getSupabase();
+  if(!supa)return;
+  try{
+    const{error}=await supa.from('upload_log').insert({
+      filename:entry.filename,
+      source:entry.source,
+      trading_date:entry.trading_date,
+      snapshot_type:entry.snapshot_type,
+      rows_in_file:entry.rows_in_file,
+      rows_parsed:entry.rows_parsed,
+      rows_stored:entry.rows_stored,
+      rows_duplicate:entry.rows_duplicate||0,
+      rows_invalid:entry.rows_invalid||0,
+      status:entry.status,
+      notes:entry.notes||null,
+    });
+    if(error)console.error('[UploadLog] insert failed:',error);
+  }catch(e){console.error('[UploadLog] exception:',e);}
+}
+
+async function loadUploadLog(limit){
+  const supa=getSupabase();
+  if(!supa)return[];
+  try{
+    const{data,error}=await supa.from('upload_log').select('*').order('uploaded_at',{ascending:false}).limit(limit||20);
+    if(error){console.error('[UploadLog] load failed:',error);return[];}
+    return data||[];
+  }catch(e){console.error('[UploadLog] load exception:',e);return[];}
+}
+
+async function renderUploadLog(){
+  const root=document.getElementById('upload-log-list');
+  if(!root)return;
+  const entries=await loadUploadLog(20);
+  if(!entries.length){
+    root.innerHTML='<div style="padding:14px;color:#8090a0;font-size:11px;text-align:center;">No uploads yet. Drop OMEN/Smart Money CSVs above to begin.</div>';
+    return;
+  }
+  root.innerHTML=entries.map(e=>{
+    const dt=new Date(e.uploaded_at);
+    const dtStr=dt.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    const icon=e.status==='success'?'✓':e.status==='warning'?'⚠':'✗';
+    const iconColor=e.status==='success'?'var(--green)':e.status==='warning'?'#ffb020':'var(--red)';
+    const dupeStr=e.rows_duplicate>0?` (${e.rows_duplicate} dupes)`:'';
+    const invalidStr=e.rows_invalid>0?` ⚠ ${e.rows_invalid} bad rows`:'';
+    return`<div style="padding:8px 12px;border-bottom:1px solid #1a1a28;font-size:11px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+        <div><span style="color:${iconColor};font-weight:700;">${icon}</span> <span style="color:#8090a0;">${dtStr}</span> · <span style="color:#fff;">${e.filename}</span></div>
+        <div style="font-size:10px;color:#8090a0;">${e.source||'?'} · ${e.snapshot_type||'?'} · ${e.trading_date||'?'}</div>
+      </div>
+      <div style="color:#a0a8c0;margin-left:16px;font-size:10px;">
+        OMEN: ${e.rows_in_file?.toLocaleString()||'?'} → Parsed: ${e.rows_parsed?.toLocaleString()||'?'} → Stored: ${e.rows_stored?.toLocaleString()||'?'}${dupeStr}${invalidStr}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 async function saveFlowToSupabase(rows){
   const supa=getSupabase();
   if(!supa||!rows.length)return;
@@ -5122,6 +5203,7 @@ initData();
 // _initPosPanel deferred — panel HTML is after the script block, so DOM is not ready at boot.
 // DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
+document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document.getElementById('upload-log-list'))renderUploadLog(); },500); });
 if(finnhubKey)setTimeout(fetchLiveAll,1000);
 if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
