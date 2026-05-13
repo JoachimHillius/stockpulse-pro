@@ -678,7 +678,15 @@ select option{background:var(--bg2);}
       <!-- Bar + percentages -->
       <div style="flex:1;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span style="letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;">Flow Sentiment</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;">Flow Sentiment</span>
+            <div style="display:flex;gap:3px;" id="flow-tf-btns">
+              <button class="btn btn-sm" onclick="setFlowSentimentTimeframe('D')" style="background:var(--cyan);color:#000;border:1px solid var(--border);padding:2px 7px;" id="flow-tf-D">D</button>
+              <button class="btn btn-sm" onclick="setFlowSentimentTimeframe('W')" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:2px 7px;" id="flow-tf-W">W</button>
+              <button class="btn btn-sm" onclick="setFlowSentimentTimeframe('M')" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:2px 7px;" id="flow-tf-M">M</button>
+              <button class="btn btn-sm" onclick="setFlowSentimentTimeframe('Y')" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:2px 7px;" id="flow-tf-Y">Y</button>
+            </div>
+          </div>
           <span id="flow-sentiment-signal" style="font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">—</span>
         </div>
         <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bg3);">
@@ -976,6 +984,7 @@ let avKey = localStorage.getItem('sp_av') || '';
 let tdKey = localStorage.getItem('sp_td') || '';
 let anthropicKey = localStorage.getItem('sp_anthropic') || '';
 let flowData = _safeLS('sp_flow', []);
+let _flowSentimentTimeframe = 'D';
 // Chart boot flags
 let _chartJsReady = false; // Chart.js CDN has loaded
 let _fkConfirmed  = false; // finnhubKey has been verified as non-empty and ready
@@ -3036,9 +3045,30 @@ function parseOMENcsv(text){
   }).filter(r=>r.symbol&&r.cp);
 }
 
+function setFlowSentimentTimeframe(tf){
+  _flowSentimentTimeframe=tf;
+  ['D','W','M','Y'].forEach(t=>{
+    const btn=document.getElementById('flow-tf-'+t);
+    if(btn){btn.style.background=t===tf?'var(--cyan)':'var(--bg3)';btn.style.color=t===tf?'#000':'#c0c8d0';}
+  });
+  renderFlowStats();
+}
+
+function _flowSentimentRows(){
+  if(!flowData.length)return flowData;
+  // Get sorted unique trading dates from the data
+  const allDates=[...new Set(flowData.map(r=>r.trading_date).filter(Boolean))].sort();
+  if(!allDates.length)return flowData; // no trading_date field — show all
+  const days={'D':1,'W':5,'M':21,'Y':9999}[_flowSentimentTimeframe]||1;
+  const cutoffIdx=Math.max(0,allDates.length-days);
+  const cutoffDate=allDates[cutoffIdx];
+  return flowData.filter(r=>!r.trading_date||r.trading_date>=cutoffDate);
+}
+
 function renderFlowStats(){
-  const calls=flowData.filter(r=>r.cp.toLowerCase().includes('call'));
-  const puts=flowData.filter(r=>r.cp.toLowerCase().includes('put'));
+  const filtered=_flowSentimentRows();
+  const calls=filtered.filter(r=>r.cp.toLowerCase().includes('call'));
+  const puts=filtered.filter(r=>r.cp.toLowerCase().includes('put'));
   const parsePrem=s=>{
     if(!s)return 0;
     const clean=s.replace(/[$, ]/g,'');
@@ -3053,8 +3083,8 @@ function renderFlowStats(){
   const bullPct=total>0?Math.round(callPrem/total*100):50;
   const bearPct=100-bullPct;
   const ratio=putPrem>0?(callPrem/putPrem):0;
-  const sweeps=flowData.filter(r=>(r.flag||'').toUpperCase().includes('S')).length;
-  const atask=flowData.filter(r=>(r.spread||'').toLowerCase().includes('ask')).length;
+  const sweeps=filtered.filter(r=>(r.flag||'').toUpperCase().includes('S')).length;
+  const atask=filtered.filter(r=>(r.spread||'').toLowerCase().includes('ask')).length;
 
   // Stat boxes
   document.getElementById('flow-total').textContent=flowData.length;
@@ -3089,7 +3119,7 @@ function renderFlowStats(){
 
   // Weighted conviction badge — premium + sweep + at-ask multipliers
   let bullW=0,bearW=0;
-  flowData.forEach(r=>{
+  filtered.forEach(r=>{
     const isCall=r.cp.toLowerCase().includes('call');
     const isSweep=(r.flag||'').toUpperCase().includes('S');
     const atAsk=(r.spread||'').toLowerCase().includes('ask');
@@ -4733,7 +4763,7 @@ async function loadPredictorData(){
   const supa=getSupabase();
   if(!supa){console.warn('[Predictor] No Supabase');return;}
   try{
-    const{data,error}=await supa.from('omen_daily_summary').select('*').order('trading_date',{ascending:true});
+    const{data,error}=await supa.from('omen_daily_summary').select('*').order('trading_date',{ascending:true}).range(0,9999);
     if(error)throw error;
     _predData=data||[];
     console.log('[Predictor] Loaded',_predData.length,'daily summaries');
