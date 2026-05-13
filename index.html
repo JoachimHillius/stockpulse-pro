@@ -4098,20 +4098,19 @@ function getPriceChangePct(sym, minutes){
 }
 async function fetchLiveAll(force){
   if(!force&&!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
-  const tdKey=localStorage.getItem('sp_td')||'';
-  if(!tdKey){console.warn('[Ticker] No Twelve Data key — skipping live quotes');return;}
-  for(const sym of Object.values(WATCHLIST).flat().slice(0,30)){
-    try{
-      const r=await fetch(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(sym)}&apikey=${tdKey}`);
-      const d=await r.json();
-      if(d.code===401||d.code===429){console.warn('[Ticker] Twelve Data error:',d.message);break;}
-      const price=parseFloat(d.close);
-      if(!isNaN(price)){
-        liveData[sym]={p:price,dp:parseFloat(d.percent_change)||0,d:parseFloat(d.change)||0};
-        recordPriceSnapshot(sym,price);
-      }
-    }catch(e){}
-    await sleep(120);
+  if(!localStorage.getItem('sp_td')){console.warn('[Ticker] No Twelve Data key — skipping live quotes');return;}
+  // Priority slice — fits comfortably within 7/min TD free tier cap
+  const PRIORITY=['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','GLD','VIX'];
+  const allWl=Object.values(WATCHLIST).flat();
+  const tickerList=PRIORITY.filter(t=>allWl.includes(t)).slice(0,7);
+  console.log('[Ticker] Fetching',tickerList.length,'priority tickers via TD cache');
+  for(const sym of tickerList){
+    const q=await getQuoteTD(sym);
+    if(q&&!isNaN(q.price)){
+      liveData[sym]={p:q.price,dp:q.percent_change||0,d:q.change||0};
+      recordPriceSnapshot(sym,q.price);
+    }
+    await sleep(9000); // ~9s between fetches = max ~6-7/min including overhead
   }
   renderWatchlist();renderMoverLists();renderTape();
   document.getElementById('st-refresh').textContent=new Date().toLocaleTimeString();
@@ -4350,6 +4349,43 @@ async function renderDbStats(){
   }catch(err){
     console.warn('DB stats query failed:',err);
   }
+}
+
+// ============================================================
+// TWELVE DATA — rate-limited quote cache
+// ============================================================
+const _tdCache=new Map();
+const TD_CACHE_TTL_MS=90000;
+const TD_MAX_PER_MIN=7;
+let _tdFetchesThisMinute=0;
+let _tdMinuteWindowStart=Date.now();
+function _tdResetMinuteIfNeeded(){
+  if(Date.now()-_tdMinuteWindowStart>=60000){_tdFetchesThisMinute=0;_tdMinuteWindowStart=Date.now();}
+}
+async function getQuoteTD(symbol){
+  const cached=_tdCache.get(symbol);
+  if(cached&&(Date.now()-cached.fetchedAt)<TD_CACHE_TTL_MS)return cached;
+  _tdResetMinuteIfNeeded();
+  if(_tdFetchesThisMinute>=TD_MAX_PER_MIN){
+    console.log('[TD]',symbol,'rate-limit headroom reached — serving cache');
+    return cached||null;
+  }
+  const key=localStorage.getItem('sp_td');
+  if(!key)return cached||null;
+  try{
+    _tdFetchesThisMinute++;
+    const r=await fetch('https://api.twelvedata.com/quote?symbol='+encodeURIComponent(symbol)+'&apikey='+key);
+    const d=await r.json();
+    if(d.code===429||d.code===401){console.warn('[TD]',symbol,'rate-limited or auth:',d.message);return cached||null;}
+    if(!d.close)return cached||null;
+    const quote={
+      price:parseFloat(d.close),change:parseFloat(d.change),percent_change:parseFloat(d.percent_change),
+      t:d.timestamp,open:parseFloat(d.open),high:parseFloat(d.high),low:parseFloat(d.low),
+      previous_close:parseFloat(d.previous_close),is_market_open:!!d.is_market_open,fetchedAt:Date.now(),
+    };
+    _tdCache.set(symbol,quote);
+    return quote;
+  }catch(e){console.warn('[TD]',symbol,'fetch failed:',e.message);return cached||null;}
 }
 
 const PRICE_SYNC_URL='https://siwrhqcojoyxxwaxnopc.supabase.co/functions/v1/sync-price-history';
