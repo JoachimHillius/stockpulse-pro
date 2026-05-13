@@ -399,7 +399,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('watchlist',this)">Watchlist</button>
     <button class="nav-btn" onclick="goPage('flow',this)">Options Flow</button>
     <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
-    <button class="nav-btn" onclick="goPage('predictor',this)">Predictor</button>
+    <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
@@ -807,6 +807,9 @@ select option{background:var(--bg2);}
 
 <!-- ============ PAGE: PREDICTOR ============ -->
 <div id="page-predictor" class="page">
+  <div style="background:#3a2520;border:1px solid #d97f8a;color:#d97f8a;padding:10px;margin:10px 0;border-radius:4px;font-size:12px;">
+    ⚠ This multi-factor predictor is being rebuilt. The 100% confidence values are not accurate — most input signals (News, Earnings, Sector) are not wired in the current rebuild. Use the Flow Predictor tab instead for accurate signals.
+  </div>
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
     <div style="color:#e0e0e0;">Last scored:</div>
     <div id="pred-time">Never — upload options CSV + run news scan first</div>
@@ -2549,7 +2552,7 @@ function renderWatchlist(){
   });
   body.innerHTML=html||'<div class="empty">No tickers match your filter</div>';
 }
-function refreshWatchlist(){if(finnhubKey)fetchLiveAll();else renderWatchlist();}
+function refreshWatchlist(){if(tdKey)fetchLiveAll();else renderWatchlist();}
 function quickPatterns(sym,q){
   const p=[];
   if(q.dp>3)p.push('⚡ Breakout');
@@ -4053,18 +4056,21 @@ function getPriceChangePct(sym, minutes){
   return(cur-old)/old*100;
 }
 async function fetchLiveAll(){
-  if(!finnhubKey)return;
   if(!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
+  const tdKey=localStorage.getItem('sp_td')||'';
+  if(!tdKey){console.warn('[Ticker] No Twelve Data key — skipping live quotes');return;}
   for(const sym of Object.values(WATCHLIST).flat().slice(0,30)){
     try{
-      const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${finnhubKey}`);
+      const r=await fetch(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(sym)}&apikey=${tdKey}`);
       const d=await r.json();
-      if(d.c){
-        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0};
-        recordPriceSnapshot(sym,d.c);
+      if(d.code===401||d.code===429){console.warn('[Ticker] Twelve Data error:',d.message);break;}
+      const price=parseFloat(d.close);
+      if(!isNaN(price)){
+        liveData[sym]={p:price,dp:parseFloat(d.percent_change)||0,d:parseFloat(d.change)||0};
+        recordPriceSnapshot(sym,price);
       }
     }catch(e){}
-    await sleep(100);
+    await sleep(120);
   }
   renderWatchlist();renderMoverLists();renderTape();
   document.getElementById('st-refresh').textContent=new Date().toLocaleTimeString();
@@ -5196,7 +5202,8 @@ function renderFlowPredictor(){
           <div style="font-size:14px;font-weight:600;color:var(--text);">FLOW SENTIMENT — ${tfLabel}</div>
           <div style="font-size:11px;color:#8090a0;margin-top:2px;">${tfStats.dateRange}</div>
         </div>
-        <div style="display:flex;gap:4px;">
+        <div style="display:flex;gap:4px;align-items:center;">
+          <button class="btn btn-sm" onclick="refreshFlowPredictor()" title="Reload from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:6px 10px;margin-right:4px;">↻ Refresh</button>
           ${['D','W','M','Y'].map(tf=>`<button class="btn btn-sm" onclick="setPredTimeframe('${tf}')" style="${_predTimeframe===tf?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);">${tf}</button>`).join('')}
         </div>
       </div>
@@ -5269,6 +5276,13 @@ function setPredLabelMode(m){
   renderFlowPredictor();
 }
 
+async function refreshFlowPredictor(){
+  _predData=null;
+  await loadPredictorData();
+  renderFlowPredictor();
+  console.log('[Predictor] Manual refresh complete');
+}
+
 async function initFlowPredictor(){
   if(!_predData)await loadPredictorData();
   renderFlowPredictor();
@@ -5314,9 +5328,9 @@ initData();
 // DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document.getElementById('upload-log-list'))renderUploadLog(); },500); });
-if(finnhubKey)setTimeout(fetchLiveAll,1000);
+if(tdKey)setTimeout(fetchLiveAll,1000);
 if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
-setInterval(()=>{if(finnhubKey)fetchLiveAll();},60000);
+setInterval(()=>{if(tdKey)fetchLiveAll();},60000);
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
 setInterval(()=>{if(finnhubKey&&isMarketOpen())fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
