@@ -810,17 +810,9 @@ select option{background:var(--bg2);}
 </div>
 
 <!-- ============ PAGE: FLOW PREDICTOR ============ -->
-<div id="page-flowpredict" class="page">
-  <div class="card" style="padding:40px;text-align:center;">
-    <div style="font-size:48px;margin-bottom:16px;">🎯</div>
-    <div style="font-size:18px;font-weight:600;margin-bottom:8px;color:var(--text);">Flow Predictor — Phase 1</div>
-    <div style="font-size:13px;color:#c0c8d0;max-width:600px;margin:0 auto;line-height:1.5;">
-      The new Today × Cumulative options-flow prediction model.
-      Coming online once we wire the v3 math to your OMEN history and Anthropic AI drill-down.
-      No existing functionality is affected.
-    </div>
-  </div>
-</div>
+<section id="page-flowpredict" class="page" style="display:none;">
+  <div style="padding:14px;text-align:center;color:#8090a0;font-size:13px;">Loading predictor...</div>
+</section>
 
 <!-- ============ PAGE: HISTORY ============ -->
 <div id="page-history" class="page">
@@ -4003,6 +3995,9 @@ function goPage(name,btn){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
   else document.querySelectorAll('.nav-btn').forEach(b=>{if(b.onclick?.toString().includes(name))b.classList.add('active');});
+  if(name==='flowpredict'){
+    setTimeout(initFlowPredictor,50);
+  }
 }
 
 // ============================================================
@@ -4722,6 +4717,322 @@ function posDragStart(e){
   }
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
+}
+
+// ============================================================
+// FLOW PREDICTOR — v3 model
+// ============================================================
+const PRED_DIRECTIONAL=30;
+const PRED_STRONG=70;
+const PRED_MOMENTUM_BAND=15;
+let _predData=null;
+let _predTimeframe='D';
+let _predLabelMode='both';
+
+async function loadPredictorData(){
+  const supa=getSupabase();
+  if(!supa){console.warn('[Predictor] No Supabase');return;}
+  try{
+    const{data,error}=await supa.from('omen_daily_summary').select('*').order('trading_date',{ascending:true});
+    if(error)throw error;
+    _predData=data||[];
+    console.log('[Predictor] Loaded',_predData.length,'daily summaries');
+    return _predData;
+  }catch(e){
+    console.error('[Predictor] Load failed:',e);
+    _predData=[];
+    return[];
+  }
+}
+
+function predTimeframeDays(tf){
+  return{'D':1,'W':5,'M':21,'Y':252}[tf]||21;
+}
+
+function predDirection(cum){
+  if(cum>=PRED_DIRECTIONAL)return'UP';
+  if(cum<=-PRED_DIRECTIONAL)return'DOWN';
+  return'FLAT';
+}
+
+function predConfidence(today,cum,hasToday,isFirst){
+  const cd=predDirection(cum);
+  if(isFirst||!hasToday){
+    if(Math.abs(cum)>=PRED_STRONG)return'HIGH';
+    if(Math.abs(cum)>=PRED_DIRECTIONAL)return'MEDIUM';
+    return'LOW';
+  }
+  const td=predDirection(today);
+  if((cd==='UP'&&td==='DOWN')||(cd==='DOWN'&&td==='UP'))return'LOW';
+  if(cd==='FLAT'&&td==='FLAT')return'LOW';
+  if(cd===td){
+    if(Math.abs(cum)>=PRED_STRONG||Math.abs(today)>=PRED_STRONG)return'HIGH';
+    return'MEDIUM';
+  }
+  if(cd!=='FLAT'&&td==='FLAT')return Math.abs(cum)>=50?'MEDIUM':'LOW';
+  if(td!=='FLAT'&&cd==='FLAT')return Math.abs(today)>=PRED_STRONG?'MEDIUM':'LOW';
+  return'LOW';
+}
+
+function predMomentum(today,cum,hasToday,isFirst){
+  if(isFirst||!hasToday)return'—';
+  const diff=today-cum;
+  if(Math.abs(diff)<PRED_MOMENTUM_BAND)return'steady';
+  if(cum>=0)return diff>0?'accelerating':'fading';
+  return diff<0?'accelerating':'fading';
+}
+
+function pickVisibleDates(allDates){
+  if(!allDates.length)return[];
+  const todayDate=allDates[allDates.length-1];
+  const today=new Date(todayDate+'T00:00:00');
+  const dow=today.getDay();
+  const daysFromMon=(dow+6)%7;
+  const thisMon=new Date(today);
+  thisMon.setDate(today.getDate()-daysFromMon);
+  const priorMon=new Date(thisMon);
+  priorMon.setDate(thisMon.getDate()-7);
+  const priorMonStr=priorMon.toISOString().slice(0,10);
+  return allDates.filter(d=>d>=priorMonStr);
+}
+
+function predBuildRows(){
+  if(!_predData||!_predData.length)return{dates:[],top10:[],top5:[]};
+  const allDates=[...new Set(_predData.map(r=>r.trading_date))].sort();
+  const todayDate=allDates[allDates.length-1];
+  const windowDays=predTimeframeDays(_predTimeframe);
+  const cumStartIdx=Math.max(0,allDates.length-windowDays);
+  const cumDates=allDates.slice(cumStartIdx);
+  const visibleDates=pickVisibleDates(allDates);
+  const bySymbol={};
+  _predData.forEach(r=>{
+    if(!bySymbol[r.symbol])bySymbol[r.symbol]={};
+    bySymbol[r.symbol][r.trading_date]=r;
+  });
+  const rows=[];
+  for(const sym of Object.keys(bySymbol)){
+    const byDate=bySymbol[sym];
+    let cumCall=0,cumPut=0;
+    for(const d of cumDates){
+      const r=byDate[d];
+      if(r){cumCall+=+r.call_premium||0;cumPut+=+r.put_premium||0;}
+    }
+    const cumTotal=cumCall+cumPut;
+    if(cumTotal<=0)continue;
+    const cumSent=((cumCall-cumPut)/cumTotal)*100;
+    const todayRow=byDate[todayDate];
+    const hasToday=!!todayRow&&(+todayRow.total_premium||0)>0;
+    const todayCall=hasToday?+todayRow.call_premium||0:0;
+    const todayPut=hasToday?+todayRow.put_premium||0:0;
+    const todayTotal=todayCall+todayPut;
+    const todaySent=todayTotal>0?((todayCall-todayPut)/todayTotal)*100:0;
+    let ec=null;
+    for(const d of cumDates){
+      const r=byDate[d];
+      if(r?.earnings_context){
+        if(r.earnings_context==='Today'){ec='Today';break;}
+        if(r.earnings_context==='Approaching'&&ec!=='Today')ec='Approaching';
+        if(r.earnings_context==='Post-Earnings'&&!ec)ec='Post-Earnings';
+      }
+    }
+    rows.push({
+      symbol:sym,
+      todayCall,todayPut,todayTotal,todaySent,hasToday,
+      cumCall,cumPut,cumTotal,cumSent,
+      direction:predDirection(cumSent),
+      confidence:predConfidence(todaySent,cumSent,hasToday,cumDates.length===1),
+      momentum:predMomentum(todaySent,cumSent,hasToday,cumDates.length===1),
+      earnings:ec,
+      prices:visibleDates.map(d=>{
+        const r=byDate[d];
+        return{date:d,open:r?.open_price||null,close:r?.close_price||null};
+      }),
+    });
+  }
+  const top10=[...rows].sort((a,b)=>b.cumTotal-a.cumTotal).slice(0,10);
+  const top5=rows.filter(r=>r.cumPut>r.cumCall).sort((a,b)=>b.cumPut-a.cumPut).slice(0,5);
+  return{dates:visibleDates,todayDate,top10,top5,cumDates};
+}
+
+function predComputeTimeframeStats(){
+  if(!_predData||!_predData.length)return{callP:0,putP:0,pctCalls:50,sentiment:0,dateRange:'—'};
+  const allDates=[...new Set(_predData.map(r=>r.trading_date))].sort();
+  const windowDays=predTimeframeDays(_predTimeframe);
+  const startIdx=Math.max(0,allDates.length-windowDays);
+  const windowDates=new Set(allDates.slice(startIdx));
+  let callP=0,putP=0;
+  _predData.forEach(r=>{
+    if(windowDates.has(r.trading_date)){callP+=+r.call_premium||0;putP+=+r.put_premium||0;}
+  });
+  const total=callP+putP;
+  const pctCalls=total>0?(callP/total)*100:50;
+  const sentiment=total>0?((callP-putP)/total)*100:0;
+  const wdArr=[...windowDates].sort();
+  const dr=wdArr.length>1?`${fmtDateHeader(wdArr[0])} → ${fmtDateHeader(wdArr[wdArr.length-1])}`:fmtDateHeader(wdArr[0]||'');
+  return{callP,putP,pctCalls,sentiment,dateRange:dr};
+}
+
+function fmtMoney(n){
+  if(!n)return'$0';
+  if(n>=1e9)return'$'+(n/1e9).toFixed(2)+'B';
+  if(n>=1e6)return'$'+(n/1e6).toFixed(1)+'M';
+  if(n>=1e3)return'$'+(n/1e3).toFixed(0)+'k';
+  return'$'+n.toFixed(0);
+}
+
+function fmtSent(s){
+  if(s===null||s===undefined||isNaN(s))return'—';
+  const sign=s>=0?'+':'';
+  return sign+s.toFixed(1)+'%';
+}
+
+function fmtDateHeader(dateStr){
+  if(!dateStr)return'—';
+  const d=new Date(dateStr+'T00:00:00');
+  const dayName=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  const monName=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return dayName+' '+monName+' '+d.getDate();
+}
+
+function dirColor(d){return d==='UP'?'var(--green)':d==='DOWN'?'var(--red)':'#888';}
+function confColor(c){return c==='HIGH'?'#ffb020':c==='MEDIUM'?'#d9c178':'#888';}
+function sentColor(s){
+  if(s===null||isNaN(s))return'#888';
+  if(s>=70)return'#00e5b0';
+  if(s>=30)return'#7fd0a8';
+  if(s<=-70)return'#ff3d5a';
+  if(s<=-30)return'#d97f8a';
+  return'#888';
+}
+function earningsBadge(ec){
+  if(!ec)return'';
+  const color=ec==='Today'?'#ff3d5a':ec==='Approaching'?'#ffb020':'#888';
+  const label=ec==='Today'?'EARNINGS TODAY':ec==='Approaching'?'Earnings Soon':'Post-Earnings';
+  return`<span style="display:inline-block;font-size:9px;font-weight:600;background:${color}33;color:${color};padding:2px 6px;border-radius:3px;margin-left:6px;">${label}</span>`;
+}
+
+function renderPredRow(r,rank,dates){
+  const dir=r.direction;
+  const conf=r.confidence;
+  const mom=r.momentum;
+  const dirHTML=`<span style="background:${dirColor(dir)};color:#fff;padding:3px 8px;border-radius:3px;font-weight:700;font-size:10px;">${_predLabelMode==='numbers'?fmtSent(r.cumSent):_predLabelMode==='labels'?dir:dir+' '+fmtSent(r.cumSent)}</span>`;
+  const confHTML=`<span style="display:inline-block;background:${confColor(conf)}33;color:${confColor(conf)};padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;margin-left:4px;">${conf}</span>`;
+  const momHTML=mom==='—'?'':`<span style="display:block;font-size:9px;color:#8090a0;font-style:italic;margin-top:2px;">${mom}</span>`;
+  return`<tr style="border-bottom:1px solid #1a1a28;">
+    <td style="position:sticky;left:0;background:var(--bg);padding:6px;font-weight:600;color:#8090a0;z-index:1;">${rank}</td>
+    <td style="position:sticky;left:30px;background:var(--bg);padding:6px;z-index:1;">
+      <div style="font-weight:700;color:var(--text);">${r.symbol}${earningsBadge(r.earnings)}</div>
+      ${momHTML}
+    </td>
+    <td style="padding:6px;text-align:right;color:#7fd0a8;">${fmtMoney(r.todayCall)}</td>
+    <td style="padding:6px;text-align:right;color:#d97f8a;">${fmtMoney(r.todayPut)}</td>
+    <td style="padding:6px;text-align:right;color:${sentColor(r.todaySent)};">${r.hasToday?fmtSent(r.todaySent):'—'}</td>
+    <td style="padding:6px;text-align:right;color:#a0c4e8;">${fmtMoney(r.cumTotal)}</td>
+    <td style="padding:6px;text-align:right;color:${sentColor(r.cumSent)};">${fmtSent(r.cumSent)}</td>
+    <td style="position:sticky;right:0;background:var(--bg);padding:6px;text-align:center;z-index:1;">${dirHTML}${confHTML}</td>
+    ${dates.map((d,i)=>{
+      const p=r.prices.find(x=>x.date===d);
+      const bg=i%2===0?'#0a0a14':'#101020';
+      return`<td style="padding:4px;background:${bg};text-align:right;color:#a0a8c0;">${p?.open!=null?p.open.toFixed(2):'—'}</td><td style="padding:4px;background:${bg};text-align:right;color:#a0a8c0;">${p?.close!=null?p.close.toFixed(2):'—'}</td>`;
+    }).join('')}
+  </tr>`;
+}
+
+function renderFlowPredictor(){
+  const root=document.getElementById('page-flowpredict');
+  if(!root)return;
+  const built=predBuildRows();
+  const{dates,todayDate,top10,top5}=built;
+  if(!dates.length){
+    root.innerHTML='<div class="card" style="padding:40px;text-align:center;"><div style="font-size:48px;margin-bottom:16px;">🎯</div><div style="font-size:18px;font-weight:600;margin-bottom:8px;">No data yet</div><div style="font-size:13px;color:#c0c8d0;">Upload OMEN CSVs in the Options Flow tab to populate the predictor.</div></div>';
+    return;
+  }
+  const tfStats=predComputeTimeframeStats();
+  const tfLabel=_predTimeframe==='D'?'Today':_predTimeframe==='W'?'This Week':_predTimeframe==='M'?'This Month':'This Year';
+  const colCount=8+dates.length*2;
+  root.innerHTML=`
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);">FLOW SENTIMENT — ${tfLabel}</div>
+          <div style="font-size:11px;color:#8090a0;margin-top:2px;">${tfStats.dateRange}</div>
+        </div>
+        <div style="display:flex;gap:4px;">
+          ${['D','W','M','Y'].map(tf=>`<button class="btn btn-sm" onclick="setPredTimeframe('${tf}')" style="${_predTimeframe===tf?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);">${tf}</button>`).join('')}
+        </div>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:10px;">
+        <div style="flex:1;min-width:260px;">
+          <div style="font-size:11px;color:#8090a0;margin-bottom:4px;">PIE SPLIT (% of premium)</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div style="flex:1;height:18px;background:var(--bg3);border-radius:3px;overflow:hidden;display:flex;">
+              <div style="background:var(--green);height:100%;width:${tfStats.pctCalls}%;"></div>
+              <div style="background:var(--red);height:100%;width:${100-tfStats.pctCalls}%;"></div>
+            </div>
+            <span style="font-size:13px;font-weight:600;min-width:140px;">${tfStats.pctCalls.toFixed(0)}% calls · ${(100-tfStats.pctCalls).toFixed(0)}% puts</span>
+          </div>
+        </div>
+        <div onclick="alert('Sentiment math:\\n(Call ${fmtMoney(tfStats.callP)} - Put ${fmtMoney(tfStats.putP)}) / Total ${fmtMoney(tfStats.callP+tfStats.putP)} × 100 = ${tfStats.sentiment.toFixed(1)}%')" style="cursor:pointer;padding:8px 14px;background:${sentColor(tfStats.sentiment)}22;border:1px solid ${sentColor(tfStats.sentiment)};border-radius:6px;">
+          <div style="font-size:10px;color:#8090a0;letter-spacing:1px;">V3 SENTIMENT</div>
+          <div style="font-size:18px;font-weight:700;color:${sentColor(tfStats.sentiment)};">${fmtSent(tfStats.sentiment)}</div>
+          <div style="font-size:10px;color:#8090a0;">${predDirection(tfStats.sentiment)} · click for math</div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="padding:14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:14px;font-weight:600;">DIRECTIONAL PREDICTION · ${fmtDateHeader(todayDate)}</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span style="font-size:11px;color:#8090a0;">Labels:</span>
+          ${['numbers','both','labels'].map(m=>`<button class="btn btn-sm" onclick="setPredLabelMode('${m}')" style="${_predLabelMode===m?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);text-transform:capitalize;">${m}</button>`).join('')}
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead>
+            <tr style="background:var(--bg3);">
+              <th style="position:sticky;left:0;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:30px;">#</th>
+              <th style="position:sticky;left:30px;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:130px;">Symbol</th>
+              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">Today Call $</th>
+              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">Today Put $</th>
+              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">Today Sent</th>
+              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">Cumul $</th>
+              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">Cumul Sent</th>
+              <th style="position:sticky;right:0;background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;z-index:2;min-width:80px;">Direction</th>
+              ${dates.map((d,i)=>`<th colspan="2" style="padding:6px;text-align:center;background:${i%2===0?'#181828':'#222236'};font-size:10px;color:#a0a8c0;">${fmtDateHeader(d)}</th>`).join('')}
+            </tr>
+            <tr style="background:var(--bg3);font-size:10px;">
+              <th style="position:sticky;left:0;background:var(--bg3);z-index:2;"></th>
+              <th style="position:sticky;left:30px;background:var(--bg3);z-index:2;"></th>
+              <th colspan="5"></th>
+              <th style="position:sticky;right:0;background:#0a3020;z-index:2;"></th>
+              ${dates.map((d,i)=>`<th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Open</th><th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Close</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="${colCount}" style="padding:6px;background:#15243a;color:#7fb0e8;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 10 BY CUMULATIVE VOLUME — PREDICTED DIRECTION</td></tr>
+            ${top10.map((r,i)=>renderPredRow(r,i+1,dates)).join('')}
+            <tr><td colspan="${colCount}" style="padding:6px;background:#3a1820;color:#e88080;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 5 BY PUT $ — BEARISH LEADERS</td></tr>
+            ${top5.length?top5.map((r,i)=>renderPredRow(r,i+1,dates)).join(''):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">No tickers with put $ &gt; call $ in this window</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function setPredTimeframe(tf){
+  _predTimeframe=tf;
+  renderFlowPredictor();
+}
+
+function setPredLabelMode(m){
+  _predLabelMode=m;
+  renderFlowPredictor();
+}
+
+async function initFlowPredictor(){
+  if(!_predData)await loadPredictorData();
+  renderFlowPredictor();
 }
 
 function _initPosPanel(){
