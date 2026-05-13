@@ -4882,15 +4882,7 @@ function predBuildRows(){
     const todayPut=hasToday?+todayRow.put_premium||0:0;
     const todayTotal=todayCall+todayPut;
     const todaySent=todayTotal>0?((todayCall-todayPut)/todayTotal)*100:0;
-    let ec=null;
-    for(const d of cumDates){
-      const r=byDate[d];
-      if(r?.earnings_context){
-        if(r.earnings_context==='Today'){ec='Today';break;}
-        if(r.earnings_context==='Approaching'&&ec!=='Today')ec='Approaching';
-        if(r.earnings_context==='Post-Earnings'&&!ec)ec='Post-Earnings';
-      }
-    }
+    const ec=(byDate[todayDate]?.earnings_context)||null;
     rows.push({
       symbol:sym,
       todayCall,todayPut,todayTotal,todaySent,hasToday,
