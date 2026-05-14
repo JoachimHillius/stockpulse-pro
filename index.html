@@ -4097,6 +4097,7 @@ function getPriceChangePct(sym, minutes){
   return(cur-old)/old*100;
 }
 async function fetchLiveAll(force){
+  console.log('[fetchLiveAll] invoked, force=', force);
   if(!force&&!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
   if(!localStorage.getItem('sp_td')){console.warn('[Ticker] No Twelve Data key — skipping live quotes');return;}
   // Priority slice — fits comfortably within 7/min TD free tier cap
@@ -4113,6 +4114,7 @@ async function fetchLiveAll(force){
     await sleep(9000); // ~9s between fetches = max ~6-7/min including overhead
   }
   renderWatchlist();renderMoverLists();renderTape();
+  if(typeof updateStatBoxes==='function')updateStatBoxes();
   document.getElementById('st-refresh').textContent=new Date().toLocaleTimeString();
   setRefreshed('carousel');
 }
@@ -5421,9 +5423,9 @@ initData();
 // DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document.getElementById('upload-log-list'))renderUploadLog(); },500); });
-if(tdKey)setTimeout(fetchLiveAll,1000);
+if(tdKey)setTimeout(fetchLiveAll,1000); // single boot fetch — subsequent updates via manual ↻ button
 if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
-setInterval(()=>{if(tdKey)fetchLiveAll();},60000);
+// Auto-poll removed: fetchLiveAll now manual-only to preserve Twelve Data credits
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
 setInterval(()=>{if(finnhubKey&&isMarketOpen())fetchVixQuote();},300000); // refresh VIX quote every 5 min
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
