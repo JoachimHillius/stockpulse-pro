@@ -32,7 +32,7 @@ body.light-mode .wl-row:hover{background:var(--bg3);}
 .theme-icon{font-size:14px;line-height:1;}
 .theme-lbl{font-size:10px;color:#e0e0e0;letter-spacing:0.5px;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13px;min-height:100vh;overflow-x:hidden;}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13px;min-height:100vh;overflow-x:clip;}
 
 /* HEADER */
 .header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:200;height:48px;}
@@ -624,6 +624,11 @@ select option{background:var(--bg2);}
     <span data-market-status style="font-size:11px;color:#a0a8c0;"></span>
     <span style="font-size:10px;color:#8090a0;">Updated <span data-refresh-label="options_flow">never</span></span>
     <button class="btn btn-sm" onclick="refreshOptionsFlow()" title="Reload flow data from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:5px 12px;font-size:11px;">↻ Refresh</button>
+  </div>
+  <div style="position:relative;display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+    <input id="of-ticker-search" type="text" placeholder="🔍 Search ticker (NVDA, MSTR, MARA, etc.)…" autocomplete="off" oninput="onOFTickerSearch(event)" onfocus="showOFTickerDropdown()" onblur="setTimeout(hideOFTickerDropdown,200)" style="flex:1;background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:8px 14px;font-size:13px;border-radius:4px;max-width:400px;">
+    <button id="of-ticker-clear" onclick="clearOFTicker()" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:8px 14px;font-size:11px;border-radius:4px;cursor:pointer;display:none;">Clear ×</button>
+    <div id="of-ticker-dropdown" style="display:none;position:absolute;top:100%;left:0;width:400px;max-height:300px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-top:2px;z-index:100;"></div>
   </div>
   <div class="g2" style="margin-bottom:14px;">
     <div class="card">
@@ -1858,10 +1863,10 @@ function setTapePeriod(p,btn){
 function renderTape(){
   const syms=['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SOFI','SMCI','BTDR','MARA','NVDA'];
   const scale=PERIOD_SCALE[tapePeriod]||1;
-  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat((q.dp*scale).toFixed(2)),t:q.t||0};});
+  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading};});
   const gainers=[...all].filter(x=>x.dp>0).sort((a,b)=>b.dp-a.dp);
   const losers=[...all].filter(x=>x.dp<0).sort((a,b)=>a.dp-b.dp);
-  const mkItem=(x)=>{const ts=fmtQuoteTime(x.t);return`<div class="tape-item" style="flex-direction:column;align-items:flex-start;gap:0;"><div style="display:flex;align-items:center;gap:5px;"><span class="t-sym">${x.s}</span><span class="t-px ${x.dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${x.dp>=0?'up':'dn'}">${x.dp>=0?'+':''}${x.dp.toFixed(2)}%</span></div>${ts?`<span style="font-size:9px;color:#8090a0;">${ts}</span>`:''}</div>`;};
+  const mkItem=(x)=>{const ts=fmtQuoteTime(x.t);const loading=x.loading||x.p==null;return`<div class="tape-item" style="flex-direction:column;align-items:flex-start;gap:0;"><div style="display:flex;align-items:center;gap:5px;"><span class="t-sym">${x.s}</span>${loading?`<span class="t-px" style="color:#8090a0;">…</span>`:`<span class="t-px ${x.dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${x.dp>=0?'up':'dn'}">${x.dp>=0?'+':''}${x.dp.toFixed(2)}%</span>`}</div>${ts&&!loading?`<span style="font-size:9px;color:#8090a0;">${ts}</span>`:''}</div>`;};
   const topSrc=gainers.length?gainers:[...all].sort((a,b)=>b.dp-a.dp).slice(0,8);
   const botSrc=losers.length?losers:[...all].sort((a,b)=>a.dp-b.dp).slice(0,8);
   const topItems=[...topSrc,...topSrc].map(mkItem).join('');
@@ -3220,7 +3225,8 @@ function _flowSentimentRows(){
 }
 
 function renderFlowStats(){
-  const filtered=_flowSentimentRows();
+  let filtered=_flowSentimentRows();
+  if(_ofTickerFilter)filtered=filtered.filter(r=>r.symbol===_ofTickerFilter);
   const calls=filtered.filter(r=>r.cp.toLowerCase().includes('call'));
   const puts=filtered.filter(r=>r.cp.toLowerCase().includes('put'));
   const parsePrem=s=>{
@@ -3340,10 +3346,75 @@ function getFlowSignal(r){
   return{cls:'signal-neutral',lbl:'NEUTRAL'};
 }
 function setFlowFilter(f,btn){currentFlowFilter=f;document.querySelectorAll('#page-flow .fbtn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderFlowBody();}
+
+// ============================================================
+// OPTIONS FLOW — ticker search
+// ============================================================
+let _ofTickerFilter='';
+
+async function getAllAvailableTickers(){
+  if(window._allTickersCache)return window._allTickersCache;
+  const supa=getSupabase();
+  if(!supa)return[];
+  try{
+    const{data}=await supa.from('omen_daily_summary').select('symbol').limit(5000);
+    const uniq=[...new Set((data||[]).map(r=>r.symbol).filter(s=>/^[A-Z]{1,5}$/.test(s)))].sort();
+    window._allTickersCache=uniq;
+    return uniq;
+  }catch(e){console.warn('[Search] ticker list fetch failed:',e);return[];}
+}
+
+async function showOFTickerDropdown(){
+  const drop=document.getElementById('of-ticker-dropdown');
+  const input=document.getElementById('of-ticker-search');
+  if(!drop||!input)return;
+  const tickers=await getAllAvailableTickers();
+  const query=(input.value||'').toUpperCase();
+  const filtered=(query?tickers.filter(t=>t.includes(query)):tickers).slice(0,60);
+  drop.innerHTML=filtered.map(t=>`<div onclick="selectOFTicker('${t}')" style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text);border-bottom:1px solid #1a1a28;font-weight:600;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">${t}</div>`).join('');
+  drop.style.display=filtered.length?'block':'none';
+}
+
+function hideOFTickerDropdown(){
+  const drop=document.getElementById('of-ticker-dropdown');
+  if(drop)drop.style.display='none';
+}
+
+function onOFTickerSearch(e){
+  _ofTickerFilter=(e.target.value||'').toUpperCase().trim();
+  const clr=document.getElementById('of-ticker-clear');
+  if(clr)clr.style.display=_ofTickerFilter?'inline-block':'none';
+  showOFTickerDropdown();
+  renderFlowBody();
+  renderFlowStats();
+}
+
+function selectOFTicker(t){
+  _ofTickerFilter=t;
+  const inp=document.getElementById('of-ticker-search');
+  if(inp)inp.value=t;
+  const clr=document.getElementById('of-ticker-clear');
+  if(clr)clr.style.display='inline-block';
+  hideOFTickerDropdown();
+  renderFlowBody();
+  renderFlowStats();
+}
+
+function clearOFTicker(){
+  _ofTickerFilter='';
+  const inp=document.getElementById('of-ticker-search');
+  if(inp)inp.value='';
+  const clr=document.getElementById('of-ticker-clear');
+  if(clr)clr.style.display='none';
+  renderFlowBody();
+  renderFlowStats();
+}
+
 function renderFlowBody(){
   const body=document.getElementById('flow-body');
   if(!flowData.length){body.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Upload your OMEN CSV to see options flow</div>';return;}
   let rows=flowData;
+  if(_ofTickerFilter)rows=rows.filter(r=>r.symbol===_ofTickerFilter);
   const wlAll=Object.values(WATCHLIST).flat();
   if(currentFlowFilter==='Call')rows=rows.filter(r=>r.cp.toLowerCase().includes('call'));
   else if(currentFlowFilter==='Put')rows=rows.filter(r=>r.cp.toLowerCase().includes('put'));
@@ -4129,15 +4200,18 @@ async function fetchLiveAll(force){
   if(!force&&!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
   const fhKey=localStorage.getItem('sp_fh');
   if(!fhKey){console.warn('[Ticker] No Finnhub key — skipping live quotes');return;}
-  const PRIORITY=['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','GLD','VIX'];
-  const allWl=Object.values(WATCHLIST).flat();
-  const tickerList=PRIORITY.filter(t=>allWl.includes(t)).slice(0,7);
-  console.log('[Ticker] Fetching',tickerList.length,'priority tickers via Finnhub');
+  // Fetch ALL watchlist tickers — throttled to ~54/min to stay under Finnhub's 60/min free limit
+  const tickerList=[...new Set(Object.values(WATCHLIST).flat())];
+  if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
+  console.log('[fetchLiveAll] fetching',tickerList.length,'tickers');
+  // Mark all as loading so UI shows "..." instead of stale values
+  tickerList.forEach(sym=>{if(!liveData[sym])liveData[sym]={p:null,dp:null,d:null,t:null,loading:true};});
+  if(typeof updateStatBoxes==='function')updateStatBoxes();
+  if(typeof renderTape==='function')renderTape();
   for(const sym of tickerList){
     const cached=_fhCache.get(sym);
     if(cached&&(Date.now()-cached.fetchedAt)<FH_CACHE_TTL_MS){
-      console.log('[FH]',sym,'cache hit');
-      continue;
+      continue; // cache hit — skip network call
     }
     try{
       const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey);
@@ -4147,10 +4221,9 @@ async function fetchLiveAll(force){
         _fhCache.set(sym,quote);
         liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0,t:d.t||0};
         recordPriceSnapshot(sym,d.c);
-        console.log('[FH]',sym,d.c,d.dp+'%');
       }
     }catch(e){console.warn('[FH]',sym,'fetch failed:',e.message);}
-    await sleep(100); // polite gap — Finnhub has no per-minute cap on free tier
+    await sleep(1100); // ~54/min — stays under Finnhub free-tier 60/min cap
   }
   renderWatchlist();renderMoverLists();renderTape();
   if(typeof updateStatBoxes==='function')updateStatBoxes();
@@ -5373,8 +5446,8 @@ function renderFlowPredictor(){
           ${['numbers','both','labels'].map(m=>`<button class="btn btn-sm" onclick="setPredLabelMode('${m}')" style="${_predLabelMode===m?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);text-transform:capitalize;">${m}</button>`).join('')}
         </div>
       </div>
-      <div style="overflow-x:auto;padding-right:12px;">
-        <table style="width:max-content;min-width:100%;border-collapse:collapse;font-size:11px;">
+      <div style="overflow-x:scroll;overflow-y:visible;width:100%;-webkit-overflow-scrolling:touch;">
+        <table style="border-collapse:collapse;font-size:11px;width:max-content;min-width:100%;">
           <thead>
             <tr style="background:var(--bg3);">
               <th style="position:sticky;left:0;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:30px;">#</th>
