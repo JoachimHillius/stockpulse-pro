@@ -426,6 +426,7 @@ select option{background:var(--bg2);}
 <div style="display:flex;align-items:center;gap:8px;padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bg2);font-size:10px;">
   <span data-market-status></span>
   <span style="color:#8090a0;margin-left:auto;">Quotes updated <span data-refresh-label="carousel">never</span></span>
+  <span style="color:#8090a0;font-size:9px;margin-left:8px;">Quotes: Finnhub free (RTH only, ~15min delay)</span>
   <button onclick="manualRefreshCarousel()" title="Force refresh quotes now" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:3px 10px;font-size:10px;border-radius:3px;cursor:pointer;">↻</button>
 </div>
 <div class="tape-wrap">
@@ -4099,19 +4100,30 @@ function getPriceChangePct(sym, minutes){
 async function fetchLiveAll(force){
   console.log('[fetchLiveAll] invoked, force=', force);
   if(!force&&!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
-  if(!localStorage.getItem('sp_td')){console.warn('[Ticker] No Twelve Data key — skipping live quotes');return;}
-  // Priority slice — fits comfortably within 7/min TD free tier cap
+  const fhKey=localStorage.getItem('sp_fh');
+  if(!fhKey){console.warn('[Ticker] No Finnhub key — skipping live quotes');return;}
   const PRIORITY=['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','GLD','VIX'];
   const allWl=Object.values(WATCHLIST).flat();
   const tickerList=PRIORITY.filter(t=>allWl.includes(t)).slice(0,7);
-  console.log('[Ticker] Fetching',tickerList.length,'priority tickers via TD cache');
+  console.log('[Ticker] Fetching',tickerList.length,'priority tickers via Finnhub');
   for(const sym of tickerList){
-    const q=await getQuoteTD(sym);
-    if(q&&!isNaN(q.price)){
-      liveData[sym]={p:q.price,dp:q.percent_change||0,d:q.change||0};
-      recordPriceSnapshot(sym,q.price);
+    const cached=_fhCache.get(sym);
+    if(cached&&(Date.now()-cached.fetchedAt)<FH_CACHE_TTL_MS){
+      console.log('[FH]',sym,'cache hit');
+      continue;
     }
-    await sleep(9000); // ~9s between fetches = max ~6-7/min including overhead
+    try{
+      const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey);
+      const d=await r.json();
+      if(d.c!=null&&d.c!==0){
+        const quote={c:d.c,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now()};
+        _fhCache.set(sym,quote);
+        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0};
+        recordPriceSnapshot(sym,d.c);
+        console.log('[FH]',sym,d.c,d.dp+'%');
+      }
+    }catch(e){console.warn('[FH]',sym,'fetch failed:',e.message);}
+    await sleep(100); // polite gap — Finnhub has no per-minute cap on free tier
   }
   renderWatchlist();renderMoverLists();renderTape();
   if(typeof updateStatBoxes==='function')updateStatBoxes();
@@ -4352,6 +4364,12 @@ async function renderDbStats(){
     console.warn('DB stats query failed:',err);
   }
 }
+
+// ============================================================
+// FINNHUB — quote cache for big cards + carousel
+// ============================================================
+const _fhCache=new Map();
+const FH_CACHE_TTL_MS=90000; // 90s — same TTL as old TD cache
 
 // ============================================================
 // TWELVE DATA — rate-limited quote cache
@@ -5423,7 +5441,7 @@ initData();
 // DOMContentLoaded fires after the browser finishes parsing the full document.
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document.getElementById('upload-log-list'))renderUploadLog(); },500); });
-if(tdKey)setTimeout(fetchLiveAll,1000); // single boot fetch — subsequent updates via manual ↻ button
+if(finnhubKey)setTimeout(fetchLiveAll,1000); // single boot fetch — subsequent updates via manual ↻ button
 if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
 // Auto-poll removed: fetchLiveAll now manual-only to preserve Twelve Data credits
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
