@@ -1015,6 +1015,9 @@ let tdKey = localStorage.getItem('sp_td') || '';
 let anthropicKey = localStorage.getItem('sp_anthropic') || '';
 let flowData = _safeLS('sp_flow', []);
 let _flowSentimentTimeframe = 'D';
+// Step 36: Promise that resolves when Supabase SDK has loaded.
+let _supabaseReadyResolve = null;
+const _supabaseReady = new Promise(r => { _supabaseReadyResolve = r; });
 // Chart boot flags
 let _chartJsReady = false; // Chart.js CDN has loaded
 let _fkConfirmed  = false; // finnhubKey has been verified as non-empty and ready
@@ -1064,139 +1067,17 @@ const WATCHLIST = {
 
 const ALL_TICKERS = Object.values(WATCHLIST).flat();
 
-// Mock price data — replaced by Finnhub when key is set
+// Step 36: Empty MOCK — no more stale Apr 9 prices showing as live.
+// Live prices come from Finnhub via fetchLiveAll → liveData[sym].
+// Renderers handle null via fmtPrice() returning "—".
 const MOCK = {};
-ALL_TICKERS.forEach(s => {
-  const p = 10 + Math.random()*490;
-  const dp = (Math.random()-0.45)*6;
-  MOCK[s] = {p:parseFloat(p.toFixed(2)), dp:parseFloat(dp.toFixed(2)), d:parseFloat((p*dp/100).toFixed(2))};
-});
-// Accurate closing prices — April 9, 2026 4pm ET (from your TOS watchlist screenshots)
-Object.assign(MOCK,{
-  // Market References / ETFs
-  SPY:{p:679.91,dp:0.79,d:5.34},   QQQ:{p:610.19,dp:1.19,d:7.20},
-  IWM:{p:261.96,dp:0.57,d:1.49},   XLE:{p:57.33,dp:-1.24,d:-0.72},
-  EEM:{p:60.28,dp:-0.26,d:-0.16},  HYG:{p:80.28,dp:0.11,d:0.09},
-
-  // Consumer Staples
-  CL:{p:86.04,dp:-0.57,d:-0.49},   COST:{p:1032.03,dp:0.17,d:1.76},
-  KO:{p:78.18,dp:1.15,d:0.89},     MDLZ:{p:59.09,dp:0.44,d:0.26},
-  MNST:{p:76.19,dp:1.40,d:1.05},   MO:{p:67.46,dp:0.99,d:0.66},
-  PEP:{p:157.49,dp:1.74,d:2.69},   PG:{p:146.66,dp:1.21,d:1.76},
-  PM:{p:161.25,dp:0.19,d:0.31},    WMT:{p:129.13,dp:1.47,d:1.87},
-
-  // Technology
-  AAPL:{p:260.49,dp:0.61,d:1.59},  ADBE:{p:229.94,dp:-3.92,d:-9.37},
-  AVGO:{p:354.91,dp:1.22,d:4.28},  CRM:{p:170.85,dp:-3.13,d:-5.08},
-  GOOGL:{p:318.49,dp:0.37,d:1.17}, META:{p:628.39,dp:2.61,d:15.97},
-  MSFT:{p:373.07,dp:-0.34,d:-1.26},NVDA:{p:183.91,dp:1.01,d:1.84},
-  ORCL:{p:137.86,dp:-4.04,d:-5.30},PLTR:{p:130.49,dp:-7.30,d:-10.27},
-  RIVN:{p:15.24,dp:0.66,d:0.10},   SMCI:{p:23.22,dp:-0.64,d:-0.15},
-  TSLA:{p:345.62,dp:0.69,d:2.37},  MRVL:{p:119.93,dp:4.79,d:5.48},
-  TTD:{p:20.61,dp:1.78,d:-0.36},
-
-  // Semiconductors
-  AMD:{p:236.64,dp:2.08,d:4.82},   INTC:{p:61.72,dp:22.51,d:2.77},
-  MU:{p:421.51,dp:3.63,d:14.78},   QCOM:{p:127.75,dp:0.19,d:0.24},
-
-  // Utilities
-  AEP:{p:137.15,dp:1.51,d:-2.44},  CEG:{p:280.25,dp:-1.41,d:-4.02},
-  D:{p:64.11,dp:1.44,d:0.91},      DUK:{p:133.00,dp:1.06,d:1.40},
-  EXC:{p:49.44,dp:0.55,d:0.27},    NEE:{p:94.48,dp:0.33,d:0.31},
-  SRE:{p:99.75,dp:0.88,d:-0.45},   VST:{p:152.75,dp:-2.01,d:-3.14},
-  XEL:{p:82.77,dp:1.61,d:1.31},
-
-  // Materials
-  AA:{p:73.27,dp:2.10,d:-2.44},    APD:{p:297.74,dp:1.43,d:1.13},
-  CENX:{p:66.31,dp:1.13,d:0.74},   CLF:{p:9.23,dp:2.10,d:0.19},
-  CRH:{p:115.50,dp:1.48,d:1.68},   CSTM:{p:29.47,dp:2.04,d:0.59},
-  CTVA:{p:83.56,dp:-0.48,d:-0.40}, FCX:{p:66.45,dp:2.07,d:1.35},
-  FLNC:{p:13.56,dp:3.35,d:0.44},   FMC:{p:17.21,dp:-3.53,d:-0.63},
-  KALU:{p:142.04,dp:3.17,d:4.36},  LIN:{p:503.30,dp:0.56,d:2.82},
-  MLM:{p:625.50,dp:4.74,d:1.14},   NEM:{p:119.01,dp:0.73,d:0.86},
-  NUE:{p:184.00,dp:1.01,d:1.84},   RIO:{p:97.13,dp:-1.34,d:-1.32},
-  RS:{p:335.73,dp:0.02,d:0.06},
-
-  // Financials
-  AXP:{p:317.77,dp:0.45,d:1.43},   BAC:{p:52.71,dp:1.60,d:0.83},
-  C:{p:124.92,dp:-1.16,d:1.43},    JPM:{p:310.33,dp:0.77,d:2.36},
-  SCHW:{p:97.27,dp:0.59,d:0.57},   V:{p:308.29,dp:-0.22,d:-0.67},
-  WFC:{p:86.02,dp:1.61,d:1.36},
-
-  // Healthcare
-  A:{p:115.39,dp:0,d:0},            CELH:{p:36.38,dp:1.00,d:0.36},
-  CVS:{p:78.84,dp:0.06,d:0.05},    HUM:{p:197.32,dp:-0.54,d:-1.07},
-  MRNA:{p:51.28,dp:-1.57,d:-0.82}, PFE:{p:27.22,dp:-0.91,d:-0.25},
-  UNH:{p:306.91,dp:0.30,d:0.93},
-
-  // Energy
-  BE:{p:160.13,dp:18.19,d:13.45},  CCJ:{p:115.54,dp:-0.31,d:-0.36},
-  COP:{p:86.04,dp:0.57,d:0.49},    CVX:{p:190.36,dp:-1.31,d:-2.53},
-  ET:{p:19.09,dp:0.05,d:0.01},     FANG:{p:186.31,dp:-0.09,d:-0.16},
-  FSLR:{p:197.25,dp:-1.76,d:-3.53},KMI:{p:32.97,dp:0.03,d:0.01},
-  OXY:{p:58.53,dp:-2.07,d:-1.24},  PSX:{p:161.07,dp:-4.13,d:-6.93},
-  RIG:{p:6.56,dp:-2.09,d:-0.14},   SHEL:{p:91.09,dp:-1.00,d:-0.01},
-  SLB:{p:52.54,dp:1.27,d:0.66},    TTE:{p:89.93,dp:0.54,d:0.48},
-  WMB:{p:72.82,dp:-0.26,d:-1.09},  XOM:{p:155.04,dp:-0.76,d:-1.18},
-
-  // Consumer Discretionary
-  AMZN:{p:233.65,dp:5.60,d:12.40}, BABA:{p:127.68,dp:1.88,d:2.36},
-  CAR:{p:297.08,dp:13.67,d:35.73}, CMG:{p:34.24,dp:1.33,d:0.45},
-  LEVI:{p:22.76,dp:4.36,d:0.95},   NFLX:{p:102.05,dp:2.68,d:2.66},
-  NKE:{p:44.00,dp:2.02,d:0.87},    PTON:{p:4.74,dp:2.16,d:0.10},
-  PYPL:{p:45.98,dp:0.28,d:0.13},
-
-  // Telecom
-  T:{p:26.84,dp:-1.86,d:-0.51},    TMUS:{p:197.54,dp:-0.05,d:-0.09},
-  VZ:{p:47.75,dp:-0.54,d:-0.26},
-
-  // Industrials / Transport
-  AAL:{p:11.37,dp:-0.35,d:-0.04},  B:{p:42.43,dp:-0.19,d:-0.08},
-  DAL:{p:67.83,dp:-0.37,d:-0.25},  R:{p:166.69,dp:0,d:0},
-  UNF:{p:257.26,dp:-0.41,d:-1.07}, RR:{p:2.01,dp:0,d:0},
-
-  // Crypto / Digital Assets
-  BTDR:{p:10.33,dp:-0.29,d:-0.03}, CIFR:{p:16.36,dp:6.10,d:0.94},
-  CLSK:{p:10.20,dp:3.24,d:0.32},   COIN:{p:169.02,dp:-3.47,d:-6.07},
-  CRCL:{p:85.10,dp:-9.89,d:-9.34}, IBIT:{p:40.91,dp:1.21,d:0.49},
-  IREN:{p:37.06,dp:0.62,d:0.23},   MARA:{p:74.65,dp:0.42,d:0.31},
-  MSTR:{p:128.86,dp:0.44,d:0.56},  WULF:{p:19.03,dp:-5.43,d:0.98},
-
-  // Commodities
-  GDX:{p:98.35,dp:0.17,d:0.17},    GLD:{p:437.91,dp:0.78,d:3.38},
-  HL:{p:19.30,dp:-1.23,d:-0.24},   SLV:{p:68.39,dp:1.36,d:0.92},
-
-  // Special Situations
-  APLD:{p:25.57,dp:-7.99,d:-2.22}, BMNR:{p:21.08,dp:-2.04,d:-0.44},
-  FNMA:{p:7.86,dp:18.55,d:1.23},   HOOD:{p:70.12,dp:-2.38,d:-1.71},
-  ONDS:{p:9.14,dp:-3.28,d:-0.31},  PL:{p:34.23,dp:-6.35,d:-2.32},
-  QBTS:{p:13.87,dp:-4.80,d:-0.70}, SOFI:{p:16.27,dp:-1.33,d:-0.22},
-
-  // JH Watchlist extras
-  AVGO:{p:354.91,dp:1.22,d:4.28},  BABA:{p:127.68,dp:1.88,d:2.36},
-  BTDR:{p:10.33,dp:-0.29,d:-0.03}, CCL:{p:27.85,dp:-0.64,d:-0.18},
-  CELH:{p:36.38,dp:1.00,d:0.36},   CMG:{p:34.24,dp:1.33,d:0.45},
-  DAL:{p:67.83,dp:-0.37,d:-0.25},  EEM:{p:60.28,dp:-0.26,d:-0.16},
-  GDX:{p:98.35,dp:0.17,d:0.17},    GLD:{p:437.91,dp:0.78,d:3.38},
-  HPQ:{p:18.38,dp:-2.70,d:-0.51},  HQY:{p:9.67,dp:1.79,d:0.17},
-  HUM:{p:197.32,dp:-0.54,d:-1.07}, IBIT:{p:40.91,dp:1.21,d:0.49},
-  JD:{p:28.34,dp:-2.44,d:-0.71},   KWEB:{p:28.79,dp:-1.07,d:-0.31},
-  MET:{p:74.65,dp:0.42,d:0.31},    MRNA:{p:51.28,dp:-1.57,d:-0.82},
-  MRVL:{p:119.93,dp:4.79,d:5.48},  MSTR:{p:128.86,dp:0.44,d:0.56},
-  NATL:{p:44.15,dp:-0.70,d:-0.31}, PDD:{p:100.57,dp:-3.07,d:-3.18},
-  PFE:{p:27.22,dp:-0.91,d:-0.25},  PYPL:{p:45.98,dp:0.28,d:0.13},
-  QCOM:{p:127.75,dp:0.19,d:0.24},  RUT:{p:2263.46,dp:0.60,d:15.85},
-  S:{p:12.77,dp:-5.41,d:-0.73},    SLV:{p:68.39,dp:1.36,d:0.92},
-  SPX:{p:6824.66,dp:0.62,d:41.85}, TTD:{p:20.61,dp:1.78,d:-0.36},
-  UNH:{p:306.91,dp:0.30,d:0.93},   ZM:{p:84.03,dp:2.03,d:3.80},
-  LEVI:{p:22.76,dp:4.36,d:0.95},   NKE:{p:44.00,dp:2.02,d:0.87},
-});
+ALL_TICKERS.forEach(s => { MOCK[s] = {p:null, dp:null, d:null}; });
 
 // VIX — index level, fetched separately, never treated as a stock price
 // Real value set via updateVix(). Default shown in VIX gauge only.
 
 let liveData = {};
-function getQ(sym){return liveData[sym]||MOCK[sym]||{p:100,dp:0,d:0};}
+function getQ(sym){return liveData[sym]||MOCK[sym]||{p:null,dp:null,d:null};}
 
 // ============================================================
 // SECTORS for heatmap
@@ -3723,7 +3604,7 @@ async function renderBriefTopFlow(){
   const el=document.getElementById('brief-top-flow-list');
   const dateEl=document.getElementById('brief-top-flow-date');
   if(!el)return;
-  const supa=getSupabase();
+  const supa = await getSupabaseAsync();
   if(!supa){el.innerHTML='<div style="color:#8090a0;font-size:11px;">No data source</div>';return;}
   try{
     const{data:latestRows}=await supa.from('omen_daily_summary').select('trading_date').order('trading_date',{ascending:false}).limit(1);
@@ -4394,6 +4275,12 @@ const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 let _supa=null;
 
 function getSupabase(){
+  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  return _supa;
+}
+async function getSupabaseAsync(){
+  if(_supa) return _supa;
+  await _supabaseReady;
   if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY);
   return _supa;
 }
@@ -5227,8 +5114,8 @@ let _predLabelMode='both';
 let _predSearchTicker=null;
 
 async function loadPredictorData(){
-  const supa=getSupabase();
-  if(!supa){console.warn('[Predictor] No Supabase');return;}
+  const supa = await getSupabaseAsync();
+  if(!supa){console.warn('[Predictor] No Supabase even after wait');return;}
   try{
     const PAGE=1000;
     let all=[];
@@ -5633,7 +5520,8 @@ document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document
 if(finnhubKey)setTimeout(fetchLiveAll,1000); // single boot fetch — subsequent updates via manual ↻ button
 // if(localStorage.getItem('sp_td'))setTimeout(fetchVixQuote,1500); // Step 30: VIX hidden
 // Auto-poll removed: fetchLiveAll now manual-only to preserve Twelve Data credits
-setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
+// Step 36: removed VIX candle interval — VIX UI is hidden per Step 30
+// setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
 // setInterval(()=>{...fetchVixQuote...},300000); // Step 30: VIX hidden
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load TradingView widget library — used for the market chart only
@@ -5650,8 +5538,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
   s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
   s.onload=function(){
     _chartJsReady=true;
-    console.log('[Chart.js] loaded — fetching VIX candles');
-    fetchVixCandles();
+    console.log('[Chart.js] loaded');
+    // Step 36: removed fetchVixCandles() — VIX UI is hidden per Step 30
   };
   s.onerror=function(){console.warn('Chart.js failed to load');};
   document.head.appendChild(s);
@@ -5661,11 +5549,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
   const s=document.createElement('script');
   s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
   s.onload=function(){
+    if(_supabaseReadyResolve) _supabaseReadyResolve();  // unblock any awaiters
     loadFlowFromSupabase();
     // Backup key restore — only acts if localStorage was empty
     loadFinnhubKeyFromSupabase();
     loadTdKeyFromSupabase();
     loadAnthropicKeyFromSupabase();
+    renderBriefTopFlow();  // Re-fire the Top Flow card now that DB is ready
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
