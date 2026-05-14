@@ -1521,7 +1521,9 @@ async function fetchVixQuote(){
   try{
     const r=await fetch('https://api.twelvedata.com/quote?symbol=VIX&apikey='+td);
     const d=await r.json();
-    console.log('[VIX] Twelve Data quote:', d?.close, d?.percent_change);
+    console.log('[VIX] response:', d);
+    if(d.code===429){console.warn('[VIX] daily cap hit — using cached value');return null;}
+    if(d.code){console.warn('[VIX] error:',d.code,d.message);return null;}
     if(d&&d.close&&parseFloat(d.close)>0){
       updateVix(parseFloat(d.close));
       const sub=document.getElementById('vix-sub');
@@ -1812,10 +1814,10 @@ function setTapePeriod(p,btn){
 function renderTape(){
   const syms=['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SOFI','SMCI','BTDR','MARA','NVDA'];
   const scale=PERIOD_SCALE[tapePeriod]||1;
-  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat((q.dp*scale).toFixed(2))};});
+  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat((q.dp*scale).toFixed(2)),t:q.t||0};});
   const gainers=[...all].filter(x=>x.dp>0).sort((a,b)=>b.dp-a.dp);
   const losers=[...all].filter(x=>x.dp<0).sort((a,b)=>a.dp-b.dp);
-  const mkItem=(x)=>`<div class="tape-item"><span class="t-sym">${x.s}</span><span class="t-px ${x.dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${x.dp>=0?'up':'dn'}">${x.dp>=0?'+':''}${x.dp.toFixed(2)}%</span></div>`;
+  const mkItem=(x)=>{const ts=fmtQuoteTime(x.t);return`<div class="tape-item" style="flex-direction:column;align-items:flex-start;gap:0;"><div style="display:flex;align-items:center;gap:5px;"><span class="t-sym">${x.s}</span><span class="t-px ${x.dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${x.dp>=0?'up':'dn'}">${x.dp>=0?'+':''}${x.dp.toFixed(2)}%</span></div>${ts?`<span style="font-size:9px;color:#8090a0;">${ts}</span>`:''}</div>`;};
   const topSrc=gainers.length?gainers:[...all].sort((a,b)=>b.dp-a.dp).slice(0,8);
   const botSrc=losers.length?losers:[...all].sort((a,b)=>a.dp-b.dp).slice(0,8);
   const topItems=[...topSrc,...topSrc].map(mkItem).join('');
@@ -4100,7 +4102,7 @@ async function fetchLiveAll(force){
       if(d.c!=null&&d.c!==0){
         const quote={c:d.c,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now()};
         _fhCache.set(sym,quote);
-        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0};
+        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0,t:d.t||0};
         recordPriceSnapshot(sym,d.c);
         console.log('[FH]',sym,d.c,d.dp+'%');
       }
@@ -4135,6 +4137,7 @@ function goPage(name,btn){
 // ============================================================
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function fmtTime(ts){const d=new Date(ts),now=new Date(),dm=Math.round((now-d)/60000);if(dm<1)return'just now';if(dm<60)return dm+'m ago';if(dm<1440)return Math.round(dm/60)+'h ago';return d.toLocaleDateString('en',{month:'short',day:'numeric'});}
+function fmtQuoteTime(unixSec){if(!unixSec)return'';const d=new Date(unixSec*1000);return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase().replace(' ','');}
 function updateStatusCounts(){
   const st=document.getElementById('st-tickers');if(st)st.textContent=ALL_TICKERS.length;
   const sn=document.getElementById('st-news');if(sn)sn.textContent=newsData.length;
@@ -5047,6 +5050,7 @@ const PRED_MOMENTUM_BAND=15;
 let _predData=null;
 let _predTimeframe='D';
 let _predLabelMode='both';
+let _predSearchTicker=null;
 
 async function loadPredictorData(){
   const supa=getSupabase();
@@ -5178,7 +5182,15 @@ function predBuildRows(){
   }
   const top10=[...rows].sort((a,b)=>b.cumTotal-a.cumTotal).slice(0,10);
   const top5=rows.filter(r=>r.cumPut>r.cumCall).sort((a,b)=>b.cumPut-a.cumPut).slice(0,5);
-  return{dates:visibleDates,todayDate,top10,top5,cumDates};
+  let searchRow=null;
+  if(_predSearchTicker){
+    const found=rows.find(r=>r.symbol===_predSearchTicker);
+    if(found){
+      const alreadyShown=top10.some(r=>r.symbol===_predSearchTicker)||top5.some(r=>r.symbol===_predSearchTicker);
+      if(!alreadyShown)searchRow=found;
+    }
+  }
+  return{dates:visibleDates,todayDate,top10,top5,cumDates,searchRow};
 }
 
 function predComputeTimeframeStats(){
@@ -5269,7 +5281,7 @@ function renderFlowPredictor(){
   const root=document.getElementById('page-flowpredict');
   if(!root)return;
   const built=predBuildRows();
-  const{dates,todayDate,top10,top5}=built;
+  const{dates,todayDate,top10,top5,searchRow}=built;
   if(!dates.length){
     root.innerHTML='<div class="card" style="padding:40px;text-align:center;"><div style="font-size:48px;margin-bottom:16px;">🎯</div><div style="font-size:18px;font-weight:600;margin-bottom:8px;">No data yet</div><div style="font-size:13px;color:#c0c8d0;">Upload OMEN CSVs in the Options Flow tab to populate the predictor.</div></div>';
     return;
@@ -5312,13 +5324,14 @@ function renderFlowPredictor(){
     <div class="card" style="padding:14px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <div style="font-size:14px;font-weight:600;">DIRECTIONAL PREDICTION · ${fmtDateHeader(todayDate)}</div>
-        <div style="display:flex;gap:6px;align-items:center;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <input id="pred-ticker-search" type="text" placeholder="Search ticker (NVDA, SPY…)" autocomplete="off" oninput="onPredTickerSearch(event)" value="${_predSearchTicker||''}" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:5px 10px;font-size:11px;border-radius:4px;width:200px;margin-right:4px;">
           <span style="font-size:11px;color:#8090a0;">Labels:</span>
           ${['numbers','both','labels'].map(m=>`<button class="btn btn-sm" onclick="setPredLabelMode('${m}')" style="${_predLabelMode===m?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);text-transform:capitalize;">${m}</button>`).join('')}
         </div>
       </div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <div style="overflow-x:auto;padding-right:12px;">
+        <table style="width:max-content;min-width:100%;border-collapse:collapse;font-size:11px;">
           <thead>
             <tr style="background:var(--bg3);">
               <th style="position:sticky;left:0;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:30px;">#</th>
@@ -5344,6 +5357,10 @@ function renderFlowPredictor(){
             ${top10.map((r,i)=>renderPredRow(r,i+1,dates)).join('')}
             <tr><td colspan="${colCount}" style="padding:6px;background:#3a1820;color:#e88080;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 5 BY PUT $ — BEARISH LEADERS</td></tr>
             ${top5.length?top5.map((r,i)=>renderPredRow(r,i+1,dates)).join(''):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">No tickers with put $ &gt; call $ in this window</td></tr>`}
+            ${_predSearchTicker?`
+              <tr><td colspan="${colCount}" style="padding:6px;background:#15243a;color:#7fb0e8;font-size:11px;font-weight:600;letter-spacing:1px;">SEARCH RESULT — ${_predSearchTicker}</td></tr>
+              ${searchRow?renderPredRow(searchRow,1,dates):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">"${_predSearchTicker}" not found in flow data.</td></tr>`}
+            `:''}
           </tbody>
         </table>
       </div>
@@ -5357,6 +5374,12 @@ function setPredTimeframe(tf){
 
 function setPredLabelMode(m){
   _predLabelMode=m;
+  renderFlowPredictor();
+}
+
+function onPredTickerSearch(e){
+  const v=(e.target.value||'').trim().toUpperCase();
+  _predSearchTicker=v.length>=1?v:null;
   renderFlowPredictor();
 }
 
@@ -5375,6 +5398,7 @@ async function refreshFlowPredictor(){
   await loadPredictorData();
   renderFlowPredictor();
   setRefreshed('flow_predictor');
+  if(typeof fetchVixQuote==='function')await fetchVixQuote();
   console.log('[Predictor] Manual refresh complete');
 }
 
