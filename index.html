@@ -1477,20 +1477,21 @@ function updateMarketStatus(){
 // VIX
 // ============================================================
 function updateVix(v){
-  vixValue=v;
-  const pct=Math.min(v/50*100,97);
-  document.getElementById('vix-pin').style.left=pct+'%';
-  const r=v<12?'LOW VOLATILITY':v<20?'NORMAL MARKET':v<28?'MODERATE VOLATILITY':v<36?'HIGH FEAR':'EXTREME PANIC';
-  const clr=v<12?'var(--green)':v<20?'var(--text)':v<28?'var(--amber)':'var(--red)';
-  ['vix-big','vix-val'].forEach(id=>{const el=document.getElementById(id);if(el){el.textContent=v.toFixed(1);el.style.color=clr;}});
-  const reg=document.getElementById('vix-regime');if(reg){reg.textContent=r;reg.style.color=clr;}
-  const sub=document.getElementById('vix-sub');if(sub){sub.textContent=r.split(' ')[0];sub.style.color=clr;}
-  document.getElementById('hdr-vix').textContent='VIX '+v.toFixed(1);
-  document.getElementById('hdr-vix').style.background=v<20?'rgba(0,229,176,0.12)':v<28?'rgba(255,176,32,0.12)':'rgba(255,61,90,0.12)';
-  document.getElementById('hdr-vix').style.color=clr;
-  const pred=document.getElementById('pred-risk');
-  if(pred){pred.textContent=v<20?'Low':v<28?'Moderate':v<36?'High':'Extreme';pred.style.color=clr;}
-  setRiskBanner(v);
+  try{
+    vixValue=v;
+    const pct=Math.min(v/50*100,97);
+    const pin=document.getElementById('vix-pin');if(pin)pin.style.left=pct+'%';
+    const r=v<12?'LOW VOLATILITY':v<20?'NORMAL MARKET':v<28?'MODERATE VOLATILITY':v<36?'HIGH FEAR':'EXTREME PANIC';
+    const clr=v<12?'var(--green)':v<20?'var(--text)':v<28?'var(--amber)':'var(--red)';
+    ['vix-big','vix-val'].forEach(id=>{const el=document.getElementById(id);if(el){el.textContent=v.toFixed(1);el.style.color=clr;}});
+    const reg=document.getElementById('vix-regime');if(reg){reg.textContent=r;reg.style.color=clr;}
+    const sub=document.getElementById('vix-sub');if(sub){sub.textContent=r.split(' ')[0];sub.style.color=clr;}
+    const hdrVix=document.getElementById('hdr-vix');
+    if(hdrVix){hdrVix.textContent='VIX '+v.toFixed(1);hdrVix.style.background=v<20?'rgba(0,229,176,0.12)':v<28?'rgba(255,176,32,0.12)':'rgba(255,61,90,0.12)';hdrVix.style.color=clr;}
+    const pred=document.getElementById('pred-risk');
+    if(pred){pred.textContent=v<20?'Low':v<28?'Moderate':v<36?'High':'Extreme';pred.style.color=clr;}
+    setRiskBanner(v);
+  }catch(e){console.warn('[updateVix] DOM error (non-fatal):',e.message);}
 }
 function setRiskBanner(v){
   const b=document.getElementById('risk-banner');
