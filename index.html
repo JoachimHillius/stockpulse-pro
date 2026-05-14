@@ -519,35 +519,36 @@ select option{background:var(--bg2);}
           <div id="losers"></div>
         </div>
       </div>
-      <div class="card">
-        <div class="card-hd">
-          <div>
-            <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
-            <!-- Chart date shown below title — updated by renderIntradayChart -->
-            <div id="mkt-chart-date" style="font-size:13px;font-weight:600;color:#ffffff;margin-top:4px;letter-spacing:0.2px;"></div>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <!-- Symbol input -->
-            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
-              <input id="mkt-sym-input" type="text" value="SPY" maxlength="8"
-                style="width:56px;background:var(--bg3);border:none;color:var(--text);padding:3px 6px;font-family:var(--font);font-size:11px;font-weight:700;text-transform:uppercase;outline:none;"
-                onkeydown="if(event.key==='Enter')switchMktSym()"
-                oninput="this.value=this.value.toUpperCase()"/>
-              <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-weight:700;">GO</button>
-            </div>
-            <button class="fbtn" onclick="setMktRange('1MIN',this)">1MIN</button>
-            <button class="fbtn" onclick="setMktRange('5MIN',this)">5MIN</button>
-            <button class="fbtn" onclick="setMktRange('15MIN',this)">15MIN</button>
-            <button class="fbtn" onclick="setMktRange('1HR',this)">1HR</button>
-            <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
-            <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
-            <button class="fbtn" onclick="setMktRange('1M',this)">1M</button>
-            <button class="fbtn" onclick="setMktRange('3M',this)">3M</button>
-          </div>
+    </div>
+  </div>
+  <!-- Market Chart full-width below -->
+  <div class="card" style="margin-top:14px;">
+    <div class="card-hd">
+      <div>
+        <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
+        <!-- Chart date shown below title — updated by renderIntradayChart -->
+        <div id="mkt-chart-date" style="font-size:13px;font-weight:600;color:#ffffff;margin-top:4px;letter-spacing:0.2px;"></div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <!-- Symbol input -->
+        <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border2);border-radius:3px;overflow:hidden;">
+          <input id="mkt-sym-input" type="text" value="SPY" maxlength="8"
+            style="width:56px;background:var(--bg3);border:none;color:var(--text);padding:3px 6px;font-family:var(--font);font-size:11px;font-weight:700;text-transform:uppercase;outline:none;"
+            onkeydown="if(event.key==='Enter')switchMktSym()"
+            oninput="this.value=this.value.toUpperCase()"/>
+          <button onclick="switchMktSym()" style="background:var(--bg4);border:none;border-left:1px solid var(--border2);color:var(--cyan);padding:3px 8px;cursor:pointer;font-family:var(--font);font-weight:700;">GO</button>
         </div>
-        <div id="tradingview-market" style="height:370px;margin-top:6px;"></div>
+        <button class="fbtn" onclick="setMktRange('1MIN',this)">1MIN</button>
+        <button class="fbtn" onclick="setMktRange('5MIN',this)">5MIN</button>
+        <button class="fbtn" onclick="setMktRange('15MIN',this)">15MIN</button>
+        <button class="fbtn" onclick="setMktRange('1HR',this)">1HR</button>
+        <button class="fbtn active" onclick="setMktRange('1D',this)">1D</button>
+        <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
+        <button class="fbtn" onclick="setMktRange('1M',this)">1M</button>
+        <button class="fbtn" onclick="setMktRange('3M',this)">3M</button>
       </div>
     </div>
+    <div id="tradingview-market" style="height:480px;margin-top:6px;"></div>
   </div>
 </div>
 
@@ -5414,14 +5415,18 @@ function renderFlowPredictor(){
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="${colCount}" style="padding:6px;background:#15243a;color:#7fb0e8;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 10 BY CUMULATIVE VOLUME — PREDICTED DIRECTION</td></tr>
-            ${top10.map((r,i)=>renderPredRow(r,i+1,dates)).join('')}
-            <tr><td colspan="${colCount}" style="padding:6px;background:#3a1820;color:#e88080;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 5 BY PUT $ — BEARISH LEADERS</td></tr>
-            ${top5.length?top5.map((r,i)=>renderPredRow(r,i+1,dates)).join(''):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">No tickers with put $ &gt; call $ in this window</td></tr>`}
-            ${_predSearchTicker?`
+            ${_predSearchTicker ? `
               <tr><td colspan="${colCount}" style="padding:6px;background:#15243a;color:#7fb0e8;font-size:11px;font-weight:600;letter-spacing:1px;">SEARCH RESULT — ${_predSearchTicker}</td></tr>
-              ${searchRow?renderPredRow(searchRow,1,dates):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">"${_predSearchTicker}" not found in flow data.</td></tr>`}
-            `:''}
+              ${searchRow ? renderPredRow(searchRow,1,dates) : (()=>{
+                const found=top10.find(r=>r.symbol===_predSearchTicker)||top5.find(r=>r.symbol===_predSearchTicker);
+                return found?renderPredRow(found,1,dates):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">"${_predSearchTicker}" not found in flow data.</td></tr>`;
+              })()}
+            ` : `
+              <tr><td colspan="${colCount}" style="padding:6px;background:#15243a;color:#7fb0e8;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 10 BY CUMULATIVE VOLUME — PREDICTED DIRECTION</td></tr>
+              ${top10.map((r,i)=>renderPredRow(r,i+1,dates)).join('')}
+              <tr><td colspan="${colCount}" style="padding:6px;background:#3a1820;color:#e88080;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 5 BY PUT $ — BEARISH LEADERS</td></tr>
+              ${top5.length?top5.map((r,i)=>renderPredRow(r,i+1,dates)).join(''):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">No tickers with put $ &gt; call $ in this window</td></tr>`}
+            `}
           </tbody>
         </table>
       </div>
