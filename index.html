@@ -1318,7 +1318,7 @@ function updateStatBoxes(){
     const vel=document.getElementById(vid);
     const cel=document.getElementById(cid);
     if(vel){vel.textContent=fmtPrice(sym,q.p);vel.className='stat-val '+(q.dp>=0?'up':'dn');}
-    if(cel){cel.textContent=(q.dp>=0?'+':'')+q.dp.toFixed(2)+'%  '+(q.d>=0?'+':'')+q.d.toFixed(2);cel.className='stat-sub '+(q.dp>=0?'up':'dn');}
+    if(cel){const dp=q.dp??0,dv=q.d??0;cel.textContent=(dp>=0?'+':'')+dp.toFixed(2)+'%  '+(dv>=0?'+':'')+dv.toFixed(2);cel.className='stat-sub '+(dp>=0?'up':'dn');}
   });
 }
 
@@ -1850,7 +1850,7 @@ function renderVixCandleChart(rawCandles){ return; // replaced by renderVixLineC
 // ============================================================
 // Symbols that are indexes or ETFs — no $ sign, show as index level
 const INDEX_SYMS=new Set(['SPY','QQQ','IWM','EEM','HYG','XLE','SOXL','SPX','RUT','DIA','GLD','SLV','GDX','USO','TLT','EWZ','TQQQ','XLK','XLF','XLU','XLB','XLE','XLP','XLV','XLI']);
-function fmtPrice(sym,p){return INDEX_SYMS.has(sym)?p.toFixed(2):'$'+p.toFixed(2);}
+function fmtPrice(sym,p){if(p==null||isNaN(p))return'—';return INDEX_SYMS.has(sym)?Number(p).toFixed(2):'$'+Number(p).toFixed(2);}
 
 // Period multipliers for mock-scaled % change
 const PERIOD_SCALE={'5m':0.04,'15m':0.10,'1h':0.28,'1d':1,'1w':2.2,'1m':6};
@@ -1873,7 +1873,7 @@ function renderTape(){
     if(loading){
       inner=`<span class="t-px" style="color:#8090a0;">…</span>`;
     }else if(x.p){
-      inner=`<span class="t-px ${x.dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${x.dp>=0?'up':'dn'}">${x.dp>=0?'+':''}${x.dp.toFixed(2)}%${x.stale?' ⏸':''}</span>`;
+      const dp=x.dp??0;inner=`<span class="t-px ${dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${dp>=0?'up':'dn'}">${dp>=0?'+':''}${dp.toFixed(2)}%${x.stale?' ⏸':''}</span>`;
     }else{
       inner=`<span class="t-px" style="color:#8090a0;">—</span>`;
     }
@@ -1935,8 +1935,8 @@ function renderMoverLists(){
         <span style="color:#e0e0e0;font-size:10px;min-width:14px;">#${i+1}</span>
         <span class="wl-sym">${d.s}</span>
         <span style="font-size:10px;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${COMPANY_NAMES[d.s]||''}</span>
-        <span class="wl-px ${d.dp>=0?'up':'dn'}">${fmtPrice(d.s,d.p)}</span>
-        <span class="wl-chg ${d.dp>=0?'chg-up':'chg-dn'}">${d.dp>=0?'+':''}${d.dp.toFixed(2)}%</span>
+        <span class="wl-px ${(d.dp??0)>=0?'up':'dn'}">${fmtPrice(d.s,d.p)}</span>
+        <span class="wl-chg ${(d.dp??0)>=0?'chg-up':'chg-dn'}">${(d.dp??0)>=0?'+':''}${(d.dp??0).toFixed(2)}%</span>
       </div>`).join('');
   });
 }
@@ -2650,7 +2650,7 @@ function renderWatchlist(){
         <span class="wl-sym-cell">${sym}</span>
         <span class="wl-name-cell">${COMPANY_NAMES[sym]||sector}</span>
         <span class="wl-price-cell">${fmtPrice(sym,q.p)}</span>
-        <span class="pct-cell ${netClr}" style="text-align:right;">${q.d>=0?'+':''}${q.d.toFixed(2)}</span>
+        <span class="pct-cell ${netClr}" style="text-align:right;">${q.d==null?'—':(q.d>=0?'+':'')+q.d.toFixed(2)}</span>
         ${pctCell(m5)}
         ${pctCell(h1)}
         ${pctCell(d1)}
@@ -2857,7 +2857,7 @@ function buildTickerPopup(sym){
         ${coName?`<div style="font-size:10px;color:#e0e0e0;letter-spacing:0.5px;margin-top:-4px;">${coName}</div>`:''}
       </div>
       <span style="font-size:18px;font-weight:600;">${fmtPrice(sym,q.p)}</span>
-      <span style="font-size:14px;color:${clr};">${isUp?'+':''}${q.dp.toFixed(2)}%</span>
+      <span style="font-size:14px;color:${clr};">${q.dp==null?'':(isUp?'+':'')+q.dp.toFixed(2)+'%'}</span>
     </div>
     <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin-bottom:8px;">5-Day Flow History</div>
     ${flowBar}
@@ -3705,7 +3705,7 @@ function renderPredictions(){
             <span class="pred-sym" style="color:${clr}">${p.sym}</span>
             <span style="font-size:9px;color:#e0e0e0;">${COMPANY_NAMES[p.sym]||''}</span>
             <span class="score-pill" style="background:${p.dir==='bull'?'rgba(0,229,176,0.12)':'rgba(255,61,90,0.12)'};color:${clr};">${p.finalScore}% confidence</span>
-            <span style="margin-left:auto;font-size:11px;color:#e0e0e0;">${fmtPrice(p.sym,q.p)} <span class="${q.dp>=0?'up':'dn'}">${q.dp>=0?'+':''}${q.dp.toFixed(2)}%</span></span>
+            <span style="margin-left:auto;font-size:11px;color:#e0e0e0;">${fmtPrice(p.sym,q.p)} <span class="${(q.dp??0)>=0?'up':'dn'}">${(q.dp??0)>=0?'+':''}${(q.dp??0).toFixed(2)}%</span></span>
           </div>
           <div class="pred-score-bar" style="background:${clr}${Math.round(p.finalScore*2.55).toString(16).padStart(2,'0')};width:${p.finalScore}%;"></div>
         </div>
@@ -5470,7 +5470,7 @@ function renderFlowPredictor(){
           ${['numbers','both','labels'].map(m=>`<button class="btn btn-sm" onclick="setPredLabelMode('${m}')" style="${_predLabelMode===m?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);text-transform:capitalize;">${m}</button>`).join('')}
         </div>
       </div>
-      <div style="overflow-x:scroll;overflow-y:visible;width:100%;-webkit-overflow-scrolling:touch;">
+      <div style="overflow-x:scroll;overflow-y:visible;width:100%;max-width:100%;-webkit-overflow-scrolling:touch;">
         <table style="border-collapse:collapse;font-size:11px;width:max-content;min-width:100%;">
           <thead>
             <tr style="background:var(--bg3);">
