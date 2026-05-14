@@ -1861,12 +1861,24 @@ function setTapePeriod(p,btn){
   renderTape();
 }
 function renderTape(){
-  const syms=['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SOFI','SMCI','BTDR','MARA','NVDA'];
+  const syms=[...new Set(['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SMCI','BTDR','MARA'])];
   const scale=PERIOD_SCALE[tapePeriod]||1;
-  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading};});
+  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading,stale:!!q.stale};});
   const gainers=[...all].filter(x=>x.dp>0).sort((a,b)=>b.dp-a.dp);
   const losers=[...all].filter(x=>x.dp<0).sort((a,b)=>a.dp-b.dp);
-  const mkItem=(x)=>{const ts=fmtQuoteTime(x.t);const loading=x.loading||x.p==null;return`<div class="tape-item" style="flex-direction:column;align-items:flex-start;gap:0;"><div style="display:flex;align-items:center;gap:5px;"><span class="t-sym">${x.s}</span>${loading?`<span class="t-px" style="color:#8090a0;">…</span>`:`<span class="t-px ${x.dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${x.dp>=0?'up':'dn'}">${x.dp>=0?'+':''}${x.dp.toFixed(2)}%</span>`}</div>${ts&&!loading?`<span style="font-size:9px;color:#8090a0;">${ts}</span>`:''}</div>`;};
+  const mkItem=(x)=>{
+    const ts=fmtQuoteTime(x.t);
+    const loading=x.loading||x.p==null;
+    let inner;
+    if(loading){
+      inner=`<span class="t-px" style="color:#8090a0;">…</span>`;
+    }else if(x.p){
+      inner=`<span class="t-px ${x.dp>=0?'up':'dn'}">${fmtPrice(x.s,x.p)}</span><span class="t-chg ${x.dp>=0?'up':'dn'}">${x.dp>=0?'+':''}${x.dp.toFixed(2)}%${x.stale?' ⏸':''}</span>`;
+    }else{
+      inner=`<span class="t-px" style="color:#8090a0;">—</span>`;
+    }
+    return`<div class="tape-item" style="flex-direction:column;align-items:flex-start;gap:0;"><div style="display:flex;align-items:center;gap:5px;"><span class="t-sym">${x.s}</span>${inner}</div>${ts&&!loading?`<span style="font-size:9px;color:#8090a0;">${ts}</span>`:''}</div>`;
+  };
   const topSrc=gainers.length?gainers:[...all].sort((a,b)=>b.dp-a.dp).slice(0,8);
   const botSrc=losers.length?losers:[...all].sort((a,b)=>a.dp-b.dp).slice(0,8);
   const topItems=[...topSrc,...topSrc].map(mkItem).join('');
@@ -4204,25 +4216,37 @@ async function fetchLiveAll(force){
   const tickerList=[...new Set(Object.values(WATCHLIST).flat())];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
   console.log('[fetchLiveAll] fetching',tickerList.length,'tickers');
-  // Mark all as loading so UI shows "..." instead of stale values
+  // Mark only un-seen tickers as loading; tickers with existing data keep showing last value
   tickerList.forEach(sym=>{if(!liveData[sym])liveData[sym]={p:null,dp:null,d:null,t:null,loading:true};});
-  if(typeof updateStatBoxes==='function')updateStatBoxes();
   if(typeof renderTape==='function')renderTape();
   for(const sym of tickerList){
     const cached=_fhCache.get(sym);
     if(cached&&(Date.now()-cached.fetchedAt)<FH_CACHE_TTL_MS){
-      continue; // cache hit — skip network call
+      // Cache hit — make sure loading flag is cleared from liveData
+      if(liveData[sym]&&liveData[sym].loading){
+        liveData[sym]={p:cached.c,dp:cached.dp||0,d:cached.d||0,t:cached.t||0,loading:false};
+      }
+      continue;
     }
     try{
       const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey);
       const d=await r.json();
-      if(d.c!=null&&d.c!==0){
+      if(d.c&&d.c!==0){
+        // Good quote
         const quote={c:d.c,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now()};
         _fhCache.set(sym,quote);
-        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0,t:d.t||0};
+        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0,t:d.t||0,loading:false};
         recordPriceSnapshot(sym,d.c);
+      }else{
+        // After-hours or unknown symbol — keep previous value, clear loading
+        const prev=liveData[sym]||{};
+        liveData[sym]={p:prev.p||null,dp:prev.dp||null,d:prev.d||null,t:prev.t||null,loading:false,stale:true};
       }
-    }catch(e){console.warn('[FH]',sym,'fetch failed:',e.message);}
+    }catch(e){
+      console.warn('[FH]',sym,'fetch failed:',e.message);
+      const prev=liveData[sym]||{};
+      liveData[sym]={...prev,loading:false,error:true};
+    }
     await sleep(1100); // ~54/min — stays under Finnhub free-tier 60/min cap
   }
   renderWatchlist();renderMoverLists();renderTape();
