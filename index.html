@@ -568,6 +568,22 @@ select option{background:var(--bg2);}
       <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
     </div>
     <button class="btn btn-ghost btn-sm" onclick="refreshWatchlist()" style="margin-left:auto;">↻ Refresh</button>
+    <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
+  </div>
+  <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:var(--cyan);">ADD STOCK TO WATCHLIST</span>
+      <button onclick="toggleAddStockPopup()" style="background:transparent;border:none;color:#888;cursor:pointer;font-size:18px;margin-left:auto;">×</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input id="add-stock-input" type="text" placeholder="Type ticker (e.g. NFLX)..."
+        oninput="onAddStockInput(event)"
+        onkeydown="if(event.key==='Enter')submitNewStock()"
+        style="flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:4px;font-size:13px;text-transform:uppercase;"/>
+      <button onclick="submitNewStock()" style="background:var(--green);color:#000;border:none;padding:8px 16px;border-radius:4px;font-weight:700;cursor:pointer;">Add</button>
+    </div>
+    <div style="font-size:10px;color:#8090a0;margin-top:6px;">Or pick from OMEN universe:</div>
+    <div id="add-stock-suggestions" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;max-height:120px;overflow-y:auto;"></div>
   </div>
   <!-- Bull/Bear window selector -->
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding:5px 8px;background:var(--bg2);border-radius:4px;border:1px solid var(--border);">
@@ -1016,6 +1032,8 @@ let tdKey = localStorage.getItem('sp_td') || '';
 let anthropicKey = localStorage.getItem('sp_anthropic') || '';
 let flowData = _safeLS('sp_flow', []);
 let _flowSentimentTimeframe = 'D';
+let _userWatchlist = [];  // array of {symbol, sector, added_at}
+let _omenTickerCache = null;
 // Step 36: Promise that resolves when Supabase SDK has loaded.
 let _supabaseReadyResolve = null;
 const _supabaseReady = new Promise(r => { _supabaseReadyResolve = r; });
@@ -1206,7 +1224,6 @@ function initData(){
   // Load positions from localStorage first — never lose them on page refresh
   const _savedPos=localStorage.getItem('sp_positions');
   if(_savedPos) positions=JSON.parse(_savedPos);
-  renderPositions();
   applyTheme();
   // Prime the flow status — Supabase will overwrite once it loads
   const _fsSt=document.getElementById('csv-status');
@@ -2458,8 +2475,11 @@ function renderWatchlist(){
     const cls=val>=60?'pct-pos':val<=40?'pct-neg':'pct-zero';
     return`<span class="pct-cell ${cls}" style="font-weight:700;">${val}%</span>`;
   };
+  const customTickers=(_userWatchlist||[]).map(r=>r.symbol);
+  const sectorsToRender={...WATCHLIST};
+  if(customTickers.length)sectorsToRender['★ Custom']=customTickers;
   let html='';
-  Object.entries(WATCHLIST).forEach(([sector,tickers])=>{
+  Object.entries(sectorsToRender).forEach(([sector,tickers])=>{
     if(currentWlFilter!=='all'&&sector!==currentWlFilter)return;
     const matched=tickers.filter(s=>{
       if(!search)return true;
@@ -2514,7 +2534,7 @@ function renderWatchlist(){
         dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C '+chain.pcRatio+'"></span>');
       return`<div class="wl-dense-row" onclick="showTickerDetail('${sym}')">
         <span class="wl-sym-cell">${sym}</span>
-        <span class="wl-name-cell">${COMPANY_NAMES[sym]||sector}</span>
+        <span class="wl-name-cell">${COMPANY_NAMES[sym]||sector}${customTickers.includes(sym)?`<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:6px;" title="Remove from watchlist">×</button>`:''}</span>
         <span class="wl-price-cell">${fmtPrice(sym,q.p)}</span>
         <span class="pct-cell ${netClr}" style="text-align:right;">${q.d==null?'—':(q.d>=0?'+':'')+q.d.toFixed(2)}</span>
         ${pctCell(m5)}
@@ -2533,7 +2553,38 @@ function renderWatchlist(){
   });
   body.innerHTML=html||'<div class="empty">No tickers match your filter</div>';
 }
-function refreshWatchlist(){if(tdKey)fetchLiveAll();else renderWatchlist();}
+function refreshWatchlist(){if(finnhubKey)fetchLiveAll();else renderWatchlist();}
+function toggleAddStockPopup(){
+  const el=document.getElementById('add-stock-popup');
+  if(!el)return;
+  const open=el.style.display!=='none'&&el.style.display!=='';
+  el.style.display=open?'none':'block';
+  if(!open){document.getElementById('add-stock-input').focus();renderAddStockSuggestions('');}
+}
+async function renderAddStockSuggestions(query){
+  const el=document.getElementById('add-stock-suggestions');
+  if(!el)return;
+  const tickers=await getOmenTickerUniverse();
+  const existingSyms=new Set([...Object.values(WATCHLIST).flat(),...(_userWatchlist||[]).map(r=>r.symbol)]);
+  const q=(query||'').toUpperCase();
+  const matches=tickers.filter(t=>!existingSyms.has(t)&&(!q||t.startsWith(q))).slice(0,40);
+  el.innerHTML=matches.length
+    ?matches.map(t=>`<button onclick="quickAddStock('${t}')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:4px 10px;border-radius:3px;font-size:11px;cursor:pointer;font-weight:600;">${t}</button>`).join('')
+    :'<span style="color:#8090a0;font-size:11px;">No matches in OMEN data</span>';
+}
+function onAddStockInput(e){renderAddStockSuggestions((e.target.value||'').toUpperCase());}
+async function quickAddStock(sym){
+  const ok=await addUserTicker(sym);
+  if(ok){document.getElementById('add-stock-input').value='';renderAddStockSuggestions('');}
+}
+async function submitNewStock(){
+  const inp=document.getElementById('add-stock-input');
+  if(!inp)return;
+  const sym=(inp.value||'').trim().toUpperCase();
+  if(!sym)return;
+  const ok=await addUserTicker(sym);
+  if(ok){inp.value='';renderAddStockSuggestions('');}
+}
 function quickPatterns(sym,q){
   const p=[];
   if(q.dp>3)p.push('⚡ Breakout');
@@ -4124,7 +4175,8 @@ async function fetchLiveAll(force){
   const fhKey=localStorage.getItem('sp_fh');
   if(!fhKey){console.warn('[Ticker] No Finnhub key — skipping live quotes');return;}
   // Fetch ALL watchlist tickers — throttled to ~54/min to stay under Finnhub's 60/min free limit
-  const tickerList=[...new Set(Object.values(WATCHLIST).flat())];
+  const userSyms=(_userWatchlist||[]).map(r=>r.symbol);
+  const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms])];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
   console.log('[fetchLiveAll] fetching',tickerList.length,'tickers');
   // Mark only un-seen tickers as loading; tickers with existing data keep showing last value
@@ -4284,6 +4336,55 @@ async function getSupabaseAsync(){
   await _supabaseReady;
   if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY);
   return _supa;
+}
+
+// Step 39: user_watchlist helpers
+async function loadUserWatchlist(){
+  const supa=await getSupabaseAsync();
+  if(!supa)return[];
+  try{
+    const{data,error}=await supa.from('user_watchlist').select('*').order('added_at',{ascending:true});
+    if(error)throw error;
+    _userWatchlist=data||[];
+    return _userWatchlist;
+  }catch(e){console.warn('[user_watchlist] load failed:',e);return[];}
+}
+async function addUserTicker(symbol,sector){
+  const sym=(symbol||'').trim().toUpperCase();
+  if(!sym||!/^[A-Z]{1,6}$/.test(sym)){alert('Invalid ticker: '+symbol);return false;}
+  const supa=await getSupabaseAsync();
+  if(!supa){alert('Database not ready');return false;}
+  try{
+    const{error}=await supa.from('user_watchlist').insert({symbol:sym,sector:sector||'Custom'});
+    if(error){
+      if(String(error.message).includes('duplicate')){alert(sym+' is already in your watchlist');}
+      else{alert('Add failed: '+error.message);}
+      return false;
+    }
+    await loadUserWatchlist();
+    if(typeof renderWatchlist==='function')renderWatchlist();
+    return true;
+  }catch(e){alert('Add failed: '+e.message);return false;}
+}
+async function removeUserTicker(symbol){
+  const supa=await getSupabaseAsync();
+  if(!supa)return;
+  try{
+    await supa.from('user_watchlist').delete().eq('symbol',symbol);
+    await loadUserWatchlist();
+    if(typeof renderWatchlist==='function')renderWatchlist();
+  }catch(e){console.warn('[user_watchlist] delete failed:',e);}
+}
+async function getOmenTickerUniverse(){
+  if(_omenTickerCache)return _omenTickerCache;
+  const supa=await getSupabaseAsync();
+  if(!supa)return[];
+  try{
+    const{data}=await supa.from('omen_daily_summary').select('symbol').limit(5000);
+    const uniq=[...new Set((data||[]).map(r=>r.symbol).filter(s=>/^[A-Z]{1,6}$/.test(s)))].sort();
+    _omenTickerCache=uniq;
+    return uniq;
+  }catch(e){return[];}
 }
 
 // Map Supabase omen_flow row → internal flowData format
@@ -5518,9 +5619,7 @@ function _initPosPanel(){
 // ============================================================
 // Render all mock data immediately — no CDN dependency
 initData();
-// _initPosPanel deferred — panel HTML is after the script block, so DOM is not ready at boot.
-// DOMContentLoaded fires after the browser finishes parsing the full document.
-document.addEventListener('DOMContentLoaded', _initPosPanel);
+// Step 39: MY POSITIONS panel removed — _initPosPanel is dead code, not called.
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document.getElementById('upload-log-list'))renderUploadLog(); },500); });
 if(finnhubKey)setTimeout(fetchLiveAll,1000); // single boot fetch — subsequent updates via manual ↻ button
 // if(localStorage.getItem('sp_td'))setTimeout(fetchVixQuote,1500); // Step 30: VIX hidden
@@ -5561,6 +5660,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     loadTdKeyFromSupabase();
     loadAnthropicKeyFromSupabase();
     renderBriefTopFlow();  // Re-fire the Top Flow card now that DB is ready
+    loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); });
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
@@ -5580,47 +5680,5 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
   <div id="hover-popup-content"></div>
 </div>
 
-<!-- FLOATING POSITIONS TRACKER -->
-<div id="pos-panel">
-  <div id="pos-panel-hdr" onmousedown="posDragStart(event)">
-    <span style="font-size:13px;color:#e0e0e0;cursor:grab;margin-right:2px;">⠿</span>
-    <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--cyan);">MY POSITIONS</span>
-    <span id="pos-count" style="font-size:9px;background:var(--bg4);padding:1px 7px;border-radius:10px;color:#e0e0e0;">0</span>
-    <span id="pos-total-pnl" style="font-size:12px;font-weight:700;margin-left:4px;"></span>
-    <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-      <button onclick="event.stopPropagation();toggleAddPosForm()" style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);color:var(--cyan);border-radius:3px;padding:2px 9px;font-weight:700;cursor:pointer;font-family:var(--font);">+ Add</button>
-      <button onclick="event.stopPropagation();togglePosPanel()" id="pos-collapse-btn" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:2px 8px;cursor:pointer;font-family:var(--font);">▼</button>
-    </div>
-  </div>
-  <div id="pos-panel-body">
-    <!-- Add position form (hidden by default) -->
-    <div id="pos-add-form" style="display:none;">
-      <div class="pos-form-row">
-        <label>Symbol<input id="pf-sym" type="text" placeholder="AAPL" maxlength="8" oninput="this.value=this.value.toUpperCase()"/></label>
-        <label>C/P<select id="pf-cp"><option value="Call">Call</option><option value="Put">Put</option></select></label>
-        <label>Strike<input id="pf-strike" type="number" placeholder="150" style="width:70px;"/></label>
-        <label>Expiry<input id="pf-expiry" type="date" style="width:110px;"/></label>
-        <label>Contracts<input id="pf-contracts" type="number" value="1" min="1" style="width:58px;"/></label>
-        <label>Entry $<input id="pf-entry" type="number" placeholder="3.50" step="0.01" style="width:68px;"/></label>
-        <label>Current $<input id="pf-current" type="number" placeholder="0.00" step="0.01" style="width:68px;"/></label>
-        <div style="display:flex;gap:6px;align-items:flex-end;padding-bottom:1px;">
-          <button onclick="submitPosition()" style="background:var(--green);border:none;color:#000;border-radius:3px;padding:5px 14px;font-weight:700;cursor:pointer;font-family:var(--font);">Save</button>
-          <button onclick="toggleAddPosForm()" style="background:transparent;border:1px solid var(--border2);color:#e0e0e0;border-radius:3px;padding:5px 10px;cursor:pointer;font-family:var(--font);">Cancel</button>
-        </div>
-      </div>
-      <div style="font-size:9px;color:#e0e0e0;margin-top:6px;">Current $ defaults to 0 — type a price manually, or set a Finnhub API key to auto-fetch</div>
-    </div>
-    <!-- Positions table -->
-    <table class="pos-tbl">
-      <thead><tr>
-        <th>Symbol</th><th>C/P</th><th>Strike</th><th>Expiry</th><th>Qty</th>
-        <th>Entry $</th><th>Current $</th><th>P&amp;L $</th><th>P&amp;L %</th>
-        <th>Days</th><th>Flow</th><th></th>
-      </tr></thead>
-      <tbody id="pos-tbody"></tbody>
-    </table>
-    <div id="pos-empty" style="text-align:center;color:#e0e0e0;font-size:10px;padding:14px 0;">No positions — click + Add to start tracking</div>
-  </div>
-</div>
 </body>
 </html>
