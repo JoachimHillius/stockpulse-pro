@@ -1515,14 +1515,24 @@ function setRiskBanner(v){
 
 // Fetch fresh VIX quote from Finnhub — free tier supports /quote for VIX
 async function fetchVixQuote(){
-  if(!finnhubKey) return;
-  if(!isInTradingWindow()){console.log('[VIX] Outside trading window — skipping quote fetch');return;}
+  // Use Twelve Data for VIX — Finnhub returns yesterday's close for VIX (non-equity symbol)
+  const td=localStorage.getItem('sp_td');
+  if(!td){console.log('[VIX] No Twelve Data key — skipping VIX fetch');return;}
   try{
-    const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=VIX&token=${finnhubKey}`);
+    const r=await fetch('https://api.twelvedata.com/quote?symbol=VIX&apikey='+td);
     const d=await r.json();
-    console.log('[VIX] Finnhub quote:', d);
-    if(d && d.c && d.c>0) updateVix(d.c);
-  }catch(e){ console.warn('[VIX] quote fetch failed:', e.message); }
+    console.log('[VIX] Twelve Data quote:', d?.close, d?.percent_change);
+    if(d&&d.close&&parseFloat(d.close)>0){
+      updateVix(parseFloat(d.close));
+      const sub=document.getElementById('vix-sub');
+      if(sub){
+        const pct=parseFloat(d.percent_change||0);
+        const clr=parseFloat(d.close)>20?'#ff3d5a':parseFloat(d.close)>15?'#ffb020':'#00e5b0';
+        sub.textContent=(pct>=0?'+':'')+pct.toFixed(2)+'%  Live';
+        sub.style.color=clr;
+      }
+    }
+  }catch(e){console.warn('[VIX] Twelve Data fetch failed:',e.message);}
 }
 
 // ============================================================
@@ -3740,36 +3750,8 @@ function loadAllBaselines(){
 // OPTIONS CHAIN — Finnhub
 // ============================================================
 async function fetchOptionsChain(sym){
-  if(!finnhubKey||optionsCache[sym])return optionsCache[sym]||null;
-  try{
-    const res=await fetch(`https://finnhub.io/api/v1/stock/option-chain?symbol=${encodeURIComponent(sym)}&token=${finnhubKey}`);
-    if(!res.ok)return null;
-    const d=await res.json();
-    if(!d?.data?.length)return null;
-    // Aggregate across all expiries
-    let callOI=0,putOI=0,callIV=0,putIV=0,callVol=0,putVol=0,callIVn=0,putIVn=0;
-    d.data.forEach(exp=>{
-      (exp.options?.CALL||[]).forEach(o=>{
-        callOI+=(o.openInterest||0);callVol+=(o.volume||0);
-        if(o.impliedVolatility){callIV+=o.impliedVolatility;callIVn++;}
-      });
-      (exp.options?.PUT||[]).forEach(o=>{
-        putOI+=(o.openInterest||0);putVol+=(o.volume||0);
-        if(o.impliedVolatility){putIV+=o.impliedVolatility;putIVn++;}
-      });
-    });
-    const result={
-      sym, updated:Date.now(),
-      callOI, putOI,
-      callVol, putVol,
-      pcRatio:callOI>0?+(putOI/callOI).toFixed(3):null,
-      pcVolRatio:callVol>0?+(putVol/callVol).toFixed(3):null,
-      avgCallIV:callIVn?+(callIV/callIVn*100).toFixed(1):null,
-      avgPutIV:putIVn?+(putIV/putIVn*100).toFixed(1):null,
-    };
-    optionsCache[sym]=result;
-    return result;
-  }catch(e){return null;}
+  // Finnhub options-chain is a paid endpoint — silently return cache to avoid 403 spam
+  return optionsCache[sym]||null;
 }
 function renderOptionsChainData(data){
   if(!data)return`<div style="color:#e0e0e0;font-size:10px;padding:4px 0;">No options chain data — add Finnhub key or run Sync</div>`;
@@ -5442,10 +5424,10 @@ initData();
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document.getElementById('upload-log-list'))renderUploadLog(); },500); });
 if(finnhubKey)setTimeout(fetchLiveAll,1000); // single boot fetch — subsequent updates via manual ↻ button
-if(finnhubKey)setTimeout(fetchVixQuote,1500); // fresh VIX quote on every load
+if(localStorage.getItem('sp_td'))setTimeout(fetchVixQuote,1500); // VIX via Twelve Data on load
 // Auto-poll removed: fetchLiveAll now manual-only to preserve Twelve Data credits
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
-setInterval(()=>{if(finnhubKey&&isMarketOpen())fetchVixQuote();},300000); // refresh VIX quote every 5 min
+setInterval(()=>{if(localStorage.getItem('sp_td')&&isMarketOpen())fetchVixQuote();},300000); // refresh VIX every 5 min via Twelve Data
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load TradingView widget library — used for the market chart only
 (function(){
