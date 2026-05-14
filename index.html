@@ -450,7 +450,7 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: MORNING BRIEF ============ -->
 <div id="page-morning" class="page active">
   <div id="risk-banner" class="risk-banner"></div>
-  <div class="g4" style="margin-bottom:14px;">
+  <div class="g3" style="margin-bottom:14px;">
     <div class="stat-box">
       <div class="stat-lbl">S&P 500</div>
       <div class="stat-val up" id="sp-val">—</div>
@@ -475,31 +475,13 @@ select option{background:var(--bg2);}
 
   <div class="g-main">
     <div style="display:flex;flex-direction:column;gap:14px;">
-      <div class="card" style="display:none;">
-        <div class="card-hd">
-          <span class="card-title">VIX Fear Gauge</span>
-          <span id="vix-last-update" style="font-size:9px;color:#ffffff;">—</span>
+      <div class="card" id="brief-top-flow" style="padding:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div style="font-size:11px;letter-spacing:2px;color:#8090a0;">TODAY'S TOP FLOW · OMEN</div>
+          <div style="font-size:10px;color:#8090a0;" id="brief-top-flow-date"></div>
         </div>
-        <div class="vix-num" id="vix-big">—</div>
-        <div class="vix-reg" id="vix-regime">—</div>
-        <div class="vix-bar"><div class="vix-pin" id="vix-pin" style="left:50%"></div></div>
-        <div class="vix-sc"><span>0</span><span>15</span><span>25</span><span>35</span><span>50+</span></div>
-        <div style="margin-top:14px;">
-          <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;flex-wrap:wrap;">
-            <span style="font-size:9px;color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;margin-right:4px;">VIX</span>
-            <button class="vix-tfbtn" onclick="setVixTf('1',this)">1MIN</button>
-            <button class="vix-tfbtn" onclick="setVixTf('5',this)">5MIN</button>
-            <button class="vix-tfbtn" onclick="setVixTf('15',this)">15MIN</button>
-            <button class="vix-tfbtn" onclick="setVixTf('60',this)">1HR</button>
-            <button class="vix-tfbtn active" onclick="setVixTf('D',this)">1DAY</button>
-            <button class="vix-tfbtn" onclick="setVixTf('W',this)">1WK</button>
-          </div>
-          <div style="position:relative;height:200px;margin-top:8px;"><canvas id="vix-chart"></canvas></div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-            <span id="vix-candle-updated" style="font-size:9px;color:#888;">—</span>
-            <a href="https://www.tradingview.com/chart/?symbol=VIX" target="_blank" rel="noopener"
-               style="font-size:9px;color:var(--cyan);text-decoration:none;letter-spacing:0.5px;font-family:var(--font);">View on TradingView →</a>
-          </div>
+        <div id="brief-top-flow-list" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="color:#8090a0;font-size:11px;">Loading…</div>
         </div>
       </div>
       <div class="card">
@@ -1405,6 +1387,7 @@ function initData(){
   yieldFn(()=>renderMoverLists());
   yieldFn(()=>renderWatchlist());
   yieldFn(()=>renderMorningPicks());
+  yieldFn(()=>renderBriefTopFlow());
   yieldFn(()=>renderAlertsMini());
   yieldFn(()=>renderHistory());
   yieldFn(()=>updateStatusCounts());
@@ -3392,13 +3375,18 @@ function hideOFTickerDropdown(){
   if(drop)drop.style.display='none';
 }
 
+let _ofSearchDebounce=null;
 function onOFTickerSearch(e){
-  _ofTickerFilter=(e.target.value||'').toUpperCase().trim();
-  const clr=document.getElementById('of-ticker-clear');
-  if(clr)clr.style.display=_ofTickerFilter?'inline-block':'none';
-  showOFTickerDropdown();
-  renderFlowBody();
-  renderFlowStats();
+  const v=(e.target.value||'').toUpperCase().trim();
+  clearTimeout(_ofSearchDebounce);
+  _ofSearchDebounce=setTimeout(()=>{
+    _ofTickerFilter=v;
+    const clr=document.getElementById('of-ticker-clear');
+    if(clr)clr.style.display=_ofTickerFilter?'inline-block':'none';
+    showOFTickerDropdown();
+    renderFlowBody();
+    renderFlowStats();
+  },250);
 }
 
 function selectOFTicker(t){
@@ -3728,6 +3716,46 @@ function renderPredictions(){
     const canvas=document.getElementById('pred-spd-'+i);
     if(canvas) drawSpeedometer(canvas, gaugePct);
   });
+}
+
+async function renderBriefTopFlow(){
+  const el=document.getElementById('brief-top-flow-list');
+  const dateEl=document.getElementById('brief-top-flow-date');
+  if(!el)return;
+  const supa=getSupabase();
+  if(!supa){el.innerHTML='<div style="color:#8090a0;font-size:11px;">No data source</div>';return;}
+  try{
+    const{data:latestRows}=await supa.from('omen_daily_summary').select('trading_date').order('trading_date',{ascending:false}).limit(1);
+    if(!latestRows?.length){el.innerHTML='<div style="color:#8090a0;font-size:11px;">Upload OMEN CSVs to see flow</div>';return;}
+    const latestDate=latestRows[0].trading_date;
+    if(dateEl)dateEl.textContent=latestDate;
+    const{data}=await supa.from('omen_daily_summary').select('symbol,call_premium,put_premium').eq('trading_date',latestDate);
+    if(!data?.length){el.innerHTML='<div style="color:#8090a0;font-size:11px;">No flow this day</div>';return;}
+    const enriched=data.map(r=>{
+      const callP=parseFloat(r.call_premium)||0;
+      const putP=parseFloat(r.put_premium)||0;
+      const total=callP+putP;
+      const sentiment=total>0?((callP-putP)/total)*100:0;
+      return{symbol:r.symbol,total,sentiment};
+    });
+    enriched.sort((a,b)=>b.total-a.total);
+    el.innerHTML=enriched.slice(0,5).map((r,i)=>{
+      const isBull=r.sentiment>0;
+      const color=isBull?'#3ddc97':'#ff6b6b';
+      const totalFmt=r.total>=1e6?'$'+(r.total/1e6).toFixed(1)+'M':'$'+(r.total/1e3).toFixed(0)+'k';
+      return`<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="color:#8090a0;width:14px;">#${i+1}</span>
+          <span style="font-weight:600;color:#fff;width:60px;">${r.symbol}</span>
+          <span style="color:${color};font-size:10px;">${isBull?'▲':'▼'} ${Math.abs(r.sentiment).toFixed(0)}%</span>
+        </div>
+        <span style="color:#c0c8d0;font-weight:600;">${totalFmt}</span>
+      </div>`;
+    }).join('');
+  }catch(e){
+    console.warn('[brief-top-flow] failed:',e);
+    el.innerHTML='<div style="color:#8090a0;font-size:11px;">Error loading</div>';
+  }
 }
 
 function renderMorningPicks(){
@@ -4219,36 +4247,41 @@ async function fetchLiveAll(force){
   // Mark only un-seen tickers as loading; tickers with existing data keep showing last value
   tickerList.forEach(sym=>{if(!liveData[sym])liveData[sym]={p:null,dp:null,d:null,t:null,loading:true};});
   if(typeof renderTape==='function')renderTape();
-  for(const sym of tickerList){
+  for(let i=0;i<tickerList.length;i++){
+    const sym=tickerList[i];
     const cached=_fhCache.get(sym);
     if(cached&&(Date.now()-cached.fetchedAt)<FH_CACHE_TTL_MS){
-      // Cache hit — make sure loading flag is cleared from liveData
       if(liveData[sym]&&liveData[sym].loading){
         liveData[sym]={p:cached.c,dp:cached.dp||0,d:cached.d||0,t:cached.t||0,loading:false};
       }
-      continue;
-    }
-    try{
-      const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey);
-      const d=await r.json();
-      if(d.c&&d.c!==0){
-        // Good quote
-        const quote={c:d.c,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now()};
-        _fhCache.set(sym,quote);
-        liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0,t:d.t||0,loading:false};
-        recordPriceSnapshot(sym,d.c);
-      }else{
-        // After-hours or unknown symbol — keep previous value, clear loading
+    }else{
+      try{
+        const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey);
+        const d=await r.json();
+        if(d.c&&d.c!==0){
+          const quote={c:d.c,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now()};
+          _fhCache.set(sym,quote);
+          liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0,t:d.t||0,loading:false};
+          recordPriceSnapshot(sym,d.c);
+        }else{
+          const prev=liveData[sym]||{};
+          liveData[sym]={p:prev.p||null,dp:prev.dp||null,d:prev.d||null,t:prev.t||null,loading:false,stale:true};
+        }
+      }catch(e){
+        console.warn('[FH]',sym,'fetch failed:',e.message);
         const prev=liveData[sym]||{};
-        liveData[sym]={p:prev.p||null,dp:prev.dp||null,d:prev.d||null,t:prev.t||null,loading:false,stale:true};
+        liveData[sym]={...prev,loading:false,error:true};
       }
-    }catch(e){
-      console.warn('[FH]',sym,'fetch failed:',e.message);
-      const prev=liveData[sym]||{};
-      liveData[sym]={...prev,loading:false,error:true};
+      await sleep(1100);
     }
-    await sleep(1100); // ~54/min — stays under Finnhub free-tier 60/min cap
+    // Progressive render every 10 tickers so MSTR/MARA appear as they come in
+    if((i+1)%10===0||i===tickerList.length-1){
+      console.log('[fetchLiveAll] progress:',(i+1),'/',tickerList.length);
+      renderTape();renderWatchlist();renderMoverLists();
+      if(typeof updateStatBoxes==='function')updateStatBoxes();
+    }
   }
+  console.log('[fetchLiveAll] COMPLETE — fetched',tickerList.length,'tickers');
   renderWatchlist();renderMoverLists();renderTape();
   if(typeof updateStatBoxes==='function')updateStatBoxes();
   document.getElementById('st-refresh').textContent=new Date().toLocaleTimeString();
@@ -5505,6 +5538,11 @@ function renderFlowPredictor(){
         </table>
       </div>
     </div>`;
+  // Restore search input focus after re-render (innerHTML wipes the DOM node)
+  if(_predSearchTicker){
+    const srch=document.getElementById('pred-ticker-search');
+    if(srch){srch.value=_predSearchTicker;srch.focus();const l=srch.value.length;srch.setSelectionRange(l,l);}
+  }
 }
 
 function setPredTimeframe(tf){
@@ -5517,10 +5555,14 @@ function setPredLabelMode(m){
   renderFlowPredictor();
 }
 
+let _predSearchDebounce=null;
 function onPredTickerSearch(e){
   const v=(e.target.value||'').trim().toUpperCase();
-  _predSearchTicker=v.length>=1?v:null;
-  renderFlowPredictor();
+  clearTimeout(_predSearchDebounce);
+  _predSearchDebounce=setTimeout(()=>{
+    _predSearchTicker=v.length>=1?v:null;
+    renderFlowPredictor();
+  },250);
 }
 
 function manualRefreshCarousel(){
