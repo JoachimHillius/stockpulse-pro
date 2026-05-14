@@ -1513,28 +1513,72 @@ function setRiskBanner(v){
   else{b.style.background='rgba(255,61,90,0.15)';b.style.color='var(--red)';b.style.border='1px solid rgba(255,61,90,0.4)';b.textContent='🚨 EXTREME PANIC (VIX '+v.toFixed(1)+') — Reduce size significantly. Mean-reversion plays only.';}
 }
 
-// Fetch fresh VIX quote from Finnhub — free tier supports /quote for VIX
+// Fetch live VIX — tries TradingView → Twelve Data → Yahoo in order
 async function fetchVixQuote(){
-  // Use Twelve Data for VIX — Finnhub returns yesterday's close for VIX (non-equity symbol)
-  const td=localStorage.getItem('sp_td');
-  if(!td){console.log('[VIX] No Twelve Data key — skipping VIX fetch');return;}
+  let vix=null;
+
+  // Source 1: TradingView public scanner (free, no key)
   try{
-    const r=await fetch('https://api.twelvedata.com/quote?symbol=VIX&apikey='+td);
-    const d=await r.json();
-    console.log('[VIX] response:', d);
-    if(d.code===429){console.warn('[VIX] daily cap hit — using cached value');return null;}
-    if(d.code){console.warn('[VIX] error:',d.code,d.message);return null;}
-    if(d&&d.close&&parseFloat(d.close)>0){
-      updateVix(parseFloat(d.close));
-      const sub=document.getElementById('vix-sub');
-      if(sub){
-        const pct=parseFloat(d.percent_change||0);
-        const clr=parseFloat(d.close)>20?'#ff3d5a':parseFloat(d.close)>15?'#ffb020':'#00e5b0';
-        sub.textContent=(pct>=0?'+':'')+pct.toFixed(2)+'%  Live';
-        sub.style.color=clr;
+    const r=await fetch('https://scanner.tradingview.com/symbol?symbol=TVC%3AVIX&fields=lp,ch,chp,update_mode,update_time',{headers:{'Accept':'application/json'}});
+    if(r.ok){
+      const d=await r.json();
+      if(d.lp){
+        console.log('[VIX] TradingView source:',d);
+        vix={value:parseFloat(d.lp),change:parseFloat(d.ch||0),percent_change:parseFloat(d.chp||0),timestamp:d.update_time||Math.floor(Date.now()/1000),source:'tradingview'};
       }
     }
-  }catch(e){console.warn('[VIX] Twelve Data fetch failed:',e.message);}
+  }catch(e){console.warn('[VIX] TradingView fetch failed:',e.message);}
+
+  // Source 2: Twelve Data
+  if(!vix){
+    const td=localStorage.getItem('sp_td');
+    if(td){
+      try{
+        const r=await fetch('https://api.twelvedata.com/quote?symbol=VIX&apikey='+td);
+        const d=await r.json();
+        console.log('[VIX] TD response:',d);
+        if(d.code===429||d.code===401){console.warn('[VIX] TD daily cap hit:',d.message);}
+        else if(d.close){vix={value:parseFloat(d.close),change:parseFloat(d.change||0),percent_change:parseFloat(d.percent_change||0),timestamp:d.timestamp||Math.floor(Date.now()/1000),source:'twelvedata'};}
+      }catch(e){console.warn('[VIX] TD fetch failed:',e.message);}
+    }
+  }
+
+  // Source 3: Yahoo Finance
+  if(!vix){
+    try{
+      const r=await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?range=1d&interval=1m');
+      if(r.ok){
+        const d=await r.json();
+        const result=d?.chart?.result?.[0];
+        if(result?.meta?.regularMarketPrice){
+          const m=result.meta;
+          vix={value:parseFloat(m.regularMarketPrice),change:parseFloat(m.regularMarketPrice-m.previousClose),percent_change:parseFloat(((m.regularMarketPrice-m.previousClose)/m.previousClose)*100),timestamp:m.regularMarketTime||Math.floor(Date.now()/1000),source:'yahoo'};
+        }
+      }
+    }catch(e){console.warn('[VIX] Yahoo fetch failed:',e.message);}
+  }
+
+  if(!vix){console.warn('[VIX] All sources failed');return null;}
+
+  // Update DOM
+  updateVix(vix.value);
+  const sub=document.getElementById('vix-sub');
+  if(sub){
+    const clr=vix.value>20?'#ff3d5a':vix.value>15?'#ffb020':'#00e5b0';
+    sub.textContent=(vix.percent_change>=0?'+':'')+vix.percent_change.toFixed(2)+'%  Live';
+    sub.style.color=clr;
+  }
+  // Small source indicator beside the VIX card value
+  let sourceEl=document.getElementById('vix-source');
+  if(!sourceEl){
+    sourceEl=document.createElement('span');
+    sourceEl.id='vix-source';
+    sourceEl.style.cssText='font-size:9px;color:#8090a0;margin-left:6px;';
+    const vixEl=document.getElementById('vix-val');
+    if(vixEl&&vixEl.parentNode)vixEl.parentNode.appendChild(sourceEl);
+  }
+  sourceEl.textContent='via '+vix.source;
+  return vix;
 }
 
 // ============================================================
