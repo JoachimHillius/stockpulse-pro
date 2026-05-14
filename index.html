@@ -466,7 +466,7 @@ select option{background:var(--bg2);}
       <div class="stat-val" id="iwm-val">—</div>
       <div class="stat-sub dn" id="iwm-chg">—</div>
     </div>
-    <div class="stat-box">
+    <div class="stat-box" style="display:none;">
       <div class="stat-lbl">VIX Fear Index</div>
       <div class="stat-val" id="vix-val" style="color:var(--amber)">—</div>
       <div class="stat-sub" id="vix-sub" style="color:var(--amber)">—</div>
@@ -475,7 +475,7 @@ select option{background:var(--bg2);}
 
   <div class="g-main">
     <div style="display:flex;flex-direction:column;gap:14px;">
-      <div class="card">
+      <div class="card" style="display:none;">
         <div class="card-hd">
           <span class="card-title">VIX Fear Gauge</span>
           <span id="vix-last-update" style="font-size:9px;color:#ffffff;">—</span>
@@ -1421,8 +1421,8 @@ function initCharts(){
   // Called when TradingView tv.js loads — market chart only
   console.log('[TV] TradingView loaded — creating market widget');
   _createMktWidget(_mktSym||'SPY', _tvMktInterval);
-  // VIX chart uses Chart.js (loaded separately); VIX quote via Finnhub
-  if(finnhubKey) fetchVixQuote();
+  // VIX hidden (Step 30 — no reliable free real-time source)
+  // if(finnhubKey) fetchVixQuote();
 }
 // keep legacy name in case anything calls it
 function init(){ initData(); }
@@ -4005,7 +4005,7 @@ async function loadTdKeyFromSupabase(){
       console.log('[Settings] Twelve Data key restored from Supabase');
       renderMktChart('1D');
       fetchVixCandles();
-      fetchVixQuote();
+      // fetchVixQuote(); // Step 30: VIX hidden
     }
   }catch(e){
     console.warn('[Settings] Could not load TD key from Supabase:', e);
@@ -4076,10 +4076,9 @@ function saveKey(type){
     saveTdKeyToSupabase(k);
     const ks = document.getElementById('key-status');
     if(ks){ ks.textContent = '✓ Twelve Data key saved & backed up to cloud'; ks.style.color = 'var(--green)'; }
-    // Render chart and VIX immediately with new key
     renderMktChart('1D');
     fetchVixCandles();
-    fetchVixQuote();
+    // fetchVixQuote(); // Step 30: VIX hidden
   }else if(type==='av'){
     const k = document.getElementById('s-av').value.trim();
     if(!k || k.includes('•')) return;
@@ -5442,7 +5441,7 @@ async function refreshFlowPredictor(){
   await loadPredictorData();
   renderFlowPredictor();
   setRefreshed('flow_predictor');
-  if(typeof fetchVixQuote==='function')await fetchVixQuote();
+  // if(typeof fetchVixQuote==='function')await fetchVixQuote(); // Step 30: VIX hidden
   console.log('[Predictor] Manual refresh complete');
 }
 
@@ -5492,10 +5491,10 @@ initData();
 document.addEventListener('DOMContentLoaded', _initPosPanel);
 document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ if(document.getElementById('upload-log-list'))renderUploadLog(); },500); });
 if(finnhubKey)setTimeout(fetchLiveAll,1000); // single boot fetch — subsequent updates via manual ↻ button
-if(localStorage.getItem('sp_td'))setTimeout(fetchVixQuote,1500); // VIX via Twelve Data on load
+// if(localStorage.getItem('sp_td'))setTimeout(fetchVixQuote,1500); // Step 30: VIX hidden
 // Auto-poll removed: fetchLiveAll now manual-only to preserve Twelve Data credits
 setInterval(()=>{if(tdKey)fetchVixCandles();},300000);
-setInterval(()=>{if(localStorage.getItem('sp_td')&&isMarketOpen())fetchVixQuote();},300000); // refresh VIX every 5 min via Twelve Data
+// setInterval(()=>{...fetchVixQuote...},300000); // Step 30: VIX hidden
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.toast').forEach(t=>t.remove());});
 // Load TradingView widget library — used for the market chart only
 (function(){
