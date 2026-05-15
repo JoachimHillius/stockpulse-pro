@@ -5556,7 +5556,7 @@ function renderHistoryStrip(symbol,dates){
   const el=document.getElementById('pred-history-strip');
   if(!el)return;
   if(!symbol){
-    el.innerHTML='<span style="color:#5a708a;font-size:11px;letter-spacing:0.5px;">▸ Hover a row to see that ticker\'s per-day call/put bias</span>';
+    el.innerHTML="<span style='color:#5a708a;font-size:11px;letter-spacing:0.5px;'>▸ Hover a row to see that ticker's per-day call/put bias</span>";
     return;
   }
   const bias=getTickerDayBias(symbol,dates);
