@@ -4353,6 +4353,32 @@ async function getSupabaseAsync(){
   return _supa;
 }
 
+// Step 49: header VIX from DB
+async function loadHeaderVixFromDb(){
+  const supa=await getSupabaseAsync();
+  if(!supa)return;
+  try{
+    const{data,error}=await supa.from('price_history')
+      .select('trading_date,close')
+      .eq('symbol','VIX')
+      .order('trading_date',{ascending:false})
+      .limit(1);
+    if(error)throw error;
+    const row=(data||[])[0];
+    if(!row)return;
+    const v=parseFloat(row.close);
+    if(isNaN(v))return;
+    const hdrVix=document.getElementById('hdr-vix');
+    if(!hdrVix)return;
+    hdrVix.textContent='VIX '+v.toFixed(1);
+    const clr=v<20?'#00e5b0':v<28?'#ffb020':'#ff3d5a';
+    hdrVix.style.background=v<20?'rgba(0,229,176,0.12)':v<28?'rgba(255,176,32,0.12)':'rgba(255,61,90,0.12)';
+    hdrVix.style.color=clr;
+    hdrVix.title='VIX close '+row.trading_date+' (from DB)';
+    console.log('[hdr-vix] set from DB:',v,'on',row.trading_date);
+  }catch(e){console.warn('[hdr-vix] load failed:',e);}
+}
+
 // Step 48: SPY 20-day trend loader and mini-chart
 let _spyTrendData = [];
 
@@ -5884,6 +5910,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     loadTdKeyFromSupabase();
     loadAnthropicKeyFromSupabase();
     renderBriefTopFlow();  // Re-fire the Top Flow card now that DB is ready
+    loadHeaderVixFromDb();
     loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); });
   };
   s.onerror=function(){
