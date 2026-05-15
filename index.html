@@ -14,6 +14,7 @@
   --purple:#9d7dea;--cyan:#00d4ff;--pink:#ff4d9d;
   --font:'JetBrains Mono',monospace;
 }
+#market-chart-card { background: #0f4b6d !important; }
 body.light-mode {
   --bg:#f0f2f7;--bg2:#ffffff;--bg3:#e8ecf4;--bg4:#dde3ef;
   --border:rgba(0,0,0,0.08);--border2:rgba(0,0,0,0.15);
@@ -522,7 +523,7 @@ select option{background:var(--bg2);}
     </div>
   </div>
   <!-- Market Chart full-width below -->
-  <div class="card" style="margin-top:14px;">
+  <div class="card" id="market-chart-card" style="margin-top:14px;">
     <div class="card-hd">
       <div>
         <span class="card-title" id="mkt-chart-title">Market Chart — SPY</span>
@@ -4806,7 +4807,7 @@ function _createMktWidget(sym, tvInterval){
     theme:             'dark',
     style:             '1',
     locale:            'en',
-    toolbar_bg:        '#0a1628',
+    toolbar_bg:        '#0f4b6d',
     enable_publishing: false,
     hide_top_toolbar:  false,
     save_image:        false,
