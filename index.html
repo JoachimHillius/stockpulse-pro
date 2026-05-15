@@ -4353,6 +4353,25 @@ async function getSupabaseAsync(){
   return _supa;
 }
 
+// Step 46: top contracts loader
+async function loadTopContracts(tradingDate){
+  if(!tradingDate)return;
+  const supa=await getSupabaseAsync();
+  if(!supa)return;
+  try{
+    const{data,error}=await supa.rpc('get_top_contracts',{p_date:tradingDate});
+    if(error)throw error;
+    const map={};
+    (data||[]).forEach(row=>{
+      if(!map[row.symbol])map[row.symbol]={Call:[],Put:[]};
+      if(!map[row.symbol][row.cp])map[row.symbol][row.cp]=[];
+      map[row.symbol][row.cp].push(row);
+    });
+    _topContractsByTicker=map;
+    console.log('[topContracts] loaded',Object.keys(map).length,'tickers for',tradingDate);
+  }catch(e){console.warn('[topContracts] load failed:',e);}
+}
+
 // Step 39: user_watchlist helpers
 async function loadUserWatchlist(){
   const supa=await getSupabaseAsync();
@@ -5236,6 +5255,7 @@ const PRED_STRONG=70;
 const PRED_MOMENTUM_BAND=15;
 let _predData=null;
 let _predTimeframe='D';
+let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
 let _predLabelMode='both';
 let _predSearchTicker=null;
 
@@ -5263,6 +5283,8 @@ async function loadPredictorData(){
     _predData=all;
     console.log('[Predictor] Loaded',_predData.length,'daily summaries total');
     try{setRefreshed('flow_predictor');}catch(e){}
+    const latestDate=all.length?[...all].sort((a,b)=>b.trading_date.localeCompare(a.trading_date))[0].trading_date:null;
+    await loadTopContracts(latestDate);
     return _predData;
   }catch(e){
     console.error('[Predictor] Load failed:',e);
@@ -5412,6 +5434,50 @@ function fmtSent(s){
   return sign+s.toFixed(1)+'%';
 }
 
+function fmtExpiry(expStr){
+  if(!expStr)return'';
+  const m=String(expStr).match(/(\d{1,2})\/(\d{1,2})/);
+  return m?`${parseInt(m[1])}/${parseInt(m[2])}`:expStr;
+}
+function dayBiasNote(dateStr){
+  try{
+    const d=new Date(dateStr+'T12:00:00');
+    const dow=d.getDay();
+    if(dow===1||dow===2)return'Call';
+    if(dow===3)return'Mixed';
+    if(dow===4)return'Put';
+    if(dow===5)return'Mixed';
+    return'';
+  }catch(e){return'';}
+}
+function dayBiasColor(label){
+  if(label==='Call')return'#7fd0a8';
+  if(label==='Put')return'#d97f8a';
+  if(label==='Mixed')return'#d4b070';
+  return'#8090a0';
+}
+function renderTopContractCell(symbol,direction,idx){
+  const data=_topContractsByTicker[symbol];
+  if(!data)return'<td style="padding:6px;text-align:center;color:#5060a0;font-size:10px;">—</td>';
+  let pool=[];
+  if(direction==='UP'){
+    pool=data.Call||[];
+  }else if(direction==='DOWN'){
+    pool=data.Put||[];
+  }else{
+    pool=[...(data.Call||[]),...(data.Put||[])].sort((a,b)=>(b.premium_dollars||0)-(a.premium_dollars||0));
+  }
+  const item=pool[idx];
+  if(!item)return'<td style="padding:6px;text-align:center;color:#5060a0;font-size:10px;">—</td>';
+  const isCall=item.cp==='Call';
+  const typeColor=isCall?'#7fd0a8':'#d97f8a';
+  const strikeStr=`$${parseFloat(item.strike).toFixed(parseFloat(item.strike)%1===0?0:1)}`;
+  return`<td style="padding:6px 8px;text-align:center;background:#0d1830;line-height:1.3;">
+    <div style="font-size:12px;font-weight:700;color:${typeColor};">${strikeStr} ${isCall?'C':'P'}</div>
+    <div style="font-size:9px;color:#8090a0;margin-top:2px;">Exp ${fmtExpiry(item.expiry)}</div>
+  </td>`;
+}
+
 function fmtDateHeader(dateStr){
   if(!dateStr)return'—';
   const d=new Date(dateStr+'T00:00:00');
@@ -5455,7 +5521,10 @@ function renderPredRow(r,rank,dates){
     <td style="padding:6px;text-align:right;color:${sentColor(r.todaySent)};">${r.hasToday?fmtSent(r.todaySent):'—'}</td>
     <td style="padding:6px;text-align:right;color:#a0c4e8;">${fmtMoney(r.cumTotal)}</td>
     <td style="padding:6px;text-align:right;color:${sentColor(r.cumSent)};">${fmtSent(r.cumSent)}</td>
-    <td style="position:sticky;right:0;background:var(--bg);padding:6px;text-align:center;z-index:1;">${dirHTML}${confHTML}</td>
+    <td style="background:var(--bg);padding:6px;text-align:center;">${dirHTML}${confHTML}</td>
+    ${renderTopContractCell(r.symbol,dir,0)}
+    ${renderTopContractCell(r.symbol,dir,1)}
+    ${renderTopContractCell(r.symbol,dir,2)}
     ${dates.map((d,i)=>{
       const p=r.prices.find(x=>x.date===d);
       const bg=i%2===0?'#0a0a14':'#101020';
@@ -5475,7 +5544,7 @@ function renderFlowPredictor(){
   }
   const tfStats=predComputeTimeframeStats();
   const tfLabel=_predTimeframe==='D'?'Today':_predTimeframe==='W'?'This Week':_predTimeframe==='M'?'This Month':'This Year';
-  const colCount=8+dates.length*2;
+  const colCount=11+dates.length*2;   // +3 for top contract columns
   root.innerHTML=`
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
@@ -5528,14 +5597,22 @@ function renderFlowPredictor(){
               <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">Today Sent</th>
               <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">Cumul $</th>
               <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">Cumul Sent</th>
-              <th style="position:sticky;right:0;background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;z-index:2;min-width:80px;">Direction</th>
-              ${dates.map((d,i)=>`<th colspan="2" style="padding:6px;text-align:center;background:${i%2===0?'#181828':'#222236'};font-size:10px;color:#a0a8c0;">${fmtDateHeader(d)}</th>`).join('')}
+              <th style="background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;min-width:80px;">Direction</th>
+              <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #1</th>
+              <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #2</th>
+              <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #3</th>
+              ${dates.map((d,i)=>{
+                const bias=dayBiasNote(d);
+                const biasHTML=bias?`<div style="font-size:9px;color:${dayBiasColor(bias)};font-weight:600;margin-top:2px;">${bias} Bias</div>`:'';
+                return`<th colspan="2" style="padding:6px;text-align:center;background:${i%2===0?'#181828':'#222236'};font-size:10px;color:#a0a8c0;">${fmtDateHeader(d)}${biasHTML}</th>`;
+              }).join('')}
             </tr>
             <tr style="background:var(--bg3);font-size:10px;">
               <th style="position:sticky;left:0;background:var(--bg3);z-index:2;"></th>
               <th style="position:sticky;left:30px;background:var(--bg3);z-index:2;"></th>
               <th colspan="5"></th>
-              <th style="position:sticky;right:0;background:#0a3020;z-index:2;"></th>
+              <th style="background:#0a3020;"></th>
+              <th colspan="3" style="background:#15243a;"></th>
               ${dates.map((d,i)=>`<th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Open</th><th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Close</th>`).join('')}
             </tr>
           </thead>
