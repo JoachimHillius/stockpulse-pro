@@ -4811,7 +4811,17 @@ function _createMktWidget(sym, tvInterval){
     enable_publishing: false,
     hide_top_toolbar:  false,
     save_image:        false,
-    container_id:      'tradingview-market'
+    container_id:      'tradingview-market',
+    backgroundColor:   '#0f4b6d',
+    gridColor:         'rgba(255,255,255,0.06)',
+    loading_screen:    { backgroundColor: '#0f4b6d', foregroundColor: '#0f4b6d' },
+    overrides: {
+      'paneProperties.background':     '#0f4b6d',
+      'paneProperties.backgroundType': 'solid',
+      'paneProperties.vertGridProperties.color': 'rgba(255,255,255,0.06)',
+      'paneProperties.horzGridProperties.color': 'rgba(255,255,255,0.06)',
+      'scalesProperties.backgroundColor':        '#0f4b6d'
+    }
   });
   console.log('[TV] Market widget | sym:', sym, '| interval:', tvInterval);
   const titleEl = document.getElementById('mkt-chart-title');
