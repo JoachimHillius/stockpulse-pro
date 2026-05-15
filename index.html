@@ -4353,6 +4353,75 @@ async function getSupabaseAsync(){
   return _supa;
 }
 
+// Step 48: SPY 20-day trend loader and mini-chart
+let _spyTrendData = [];
+
+async function loadSpyTrend(){
+  const supa=await getSupabaseAsync();
+  if(!supa)return;
+  try{
+    const{data,error}=await supa.from('price_history')
+      .select('trading_date,open,high,low,close')
+      .eq('symbol','SPY')
+      .order('trading_date',{ascending:false})
+      .limit(20);
+    if(error)throw error;
+    _spyTrendData=(data||[]).slice().reverse();
+  }catch(e){console.warn('[spy_trend] load failed:',e);_spyTrendData=[];}
+}
+
+function renderSpyMiniChart(){
+  const data=_spyTrendData;
+  if(!data||!data.length){
+    return'<div style="color:#5060a0;font-size:11px;padding:14px;text-align:center;">SPY data loading…</div>';
+  }
+  const W=200,H=60;
+  const allPrices=data.flatMap(d=>[+d.high,+d.low]).filter(v=>!isNaN(v));
+  const min=Math.min(...allPrices);
+  const max=Math.max(...allPrices);
+  const range=(max-min)||1;
+  const pad=range*0.08;
+  const yMin=min-pad;
+  const yRange=(max-min)+2*pad;
+  const slot=W/data.length;
+  const candleW=slot*0.65;
+  const yScale=(p)=>H-((p-yMin)/yRange)*H;
+  const candles=data.map((d,i)=>{
+    const x=slot*i+(slot-candleW)/2;
+    const oY=yScale(+d.open);
+    const cY=yScale(+d.close);
+    const hY=yScale(+d.high);
+    const lY=yScale(+d.low);
+    const isUp=+d.close>=+d.open;
+    const color=isUp?'#7fd0a8':'#d97f8a';
+    const bodyTop=Math.min(oY,cY);
+    const bodyH=Math.max(1,Math.abs(cY-oY));
+    return`<line x1="${x+candleW/2}" y1="${hY}" x2="${x+candleW/2}" y2="${lY}" stroke="${color}" stroke-width="0.6" opacity="0.7"/>
+      <rect x="${x}" y="${bodyTop}" width="${candleW}" height="${bodyH}" fill="${color}"/>`;
+  }).join('');
+  const first=data[0];
+  const latest=data[data.length-1];
+  const totalChange=((+latest.close-+first.close)/+first.close)*100;
+  const changeColor=totalChange>=0?'#7fd0a8':'#d97f8a';
+  const arrow=totalChange>=0?'▲':'▼';
+  return`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <div>
+        <div style="font-size:10px;color:#8090a0;letter-spacing:1px;">SPY · 20D TREND</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);">$${(+latest.close).toFixed(2)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:13px;font-weight:700;color:${changeColor};">${arrow} ${totalChange>=0?'+':''}${totalChange.toFixed(2)}%</div>
+        <div style="font-size:9px;color:#5a708a;">${data.length}d</div>
+      </div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:60px;display:block;">${candles}</svg>
+    <div style="display:flex;justify-content:space-between;font-size:9px;color:#5a708a;margin-top:3px;">
+      <span>${fmtDateHeader(first.trading_date)}</span>
+      <span>${fmtDateHeader(latest.trading_date)}</span>
+    </div>`;
+}
+
 // Step 46: top contracts loader
 async function loadTopContracts(tradingDate){
   if(!tradingDate)return;
@@ -5286,6 +5355,7 @@ async function loadPredictorData(){
     try{setRefreshed('flow_predictor');}catch(e){}
     const latestDate=all.length?[...all].sort((a,b)=>b.trading_date.localeCompare(a.trading_date))[0].trading_date:null;
     await loadTopContracts(latestDate);
+    await loadSpyTrend();
     return _predData;
   }catch(e){
     console.error('[Predictor] Load failed:',e);
@@ -5604,21 +5674,26 @@ function renderFlowPredictor(){
           ${['D','W','M','Y'].map(tf=>`<button class="btn btn-sm" onclick="setPredTimeframe('${tf}')" style="${_predTimeframe===tf?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);">${tf}</button>`).join('')}
         </div>
       </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:10px;">
-        <div style="flex:1;min-width:260px;">
-          <div style="font-size:11px;color:#8090a0;margin-bottom:4px;">PIE SPLIT (% of premium)</div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <div style="flex:1;height:18px;background:var(--bg3);border-radius:3px;overflow:hidden;display:flex;">
-              <div style="background:var(--green);height:100%;width:${tfStats.pctCalls}%;"></div>
-              <div style="background:var(--red);height:100%;width:${100-tfStats.pctCalls}%;"></div>
+      <div style="display:flex;gap:16px;align-items:stretch;margin-top:10px;">
+        <div style="flex:2 1 0;min-width:0;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+          <div style="flex:1;min-width:260px;">
+            <div style="font-size:11px;color:#8090a0;margin-bottom:4px;">PIE SPLIT (% of premium)</div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="flex:1;height:18px;background:var(--bg3);border-radius:3px;overflow:hidden;display:flex;">
+                <div style="background:var(--green);height:100%;width:${tfStats.pctCalls}%;"></div>
+                <div style="background:var(--red);height:100%;width:${100-tfStats.pctCalls}%;"></div>
+              </div>
+              <span style="font-size:13px;font-weight:600;min-width:140px;">${tfStats.pctCalls.toFixed(0)}% calls · ${(100-tfStats.pctCalls).toFixed(0)}% puts</span>
             </div>
-            <span style="font-size:13px;font-weight:600;min-width:140px;">${tfStats.pctCalls.toFixed(0)}% calls · ${(100-tfStats.pctCalls).toFixed(0)}% puts</span>
+          </div>
+          <div onclick="alert('Sentiment math:\\n(Call ${fmtMoney(tfStats.callP)} - Put ${fmtMoney(tfStats.putP)}) / Total ${fmtMoney(tfStats.callP+tfStats.putP)} × 100 = ${tfStats.sentiment.toFixed(1)}%')" style="cursor:pointer;padding:8px 14px;background:${sentColor(tfStats.sentiment)}22;border:1px solid ${sentColor(tfStats.sentiment)};border-radius:6px;">
+            <div style="font-size:10px;color:#8090a0;letter-spacing:1px;">V3 SENTIMENT</div>
+            <div style="font-size:18px;font-weight:700;color:${sentColor(tfStats.sentiment)};">${fmtSent(tfStats.sentiment)}</div>
+            <div style="font-size:10px;color:#8090a0;">${predDirection(tfStats.sentiment)} · click for math</div>
           </div>
         </div>
-        <div onclick="alert('Sentiment math:\\n(Call ${fmtMoney(tfStats.callP)} - Put ${fmtMoney(tfStats.putP)}) / Total ${fmtMoney(tfStats.callP+tfStats.putP)} × 100 = ${tfStats.sentiment.toFixed(1)}%')" style="cursor:pointer;padding:8px 14px;background:${sentColor(tfStats.sentiment)}22;border:1px solid ${sentColor(tfStats.sentiment)};border-radius:6px;">
-          <div style="font-size:10px;color:#8090a0;letter-spacing:1px;">V3 SENTIMENT</div>
-          <div style="font-size:18px;font-weight:700;color:${sentColor(tfStats.sentiment)};">${fmtSent(tfStats.sentiment)}</div>
-          <div style="font-size:10px;color:#8090a0;">${predDirection(tfStats.sentiment)} · click for math</div>
+        <div style="flex:1 1 0;min-width:200px;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;">
+          ${renderSpyMiniChart()}
         </div>
       </div>
     </div>
