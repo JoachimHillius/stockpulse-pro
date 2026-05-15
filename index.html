@@ -2547,7 +2547,7 @@ function renderWatchlist(){
       const chain=optionsCache[sym];
       if(chain?.pcRatio!=null&&(chain.pcRatio<0.5||chain.pcRatio>1.5))
         dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C '+chain.pcRatio+'"></span>');
-      return`<div class="wl-dense-row" onclick="showTickerDetail('${sym}')">
+      return`<div class="wl-dense-row" onclick="showTickerDetail('${sym}')" onmouseenter="showHoverPopup('${sym}',this)" onmouseleave="hideHoverPopup()">
         <span class="wl-sym-cell">${sym}</span>
         <span class="wl-name-cell">${COMPANY_NAMES[sym]||sector}${customTickers.includes(sym)?`<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:6px;" title="Remove from watchlist">×</button>`:''}</span>
         <span class="wl-price-cell">${fmtPrice(sym,q.p)}</span>
