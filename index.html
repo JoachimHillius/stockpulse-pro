@@ -5256,6 +5256,7 @@ const PRED_MOMENTUM_BAND=15;
 let _predData=null;
 let _predTimeframe='D';
 let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
+let _predLastDates = [];
 let _predLabelMode='both';
 let _predSearchTicker=null;
 
@@ -5434,6 +5435,47 @@ function fmtSent(s){
   return sign+s.toFixed(1)+'%';
 }
 
+function getTickerDayBias(symbol,dates){
+  if(!Array.isArray(dates)||!symbol)return[];
+  const tickerRows=(_predData||[]).filter(r=>r.symbol===symbol);
+  const byDate={};
+  tickerRows.forEach(r=>{byDate[r.trading_date]=r;});
+  return dates.map(d=>{
+    const row=byDate[d];
+    if(!row)return{date:d,callP:0,putP:0,bias:'—',sent:null};
+    const c=+row.call_premium||0;
+    const p=+row.put_premium||0;
+    const total=c+p;
+    const sent=total>0?((c-p)/total)*100:null;
+    let bias='—';
+    if(c>p*1.5)bias='Call';
+    else if(p>c*1.5)bias='Put';
+    else if(total>0)bias='Mixed';
+    return{date:d,callP:c,putP:p,bias,sent};
+  });
+}
+function renderHistoryStrip(symbol,dates){
+  const el=document.getElementById('pred-history-strip');
+  if(!el)return;
+  if(!symbol){
+    el.innerHTML='<span style="color:#5a708a;font-size:11px;letter-spacing:0.5px;">▸ Hover a row to see that ticker\'s per-day call/put bias</span>';
+    return;
+  }
+  const bias=getTickerDayBias(symbol,dates);
+  const chips=bias.map(b=>{
+    const color=b.bias==='Call'?'#7fd0a8':b.bias==='Put'?'#d97f8a':b.bias==='Mixed'?'#d4b070':'#5060a0';
+    const bg=b.bias==='Call'?'rgba(127,208,168,0.12)':b.bias==='Put'?'rgba(217,127,138,0.12)':b.bias==='Mixed'?'rgba(212,176,112,0.12)':'rgba(80,96,160,0.08)';
+    const dollarTxt=b.bias==='Call'?fmtMoney(b.callP):b.bias==='Put'?fmtMoney(b.putP):b.bias==='Mixed'?`C ${fmtMoney(b.callP)} / P ${fmtMoney(b.putP)}`:'';
+    const day=fmtDateHeader(b.date).replace(/^(\w+)\s+(\w+)\s+(\d+)$/,'$1 $3');
+    return`<div style="display:inline-flex;flex-direction:column;align-items:center;background:${bg};border:1px solid ${color}44;border-radius:4px;padding:3px 8px;margin:0 3px;min-width:74px;">
+      <div style="font-size:9px;color:#8090a0;letter-spacing:0.4px;">${day}</div>
+      <div style="font-size:11px;font-weight:700;color:${color};">${b.bias}</div>
+      <div style="font-size:9px;color:#a0a8c0;">${dollarTxt}</div>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<span style="font-size:11px;font-weight:700;color:var(--cyan);margin-right:10px;letter-spacing:0.8px;">${symbol}</span>${chips}`;
+}
+
 function fmtExpiry(expStr){
   if(!expStr)return'';
   const m=String(expStr).match(/(\d{1,2})\/(\d{1,2})/);
@@ -5510,7 +5552,9 @@ function renderPredRow(r,rank,dates){
   const dirHTML=`<span style="background:${dirColor(dir)};color:#fff;padding:3px 8px;border-radius:3px;font-weight:700;font-size:10px;">${_predLabelMode==='numbers'?fmtSent(r.cumSent):_predLabelMode==='labels'?dir:dir+' '+fmtSent(r.cumSent)}</span>`;
   const confHTML=`<span style="display:inline-block;background:${confColor(conf)}33;color:${confColor(conf)};padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;margin-left:4px;">${conf}</span>`;
   const momHTML=mom==='—'?'':`<span style="display:block;font-size:9px;color:#8090a0;font-style:italic;margin-top:2px;">${mom}</span>`;
-  return`<tr style="border-bottom:1px solid #1a1a28;">
+  return`<tr style="border-bottom:1px solid #1a1a28;transition:background 0.1s;cursor:pointer;"
+    onmouseenter="this.style.background='rgba(0,212,255,0.08)';renderHistoryStrip('${r.symbol}',_predLastDates||[])"
+    onmouseleave="this.style.background=''">
     <td style="position:sticky;left:0;background:var(--bg);padding:6px;font-weight:600;color:#8090a0;z-index:1;">${rank}</td>
     <td style="position:sticky;left:30px;background:var(--bg);padding:6px;z-index:1;">
       <div style="font-weight:700;color:var(--text);">${r.symbol}${earningsBadge(r.earnings)}</div>
@@ -5538,6 +5582,7 @@ function renderFlowPredictor(){
   if(!root)return;
   const built=predBuildRows();
   const{dates,todayDate,top10,top5,searchRow}=built;
+  _predLastDates=dates;   // for hover history strip
   if(!dates.length){
     root.innerHTML='<div class="card" style="padding:40px;text-align:center;"><div style="font-size:48px;margin-bottom:16px;">🎯</div><div style="font-size:18px;font-weight:600;margin-bottom:8px;">No data yet</div><div style="font-size:13px;color:#c0c8d0;">Upload OMEN CSVs in the Options Flow tab to populate the predictor.</div></div>';
     return;
@@ -5585,6 +5630,9 @@ function renderFlowPredictor(){
           <span style="font-size:11px;color:#8090a0;">Labels:</span>
           ${['numbers','both','labels'].map(m=>`<button class="btn btn-sm" onclick="setPredLabelMode('${m}')" style="${_predLabelMode===m?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);text-transform:capitalize;">${m}</button>`).join('')}
         </div>
+      </div>
+      <div id="pred-history-strip" style="padding:8px 10px;background:rgba(13,24,48,0.6);border:1px solid rgba(255,255,255,0.05);border-radius:6px;margin-bottom:10px;min-height:46px;display:flex;align-items:center;flex-wrap:wrap;overflow-x:auto;">
+        <span style="color:#5a708a;font-size:11px;letter-spacing:0.5px;">▸ Hover a row to see that ticker's per-day call/put bias</span>
       </div>
       <div style="overflow-x:scroll;overflow-y:visible;width:100%;max-width:100%;-webkit-overflow-scrolling:touch;">
         <table style="border-collapse:collapse;font-size:11px;width:max-content;min-width:100%;">
