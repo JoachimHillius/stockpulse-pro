@@ -4370,7 +4370,9 @@ async function loadHeaderVixFromDb(){
     if(isNaN(v))return;
     const hdrVix=document.getElementById('hdr-vix');
     if(!hdrVix)return;
-    hdrVix.textContent='VIX '+v.toFixed(1);
+    const dateParts=row.trading_date.split('-');
+    const shortDate=dateParts.length===3?`${parseInt(dateParts[1])}/${parseInt(dateParts[2])}`:'';
+    hdrVix.innerHTML=`VIX ${v.toFixed(1)} <span style="font-size:9px;opacity:0.65;margin-left:3px;">${shortDate}</span>`;
     const clr=v<20?'#00e5b0':v<28?'#ffb020':'#ff3d5a';
     hdrVix.style.background=v<20?'rgba(0,229,176,0.12)':v<28?'rgba(255,176,32,0.12)':'rgba(255,61,90,0.12)';
     hdrVix.style.color=clr;
