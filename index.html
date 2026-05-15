@@ -4288,7 +4288,7 @@ function showHoverPopup(sym, triggerEl){
   content.innerHTML = html;
   popup.style.display = 'block';
 
-  // Position: prefer right side of the trigger card, fall back to left
+  // Position: prefer right side of the trigger; if trigger is too wide, anchor to right edge of viewport
   const rect    = triggerEl.getBoundingClientRect();
   const popW    = 480;
   const pad     = 14;
@@ -4296,7 +4296,7 @@ function showHoverPopup(sym, triggerEl){
   let top  = Math.max(8, rect.top - 60);
 
   if(left + popW > window.innerWidth - 8){
-    left = Math.max(8, rect.left - popW - pad);
+    left = window.innerWidth - popW - 20;
   }
   // Clamp vertically so it never goes below viewport
   const maxTop = window.innerHeight - 40;           // let CSS overflow handle the rest
