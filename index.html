@@ -195,8 +195,16 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .streak-box{background:var(--bg3);border-radius:3px;padding:5px 8px;}
 /* HOVER POPUP (Gainers/Losers) */
 #hover-popup{
-  display:none;position:fixed;z-index:600;
-  width:480px;max-height:82vh;overflow-y:auto;
+  display:none;
+  position:fixed !important;
+  right:16px !important;
+  bottom:16px !important;
+  left:auto !important;
+  top:auto !important;
+  z-index:9999 !important;
+  width:480px !important;
+  max-height:calc(100vh - 32px) !important;
+  overflow-y:auto;
   background:var(--bg2);border:1px solid var(--border2);
   border-radius:8px;padding:18px;
   box-shadow:0 12px 40px rgba(0,0,0,0.7);
