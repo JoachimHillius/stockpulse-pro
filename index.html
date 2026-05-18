@@ -4888,6 +4888,22 @@ async function saveFlowToSupabase(rows){
     if(error)throw error;
     totalInserted+=payload.length;
   }
+  // Auto-aggregate omen_daily_summary for each uploaded trading_date.
+  // Without this, the Flow Predictor doesn't see the new data until SQL is run by hand.
+  const uploadedDates = [...new Set(rows.map(r => r.trading_date).filter(Boolean))];
+  for(const d of uploadedDates){
+    try {
+      const {data, error: rpcErr} = await supa.rpc('rebuild_daily_summary_for_date', {p_date: d});
+      if(rpcErr) {
+        console.warn('[Supabase] aggregation RPC failed for', d, ':', rpcErr.message);
+      } else {
+        const result = (data && data[0]) || {};
+        console.log('[Supabase] Aggregated', d, '→', result.tickers_aggregated || 0, 'tickers,',
+          'C $' + Number(result.latest_call_premium||0).toLocaleString(),
+          'P $' + Number(result.latest_put_premium||0).toLocaleString());
+      }
+    } catch(e){ console.warn('[Supabase] aggregation error for', d, e); }
+  }
   console.log('[Supabase] Inserted',totalInserted,'rows total');
 }
 
@@ -5430,17 +5446,10 @@ function predMomentum(today,cum,hasToday,isFirst){
 }
 
 function pickVisibleDates(allDates){
-  if(!allDates.length)return[];
-  const todayDate=allDates[allDates.length-1];
-  const today=new Date(todayDate+'T00:00:00');
-  const dow=today.getDay();
-  const daysFromMon=(dow+6)%7;
-  const thisMon=new Date(today);
-  thisMon.setDate(today.getDate()-daysFromMon);
-  const priorMon=new Date(thisMon);
-  priorMon.setDate(thisMon.getDate()-7);
-  const priorMonStr=priorMon.toISOString().slice(0,10);
-  return allDates.filter(d=>d>=priorMonStr);
+  // Always show the 7 most-recent trading days, ascending order (latest on the right)
+  if(!allDates.length) return [];
+  const sorted = [...allDates].sort();
+  return sorted.slice(-7);
 }
 
 function predBuildRows(){
