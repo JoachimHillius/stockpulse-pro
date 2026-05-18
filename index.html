@@ -5780,8 +5780,8 @@ function renderPredRow(r,rank,dates){
   const confHTML=`<span style="display:inline-block;background:${confColor(conf)}33;color:${confColor(conf)};padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;margin-left:4px;">${conf}</span>`;
   const momHTML=mom==='—'?'':`<span style="display:block;font-size:9px;color:#8090a0;font-style:italic;margin-top:2px;">${mom}</span>`;
   return`<tr style="border-bottom:1px solid #1a1a28;transition:background 0.1s;cursor:pointer;"
-    onmouseenter="this.style.background='rgba(0,212,255,0.08)';renderHistoryStrip('${r.symbol}',_predLastDates||[])"
-    onmouseleave="this.style.background=''">
+    onmouseenter="this.style.background='rgba(0,212,255,0.08)';renderHistoryStrip('${r.symbol}',_predLastDates||[]);showHoverPopup('${r.symbol}',this)"
+    onmouseleave="this.style.background='';hideHoverPopup()">
     <td style="position:sticky;left:0;background:var(--bg);padding:6px;font-weight:600;color:#8090a0;z-index:1;">${rank}</td>
     <td style="position:sticky;left:30px;background:var(--bg);padding:6px;z-index:1;">
       <div style="font-weight:700;color:var(--text);">${r.symbol}${earningsBadge(r.earnings)}</div>
