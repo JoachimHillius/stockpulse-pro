@@ -4400,32 +4400,41 @@ function showHoverPopup(sym, triggerEl){
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
   content.innerHTML = html;
-  popup.style.display = 'block';
 
   const rect = triggerEl.getBoundingClientRect();
   const popW = 480;
-  // Approximate popup height — volume profile section is ~250px, base popup ~480px
-  const popHEst = 760;
-  const pad = 14;
-  const margin = 12;  // viewport edge breathing room
+  const margin = 12;
 
-  // Horizontal: prefer right of trigger; if it overflows, anchor to viewport right edge
-  let left = rect.right + pad;
+  // Position off-screen first so browser lays out and we can measure real height
+  popup.style.maxHeight = '';
+  popup.style.overflowY = '';
+  popup.style.left = '-9999px';
+  popup.style.top = '0px';
+  popup.style.width = popW + 'px';
+  popup.style.display = 'block';
+
+  const actualH = popup.offsetHeight;
+
+  // Horizontal: prefer right of trigger; if it overflows, anchor to right edge
+  let left = rect.right + 14;
   if(left + popW > window.innerWidth - margin){
     left = window.innerWidth - popW - margin;
   }
   left = Math.max(margin, left);
 
-  // Vertical: try rect.top - 60 (matches old behavior), but clamp so bottom stays in viewport
-  let top = rect.top - 60;
-  if(top + popHEst > window.innerHeight - margin){
-    top = window.innerHeight - popHEst - margin;
-  }
-  top = Math.max(margin, top);
+  // Vertical: center popup on trigger row, then clamp to viewport
+  const triggerCenter = rect.top + rect.height / 2;
+  let top = triggerCenter - actualH / 2;
+  const maxTop = window.innerHeight - actualH - margin;
+  if(top > maxTop) top = maxTop;
+  if(top < margin) top = margin;
 
-  // Apply max-height + scroll as final safety net for small viewports
-  popup.style.maxHeight = (window.innerHeight - margin * 2) + 'px';
-  popup.style.overflowY = 'auto';
+  // If popup is genuinely taller than viewport, anchor top + scroll
+  if(actualH > window.innerHeight - margin * 2){
+    popup.style.maxHeight = (window.innerHeight - margin * 2) + 'px';
+    popup.style.overflowY = 'auto';
+    top = margin;
+  }
 
   popup.style.left = left + 'px';
   popup.style.top  = top  + 'px';
