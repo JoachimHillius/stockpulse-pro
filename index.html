@@ -4402,19 +4402,30 @@ function showHoverPopup(sym, triggerEl){
   content.innerHTML = html;
   popup.style.display = 'block';
 
-  // Position: prefer right side of the trigger; if trigger is too wide, anchor to right edge of viewport
-  const rect    = triggerEl.getBoundingClientRect();
-  const popW    = 480;
-  const pad     = 14;
-  let left = rect.right + pad;
-  let top  = Math.max(8, rect.top - 60);
+  const rect = triggerEl.getBoundingClientRect();
+  const popW = 480;
+  // Approximate popup height — volume profile section is ~250px, base popup ~480px
+  const popHEst = 760;
+  const pad = 14;
+  const margin = 12;  // viewport edge breathing room
 
-  if(left + popW > window.innerWidth - 8){
-    left = window.innerWidth - popW - 20;
+  // Horizontal: prefer right of trigger; if it overflows, anchor to viewport right edge
+  let left = rect.right + pad;
+  if(left + popW > window.innerWidth - margin){
+    left = window.innerWidth - popW - margin;
   }
-  // Clamp vertically so it never goes below viewport
-  const maxTop = window.innerHeight - 40;           // let CSS overflow handle the rest
-  top = Math.min(top, maxTop - 200);
+  left = Math.max(margin, left);
+
+  // Vertical: try rect.top - 60 (matches old behavior), but clamp so bottom stays in viewport
+  let top = rect.top - 60;
+  if(top + popHEst > window.innerHeight - margin){
+    top = window.innerHeight - popHEst - margin;
+  }
+  top = Math.max(margin, top);
+
+  // Apply max-height + scroll as final safety net for small viewports
+  popup.style.maxHeight = (window.innerHeight - margin * 2) + 'px';
+  popup.style.overflowY = 'auto';
 
   popup.style.left = left + 'px';
   popup.style.top  = top  + 'px';
