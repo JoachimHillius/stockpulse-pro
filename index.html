@@ -4401,43 +4401,20 @@ function showHoverPopup(sym, triggerEl){
   const {html, convScore} = buildTickerPopup(sym);
   content.innerHTML = html;
 
-  const rect = triggerEl.getBoundingClientRect();
+  // FIXED lower-right corner — never tracks the hovered row
   const popW = 480;
-  const margin = 12;
-
-  // Position off-screen first so browser lays out and we can measure real height
-  popup.style.maxHeight = '';
-  popup.style.overflowY = '';
-  popup.style.left = '-9999px';
-  popup.style.top = '0px';
-  popup.style.width = popW + 'px';
-  popup.style.display = 'block';
-
-  const actualH = popup.offsetHeight;
-
-  // Horizontal: prefer right of trigger; if it overflows, anchor to right edge
-  let left = rect.right + 14;
-  if(left + popW > window.innerWidth - margin){
-    left = window.innerWidth - popW - margin;
-  }
-  left = Math.max(margin, left);
-
-  // Vertical: center popup on trigger row, then clamp to viewport
-  const triggerCenter = rect.top + rect.height / 2;
-  let top = triggerCenter - actualH / 2;
-  const maxTop = window.innerHeight - actualH - margin;
-  if(top > maxTop) top = maxTop;
-  if(top < margin) top = margin;
-
-  // If popup is genuinely taller than viewport, anchor top + scroll
-  if(actualH > window.innerHeight - margin * 2){
-    popup.style.maxHeight = (window.innerHeight - margin * 2) + 'px';
-    popup.style.overflowY = 'auto';
-    top = margin;
-  }
-
-  popup.style.left = left + 'px';
-  popup.style.top  = top  + 'px';
+  const margin = 16;
+  popup.style.position  = 'fixed';
+  popup.style.width     = popW + 'px';
+  popup.style.maxHeight = (window.innerHeight - margin * 2) + 'px';
+  popup.style.overflowY = 'auto';
+  popup.style.overflowX = 'hidden';
+  popup.style.right     = margin + 'px';
+  popup.style.bottom    = margin + 'px';
+  popup.style.left      = 'auto';
+  popup.style.top       = 'auto';
+  popup.style.display   = 'block';
+  popup.style.zIndex    = '9999';
 
   // Draw speedometer after DOM is painted
   setTimeout(()=>{
