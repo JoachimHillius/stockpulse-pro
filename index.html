@@ -2797,6 +2797,8 @@ function buildTickerPopup(sym){
     ${convHtml}
     <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:14px 0 8px;">Options Chain ${finnhubKey?'':'<span style="color:#e0e0e0">(add Finnhub key)</span>'}</div>
     <div id="tm-chain-${sym}">${finnhubKey?'<div style="color:#e0e0e0;font-size:10px;">Loading…</div>':renderOptionsChainData(optionsCache[sym]||null)}</div>
+    <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:14px 0 8px;">Volume Profile</div>
+    <div id="vp-chart-${sym}" style="margin-top:6px;min-height:40px;"><div style="color:#5060a0;font-size:11px;padding:8px;">Loading volume profile…</div></div>
     <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:14px 0 8px;">Last 8 Quarters Earnings ${finnhubKey?'':'<span style="color:#e0e0e0">(add Finnhub key in Settings)</span>'}</div>
     <div id="tm-earn-${sym}">${finnhubKey?'<div style="color:#e0e0e0;font-size:10px;">Loading…</div>':renderEarningsTable([])}</div>
   `;
@@ -4273,6 +4275,118 @@ function updateStatusCounts(){
 }
 
 // ============================================================
+// VOLUME PROFILE — mini-chart helpers for hover popup
+// ============================================================
+const _vpCache = {};
+
+async function loadVolumeProfile(symbol){
+  const cacheKey = symbol + '|' + (window._predLatestDate || '');
+  if(_vpCache[cacheKey]) return _vpCache[cacheKey];
+  const supa = await getSupabaseAsync();
+  if(!supa) return null;
+  try {
+    let useDate = window._predLatestDate;
+    if(!useDate){
+      const {data: dRows} = await supa.from('omen_daily_summary')
+        .select('trading_date').order('trading_date', {ascending:false}).limit(1);
+      useDate = dRows && dRows[0] && dRows[0].trading_date;
+      if(useDate) window._predLatestDate = useDate;
+    }
+    if(!useDate) return null;
+    const {data, error} = await supa.rpc('get_volume_profile', {p_symbol: symbol, p_date: useDate});
+    if(error) throw error;
+    const meta = (data||[]).find(r => r.out_row_type === 'meta');
+    const strikes = (data||[]).filter(r => r.out_row_type === 'strike')
+      .map(r => ({
+        strike: parseFloat(r.out_strike),
+        contracts: parseInt(r.out_contracts) || 0,
+        calls: parseInt(r.out_call_contracts) || 0,
+        puts: parseInt(r.out_put_contracts) || 0,
+        premium: parseFloat(r.out_premium) || 0,
+        isPoc: r.out_is_poc === true
+      }))
+      .sort((a,b) => a.strike - b.strike);
+    const result = {
+      date: useDate,
+      poc: meta ? parseFloat(meta.out_poc_strike) : null,
+      vaLow: meta ? parseFloat(meta.out_va_low) : null,
+      vaHigh: meta ? parseFloat(meta.out_va_high) : null,
+      vwap: meta ? parseFloat(meta.out_weighted_avg) : null,
+      spot: meta && meta.out_spot_close ? parseFloat(meta.out_spot_close) : null,
+      totalContracts: meta ? parseInt(meta.out_total_contracts) : 0,
+      strikes: strikes
+    };
+    _vpCache[cacheKey] = result;
+    return result;
+  } catch(e){ console.warn('[volProfile] load failed:', e); return null; }
+}
+
+function renderVolumeProfileChart(vp){
+  if(!vp || !vp.strikes || !vp.strikes.length){
+    return '<div style="color:#5060a0;font-size:11px;padding:8px;">No flow data today</div>';
+  }
+  const W = 220, H = 180;
+  const padTop = 4, padBottom = 18, padLeft = 36, padRight = 6;
+  const chartH = H - padTop - padBottom;
+  const chartW = W - padLeft - padRight;
+  const maxContracts = Math.max(...vp.strikes.map(s => s.contracts)) || 1;
+  const rows = vp.strikes.length;
+  const rowH = chartH / rows;
+  const barH = Math.max(3, rowH * 0.7);
+
+  const bars = vp.strikes.map((s, i) => {
+    const y = padTop + chartH - (i + 1) * rowH + (rowH - barH) / 2;
+    const callW = (s.calls / maxContracts) * chartW;
+    const putW  = (s.puts  / maxContracts) * chartW;
+    const stroke = s.isPoc ? 'stroke="#00d4ff" stroke-width="1.5"' : '';
+    const labelColor = s.isPoc ? '#00d4ff' : '#8090a0';
+    const fontWeight = s.isPoc ? '700' : '500';
+    return `
+      <text x="${padLeft - 4}" y="${y + barH/2 + 3}" text-anchor="end" font-size="9" fill="${labelColor}" font-weight="${fontWeight}">$${s.strike}</text>
+      <rect x="${padLeft}" y="${y}" width="${callW}" height="${barH}" fill="#7fd0a8" opacity="0.85" ${stroke}/>
+      <rect x="${padLeft + callW}" y="${y}" width="${putW}" height="${barH}" fill="#d97f8a" opacity="0.85"/>
+    `;
+  }).join('');
+
+  let spotMarker = '';
+  if(vp.spot && vp.strikes.length){
+    const strikesAsc = vp.strikes;
+    let spotY = null;
+    for(let i = 0; i < strikesAsc.length - 1; i++){
+      if(vp.spot >= strikesAsc[i].strike && vp.spot <= strikesAsc[i+1].strike){
+        const yLo = padTop + chartH - (i + 1) * rowH + rowH/2;
+        const yHi = padTop + chartH - (i + 2) * rowH + rowH/2;
+        const frac = (vp.spot - strikesAsc[i].strike) / (strikesAsc[i+1].strike - strikesAsc[i].strike);
+        spotY = yLo + (yHi - yLo) * frac;
+        break;
+      }
+    }
+    if(spotY !== null){
+      spotMarker = `
+        <line x1="${padLeft - 2}" y1="${spotY}" x2="${W - padRight}" y2="${spotY}" stroke="#ffd060" stroke-width="0.8" stroke-dasharray="2,2" opacity="0.7"/>
+        <text x="${W - padRight}" y="${spotY - 2}" text-anchor="end" font-size="8" fill="#ffd060" font-weight="700">spot $${vp.spot.toFixed(2)}</text>
+      `;
+    }
+  }
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;">
+      ${bars}
+      ${spotMarker}
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:9px;color:#8090a0;margin-top:4px;padding:0 4px;">
+      <span><span style="color:#7fd0a8;">█</span> calls · <span style="color:#d97f8a;">█</span> puts</span>
+      <span>${vp.totalContracts.toLocaleString()} contracts</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:6px;padding:6px 8px;background:rgba(0,212,255,0.06);border-radius:4px;">
+      <div><span style="color:#8090a0;">POC</span> <span style="color:#00d4ff;font-weight:700;">$${vp.poc}</span></div>
+      <div><span style="color:#8090a0;">Range</span> <span style="color:var(--text);font-weight:600;">$${vp.vaLow}–$${vp.vaHigh}</span></div>
+      <div><span style="color:#8090a0;">VWAP</span> <span style="color:var(--text);font-weight:600;">$${vp.vwap}</span></div>
+    </div>
+  `;
+}
+
+// ============================================================
 // HOVER POPUP — Gainers / Losers
 // ============================================================
 let _hoverTimer = null;
@@ -4322,6 +4436,12 @@ function showHoverPopup(sym, triggerEl){
       if(el) el.innerHTML = renderOptionsChainData(data);
     });
   }
+
+  // Lazy-load volume profile so popup renders instantly
+  loadVolumeProfile(sym).then(vp => {
+    const el = document.getElementById('vp-chart-' + sym);
+    if(el && popup.style.display !== 'none') el.innerHTML = renderVolumeProfileChart(vp);
+  });
 }
 
 function hideHoverPopup(){
