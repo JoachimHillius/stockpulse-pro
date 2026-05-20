@@ -5948,8 +5948,15 @@ function renderFlowPredictor(){
   }
 }
 
-function setPredTimeframe(tf){
+async function setPredTimeframe(tf){
   _predTimeframe=tf;
+  // Always reload fresh data when timeframe changes — guarantees latest CSV uploads visible
+  try { await loadPredictorData(); } catch(e){ console.warn('[Predictor] reload failed:', e); }
+  const built = predBuildRows();
+  console.log('[Predictor] Timeframe', tf, '→ tfDays =', predTimeframeDays(tf),
+    '| total rows in _predData:', _predData?.length || 0,
+    '| dates in window:', built.dates.length,
+    '| top10 sample:', built.top10[0] ? {sym: built.top10[0].symbol, cumTotal: built.top10[0].cumTotal, cumSent: built.top10[0].cumSent} : null);
   renderFlowPredictor();
 }
 
