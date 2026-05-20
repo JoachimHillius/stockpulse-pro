@@ -5615,28 +5615,36 @@ function predBuildRows(){
   const rows=[];
   for(const sym of Object.keys(bySymbol)){
     const byDate=bySymbol[sym];
-    let cumCall=0,cumPut=0;
+    // Window totals across the chosen timeframe (D=1 day, W=5, M=21, Y=252)
+    let winCall=0,winPut=0,winDays=0;
     for(const d of cumDates){
       const r=byDate[d];
-      if(r){cumCall+=+r.call_premium||0;cumPut+=+r.put_premium||0;}
+      if(r){
+        winCall+=+r.call_premium||0;
+        winPut+=+r.put_premium||0;
+        if((+r.total_premium||0)>0) winDays++;
+      }
     }
-    const cumTotal=cumCall+cumPut;
-    if(cumTotal<=0)continue;
-    const cumSent=((cumCall-cumPut)/cumTotal)*100;
+    const winTotal=winCall+winPut;
+    if(winTotal<=0)continue;
+    const winSent=((winCall-winPut)/winTotal)*100;
+    // Today-specific (for momentum/confidence calcs only)
     const todayRow=byDate[todayDate];
     const hasToday=!!todayRow&&(+todayRow.total_premium||0)>0;
-    const todayCall=hasToday?+todayRow.call_premium||0:0;
-    const todayPut=hasToday?+todayRow.put_premium||0:0;
-    const todayTotal=todayCall+todayPut;
-    const todaySent=todayTotal>0?((todayCall-todayPut)/todayTotal)*100:0;
+    const todayCallOnly=hasToday?+todayRow.call_premium||0:0;
+    const todayPutOnly=hasToday?+todayRow.put_premium||0:0;
+    const todayTotalOnly=todayCallOnly+todayPutOnly;
+    const todaySentOnly=todayTotalOnly>0?((todayCallOnly-todayPutOnly)/todayTotalOnly)*100:0;
     const ec=(byDate[todayDate]?.earnings_context)||null;
     rows.push({
       symbol:sym,
-      todayCall,todayPut,todayTotal,todaySent,hasToday,
-      cumCall,cumPut,cumTotal,cumSent,
-      direction:predDirection(cumSent),
-      confidence:predConfidence(todaySent,cumSent,hasToday,cumDates.length===1),
-      momentum:predMomentum(todaySent,cumSent,hasToday,cumDates.length===1),
+      // window* describes call/put across selected timeframe (was "today*")
+      todayCall:winCall, todayPut:winPut, todayTotal:winTotal, todaySent:winSent, hasToday,
+      // cumul mirrors window for legacy compatibility
+      cumCall:winCall, cumPut:winPut, cumTotal:winTotal, cumSent:winSent,
+      direction:predDirection(winSent),
+      confidence:predConfidence(todaySentOnly,winSent,hasToday,cumDates.length===1),
+      momentum:predMomentum(todaySentOnly,winSent,hasToday,cumDates.length===1),
       earnings:ec,
       prices:visibleDates.map(d=>{
         const r=byDate[d];
@@ -5844,6 +5852,7 @@ function renderFlowPredictor(){
   }
   const tfStats=predComputeTimeframeStats();
   const tfLabel=_predTimeframe==='D'?'Today':_predTimeframe==='W'?'This Week':_predTimeframe==='M'?'This Month':'This Year';
+  const tfPrefix=_predTimeframe==='D'?'DAY':_predTimeframe==='W'?'WEEK':_predTimeframe==='M'?'MONTH':'YEAR';
   const colCount=11+dates.length*2;   // +3 for top contract columns
   root.innerHTML=`
     <div class="card" style="padding:16px;margin-bottom:14px;">
@@ -5900,11 +5909,11 @@ function renderFlowPredictor(){
             <tr style="background:var(--bg3);">
               <th style="position:sticky;left:0;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:30px;">#</th>
               <th style="position:sticky;left:30px;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:130px;">Symbol</th>
-              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">Today Call $</th>
-              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">Today Put $</th>
-              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">Today Sent</th>
-              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">Cumul $</th>
-              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">Cumul Sent</th>
+              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">${tfPrefix} CALL $</th>
+              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">${tfPrefix} PUT $</th>
+              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">${tfPrefix} SENT</th>
+              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">${tfPrefix} TOTAL $</th>
+              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">${tfPrefix} SENT %</th>
               <th style="background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;min-width:80px;">Direction</th>
               <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #1</th>
               <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #2</th>
