@@ -459,7 +459,8 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: MORNING BRIEF ============ -->
 <div id="page-morning" class="page active">
   <div id="risk-banner" class="risk-banner"></div>
-  <div class="g3" style="margin-bottom:14px;">
+  <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:14px;">
+    <div class="g3" style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:0;">
     <div class="stat-box">
       <div class="stat-lbl">S&P 500</div>
       <div class="stat-val up" id="sp-val">—</div>
@@ -480,6 +481,12 @@ select option{background:var(--bg2);}
       <div class="stat-val" id="vix-val" style="color:var(--amber)">—</div>
       <div class="stat-sub" id="vix-sub" style="color:var(--amber)">—</div>
     </div>
+    </div>
+    <button id="brief-refresh-btn" onclick="refreshBriefStats(this)"
+      style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);border-radius:6px;padding:0 14px;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;white-space:nowrap;"
+      title="Re-fetch SPY / QQQ / IWM live prices">
+      ↻ REFRESH
+    </button>
   </div>
 
   <div class="g-main">
@@ -1217,6 +1224,18 @@ function safeRegister(plugin){
   try{Chart.register(plugin);}catch(e){}
 }
 
+async function refreshBriefStats(btn){
+  if(btn){ btn.textContent='⟳ Refreshing…'; btn.disabled=true; }
+  try{
+    if(typeof fetchLiveAll==='function') await fetchLiveAll(true);
+    if(typeof updateStatBoxes==='function') updateStatBoxes();
+    if(typeof loadHeaderVixFromDb==='function') loadHeaderVixFromDb();
+  }catch(e){ console.warn('[brief-refresh] error:',e); }
+  finally{
+    if(btn){ btn.textContent='↻ REFRESH'; btn.disabled=false; }
+  }
+}
+
 // Yield to browser between heavy operations so the main thread stays free
 // Use setTimeout(fn,0) — fires reliably as a macrotask before any network onload callback
 const yieldFn = (fn) => setTimeout(fn, 0);
@@ -1821,9 +1840,7 @@ function renderMoverLists(){
     if(!el)return;
     el.innerHTML=list.map((d,i)=>`
       <div class="wl-row" style="cursor:pointer;"
-        onclick="showTickerDetail('${d.s}')"
-        onmouseenter="showHoverPopup('${d.s}',this)"
-        onmouseleave="hideHoverPopup()">
+        onclick="showHoverPopup('${d.s}',this)">
         <span style="color:#e0e0e0;font-size:10px;min-width:14px;">#${i+1}</span>
         <span class="wl-sym">${d.s}</span>
         <span style="font-size:10px;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${COMPANY_NAMES[d.s]||''}</span>
@@ -2555,7 +2572,7 @@ function renderWatchlist(){
       const chain=optionsCache[sym];
       if(chain?.pcRatio!=null&&(chain.pcRatio<0.5||chain.pcRatio>1.5))
         dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C '+chain.pcRatio+'"></span>');
-      return`<div class="wl-dense-row" onclick="showTickerDetail('${sym}')" onmouseenter="showHoverPopup('${sym}',this)" onmouseleave="hideHoverPopup()">
+      return`<div class="wl-dense-row" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
         <span class="wl-sym-cell">${sym}</span>
         <span class="wl-name-cell">${COMPANY_NAMES[sym]||sector}${customTickers.includes(sym)?`<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:6px;" title="Remove from watchlist">×</button>`:''}</span>
         <span class="wl-price-cell">${fmtPrice(sym,q.p)}</span>
@@ -4400,7 +4417,18 @@ function renderVolumeProfileChart(vp){
 let _hoverTimer = null;
 
 function showHoverPopup(sym, triggerEl){
-  clearTimeout(_hoverTimer);
+  // Register outside-click-to-close once
+  if(!window._hoverPopupOutsideClickRegistered){
+    window._hoverPopupOutsideClickRegistered = true;
+    document.addEventListener('click', function(ev){
+      const popup = document.getElementById('hover-popup');
+      if(!popup || popup.style.display === 'none') return;
+      if(popup.contains(ev.target)) return;
+      const opener = ev.target.closest('[onclick*="showHoverPopup"]');
+      if(opener) return;
+      hideHoverPopup();
+    });
+  }
   const popup   = document.getElementById('hover-popup');
   const content = document.getElementById('hover-popup-content');
   if(!popup || !content) return;
@@ -4450,14 +4478,8 @@ function showHoverPopup(sym, triggerEl){
 }
 
 function hideHoverPopup(){
-  _hoverTimer = setTimeout(()=>{
-    const popup = document.getElementById('hover-popup');
-    if(popup) popup.style.display = 'none';
-  }, 180);  // small grace period so user can move mouse onto popup
-}
-
-function keepHoverPopup(){
-  clearTimeout(_hoverTimer);
+  const popup = document.getElementById('hover-popup');
+  if(popup) popup.style.display = 'none';
 }
 
 // ============================================================
@@ -5785,8 +5807,9 @@ function renderPredRow(r,rank,dates){
   const confHTML=`<span style="display:inline-block;background:${confColor(conf)}33;color:${confColor(conf)};padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;margin-left:4px;">${conf}</span>`;
   const momHTML=mom==='—'?'':`<span style="display:block;font-size:9px;color:#8090a0;font-style:italic;margin-top:2px;">${mom}</span>`;
   return`<tr style="border-bottom:1px solid #1a1a28;transition:background 0.1s;cursor:pointer;"
-    onmouseenter="this.style.background='rgba(0,212,255,0.08)';renderHistoryStrip('${r.symbol}',_predLastDates||[]);showHoverPopup('${r.symbol}',this)"
-    onmouseleave="this.style.background='';hideHoverPopup()">
+    onmouseenter="this.style.background='rgba(0,212,255,0.08)';renderHistoryStrip('${r.symbol}',_predLastDates||[])"
+    onmouseleave="this.style.background='';"
+    onclick="showHoverPopup('${r.symbol}',this)">
     <td style="position:sticky;left:0;background:var(--bg);padding:6px;font-weight:600;color:#8090a0;z-index:1;">${rank}</td>
     <td style="position:sticky;left:30px;background:var(--bg);padding:6px;z-index:1;">
       <div style="font-weight:700;color:var(--text);">${r.symbol}${earningsBadge(r.earnings)}</div>
@@ -6063,7 +6086,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
 </script>
 
 <!-- Hover popup for Gainers/Losers -->
-<div id="hover-popup" onmouseenter="keepHoverPopup()" onmouseleave="hideHoverPopup()">
+<div id="hover-popup">
+  <button onclick="hideHoverPopup()" style="position:absolute;top:6px;right:8px;background:transparent;border:none;color:#8090a0;font-size:22px;line-height:1;cursor:pointer;padding:4px 8px;z-index:10;" title="Close">×</button>
   <div id="hover-popup-content"></div>
 </div>
 
