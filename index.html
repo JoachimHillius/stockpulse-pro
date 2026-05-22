@@ -484,7 +484,7 @@ select option{background:var(--bg2);}
     </div>
     <button id="brief-refresh-btn" onclick="refreshBriefStats(this)"
       style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);border-radius:6px;padding:0 14px;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;white-space:nowrap;"
-      title="Re-fetch SPY / QQQ / IWM live prices">
+      title="Full refresh: pulls latest OMEN flow, live quotes, runs price parser, re-renders all panels">
       ↻ REFRESH
     </button>
   </div>
@@ -1226,13 +1226,54 @@ function safeRegister(plugin){
 
 async function refreshBriefStats(btn){
   if(btn){ btn.textContent='⟳ Refreshing…'; btn.disabled=true; }
+  const errors=[];
   try{
-    if(typeof fetchLiveAll==='function') await fetchLiveAll(true);
+    // 1. Re-load OMEN flow from Supabase (catches CSV uploads done in other tabs/devices)
+    if(typeof loadFlowFromSupabase==='function'){
+      try{ await loadFlowFromSupabase(); }catch(e){ errors.push('flow:'+e.message); }
+    }
+
+    // 2. Re-load predictor data (omen_daily_summary)
+    if(typeof loadPredictorData==='function'){
+      try{ await loadPredictorData(); }catch(e){ errors.push('predictor:'+e.message); }
+    }
+
+    // 3. Re-fetch live quotes from Finnhub for watchlist + indexes
+    if(typeof fetchLiveAll==='function'){
+      try{ await fetchLiveAll(true); }catch(e){ errors.push('quotes:'+e.message); }
+    }
+
+    // 4. Trigger Yahoo price parser via Supabase RPC (catches any pending fetches)
+    if(typeof getSupabaseAsync==='function'){
+      try{
+        const supa=await getSupabaseAsync();
+        if(supa){
+          const{data}=await supa.rpc('parse_pending_yahoo_prices');
+          if(data&&data[0]){
+            console.log('[refresh] parse_pending_yahoo_prices →',
+              'prices_written:',data[0].prices_written,
+              'daily_summaries_updated:',data[0].daily_summaries_updated);
+          }
+        }
+      }catch(e){ errors.push('parser:'+e.message); }
+    }
+
+    // 5. Re-render whatever's visible
     if(typeof updateStatBoxes==='function') updateStatBoxes();
     if(typeof loadHeaderVixFromDb==='function') loadHeaderVixFromDb();
-  }catch(e){ console.warn('[brief-refresh] error:',e); }
-  finally{
-    if(btn){ btn.textContent='↻ REFRESH'; btn.disabled=false; }
+    if(typeof renderBriefTopFlow==='function') renderBriefTopFlow();
+    if(typeof renderWatchlist==='function') renderWatchlist();
+    if(typeof renderFlowPredictor==='function') renderFlowPredictor();
+
+    console.log('[refresh] complete',errors.length?'(with errors: '+errors.join(', ')+')':'— all clean');
+  }catch(e){
+    console.warn('[refresh] outer error:',e);
+  }finally{
+    if(btn){
+      btn.textContent=errors.length?'↻ REFRESH (some errors — see console)':'↻ REFRESH';
+      btn.disabled=false;
+      if(errors.length) setTimeout(()=>{ btn.textContent='↻ REFRESH'; },4000);
+    }
   }
 }
 
