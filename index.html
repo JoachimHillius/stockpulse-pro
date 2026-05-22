@@ -677,7 +677,7 @@ select option{background:var(--bg2);}
       <div id="upload-log-list" style="max-height:240px;overflow-y:auto;background:var(--bg);border-radius:4px;"></div>
     </div>
     <div class="g2" style="gap:8px;">
-      <div class="stat-box"><div class="stat-lbl">Total Trades</div><div class="stat-val" id="flow-total" style="color:var(--blue)">0</div></div>
+      <div class="stat-box"><div class="stat-lbl">TRADES — TODAY / ALL-TIME</div><div class="stat-val" id="flow-total" style="color:var(--blue);font-size:20px;">—</div><div class="stat-sub" id="flow-today-breakdown" style="color:#8090a0;">OMEN — / SM —</div></div>
       <div class="stat-box"><div class="stat-lbl">Call Premium</div><div class="stat-val" id="flow-call-$" style="color:var(--green)">$0</div></div>
       <div class="stat-box"><div class="stat-lbl">Put Premium</div><div class="stat-val" id="flow-put-$" style="color:var(--red)">$0</div></div>
       <div class="stat-box"><div class="stat-lbl">C/P Ratio</div><div class="stat-val" id="flow-ratio" style="color:var(--amber)">—</div></div>
@@ -3249,8 +3249,16 @@ function renderFlowStats(){
   const sweeps=filtered.filter(r=>(r.flag||'').toUpperCase().includes('S')).length;
   const atask=filtered.filter(r=>(r.spread||'').toLowerCase().includes('ask')).length;
 
-  // Stat boxes
-  document.getElementById('flow-total').textContent=flowData.length;
+  // Stat boxes — today (latest trading_date) vs all-time
+  const _tradingDates=[...new Set(flowData.map(r=>r.trading_date).filter(Boolean))].sort();
+  const _today=_tradingDates[_tradingDates.length-1];
+  const _todayRows=_today?flowData.filter(r=>r.trading_date===_today):[];
+  const _todayOmen=_todayRows.filter(r=>r.source==='omen').length;
+  const _todaySM=_todayRows.filter(r=>r.source==='smartmoney').length;
+  const totalEl=document.getElementById('flow-total');
+  if(totalEl) totalEl.textContent=_todayRows.length.toLocaleString()+' / '+flowData.length.toLocaleString();
+  const breakdownEl=document.getElementById('flow-today-breakdown');
+  if(breakdownEl) breakdownEl.textContent='OMEN '+_todayOmen+' / SM '+_todaySM;
   document.getElementById('flow-call-$').textContent='$'+fmtM(callPrem);
   document.getElementById('flow-put-$').textContent='$'+fmtM(putPrem);
   document.getElementById('flow-ratio').textContent=ratio.toFixed(2);
