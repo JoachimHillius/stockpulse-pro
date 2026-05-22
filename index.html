@@ -657,7 +657,7 @@ select option{background:var(--bg2);}
         ondrop="handleDrop(event)">
         <div class="upload-icon">📂</div>
         <div class="upload-text">Click or drag & drop one or more OMEN CSVs<br>
-        <span style="color:#e0e0e0;">Export from OMEN → Download CSV — multiple days supported</span></div>
+        <span style="color:#e0e0e0;">Multi-day OK. Upload as many files per day as you want — 12pm, 3:30pm, post-4pm. Only truly NEW trades get added; database rejects exact duplicates automatically.</span></div>
       </div>
       <input type="file" id="csv-input" accept=".csv" multiple style="display:none" onchange="handleMultipleCSV(this.files)"/>
       <div style="margin-top:8px;" id="csv-status">No file loaded</div>
@@ -2999,20 +2999,14 @@ async function handleMultipleCSV(files){
       loadedFiles++;
       if(!mostRecentDate||dateKey>mostRecentDate)mostRecentDate=dateKey;
 
-      // Load existing IDs for this date from flowHistory
       const entry=flowHistory.find(e=>e.date===dateKey);
-      const existingIds=new Set(entry?.ids||[]);
-
-      // Split into new vs duplicate
-      const newRows=rows.filter(r=>!existingIds.has(r.id));
-      const skipped=rows.length-newRows.length;
+      const newRows=rows; // DB enforces dedup via upsert+onConflict — send full file
       totalNew+=newRows.length;
-      totalSkipped+=skipped;
 
       // Per-file status feedback
       if(statusEl){
         statusEl.textContent=`✓ ${file.name} → ${rows.length} rows · ${meta.source} · ${meta.snapshot_type} · ${dateKey}`;
-        statusEl.style.color=newRows.length>0?'var(--green)':'var(--amber)';
+        statusEl.style.color='var(--green)';
       }
       await new Promise(r=>setTimeout(r,0));
 
@@ -3024,17 +3018,14 @@ async function handleMultipleCSV(files){
         snapshot_type:meta.snapshot_type,
         rows_in_file:rows.length,
         rows_parsed:rows.length,
-        rows_stored:newRows.length,
-        rows_duplicate:skipped,
+        rows_stored:rows.length,
+        rows_duplicate:0,
         rows_invalid:0,
-        status:newRows.length>0?'success':(rows.length>0?'warning':'error'),
-        notes:newRows.length===0&&rows.length>0?'All rows were duplicates':null,
+        status:rows.length>0?'success':'error',
+        notes:null,
       }).catch(e=>console.warn('[UploadLog]',e));
 
-      if(!newRows.length)continue; // all dupes — nothing to merge
-
-      // Add new IDs to the set
-      newRows.forEach(r=>existingIds.add(r.id));
+      if(!newRows.length)continue;
 
       // Merge new rows into the ticker summary incrementally
       const newSummary=buildTickerSummary(newRows);
@@ -3051,7 +3042,7 @@ async function handleMultipleCSV(files){
         date:dateKey,
         tickers:mergedTickers,
         count:mergedCount,
-        ids:Array.from(existingIds), // persisted so next upload can dedup
+        ids:[],
       });
     }catch(err){
       console.warn('Skipping',file.name,':',err);
@@ -5031,9 +5022,19 @@ async function saveFlowToSupabase(rows){
       snapshot_type:r.snapshot_type||'eod',
       earnings_context:r.earnings_context||null,
     }));
-    const{error}=await supa.from('omen_flow').insert(payload);
+    // Upsert so DB enforces dedup. ignoreDuplicates=true means exact dupes are silently skipped — every NEW row gets inserted.
+    const{data:insertedRows,error}=await supa
+      .from('omen_flow')
+      .upsert(payload,{
+        onConflict:'trading_date,symbol,time,strike,expiry,cp,premium,size,stocklast,source',
+        ignoreDuplicates:true
+      })
+      .select('id');
     if(error)throw error;
-    totalInserted+=payload.length;
+    const actuallyInserted=(insertedRows||[]).length;
+    totalInserted+=actuallyInserted;
+    if(actuallyInserted<payload.length)
+      console.log(`[Supabase] ${payload.length-actuallyInserted} duplicate rows rejected by DB for ${trading_date} (${source}) — this is normal for re-uploads of the same time slice`);
   }
   // Auto-aggregate omen_daily_summary for each uploaded trading_date.
   // Without this, the Flow Predictor doesn't see the new data until SQL is run by hand.
