@@ -643,6 +643,11 @@ select option{background:var(--bg2);}
   <div style="position:relative;display:flex;align-items:center;gap:8px;margin-bottom:14px;">
     <input id="of-ticker-search" type="text" placeholder="🔍 Search ticker (NVDA, MSTR, MARA, etc.)…" autocomplete="off" oninput="onOFTickerSearch(event)" onfocus="showOFTickerDropdown()" onblur="setTimeout(hideOFTickerDropdown,200)" style="flex:1;background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:8px 14px;font-size:13px;border-radius:4px;max-width:400px;">
     <button id="of-ticker-clear" onclick="clearOFTicker()" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:8px 14px;font-size:11px;border-radius:4px;cursor:pointer;display:none;">Clear ×</button>
+    <button onclick="checkAndShowUnusualVolume()" 
+      style="background:rgba(0,212,255,0.1);border:1px solid var(--cyan);color:var(--cyan);padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;margin-left:8px;white-space:nowrap;"
+      title="Show tickers with unusually high flow today vs their 20-day baseline">
+      ⚡ UNUSUAL VOLUME
+    </button>
     <div id="of-ticker-dropdown" style="display:none;position:absolute;top:100%;left:0;width:400px;max-height:300px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-top:2px;z-index:100;"></div>
   </div>
   <div class="g2" style="margin-bottom:14px;">
@@ -4459,6 +4464,198 @@ function renderVolumeProfileChart(vp){
 }
 
 // ============================================================
+// UNUSUAL VOLUME — Intraday Flow Detection
+// ============================================================
+
+async function loadUnusualVolume(tradingDate, minPremium){
+  const supa = await getSupabaseAsync();
+  if(!supa) return [];
+  try {
+    const {data, error} = await supa.rpc('get_unusual_volume', {
+      p_date: tradingDate,
+      p_min_premium: minPremium || 1000000
+    });
+    if(error) throw error;
+    return data || [];
+  } catch(e){ console.warn('[unusual] load failed:', e); return []; }
+}
+
+function fmtMoneyShort(n){
+  n = +n || 0;
+  if(n >= 1e9) return '$' + (n/1e9).toFixed(1) + 'B';
+  if(n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
+  if(n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+function flagColor(flag){
+  if(flag === 'EXTREME') return '#ff4d6b';
+  if(flag === 'VOLUME')  return '#ffb020';
+  if(flag === 'HIGH')    return '#ffb020';
+  if(flag === 'SHIFT')   return '#9d7dea';
+  return '#7fb0e8';
+}
+
+function dirColor_unusual(d){
+  if(d === 'BULLISH') return '#7fd0a8';
+  if(d === 'BEARISH') return '#d97f8a';
+  return '#d4b070';
+}
+
+function showUnusualVolumePopup(rows, tradingDate){
+  let popup = document.getElementById('unusual-popup');
+  if(popup) popup.remove();
+  
+  if(!rows || !rows.length){
+    console.log('[unusual] no unusual volume for', tradingDate);
+    return;
+  }
+  
+  popup = document.createElement('div');
+  popup.id = 'unusual-popup';
+  popup.style.cssText = `
+    position:fixed;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    width:min(680px, 92vw);
+    max-height:80vh;
+    background:var(--bg2);
+    border:2px solid var(--cyan);
+    border-radius:12px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.8);
+    z-index:10000;
+    overflow-y:auto;
+    padding:0;
+  `;
+  
+  const header = `
+    <div style="position:sticky;top:0;background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 18px;display:flex;justify-content:space-between;align-items:center;z-index:5;">
+      <div>
+        <div style="font-size:11px;color:var(--cyan);letter-spacing:2px;font-weight:600;">⚡ UNUSUAL VOLUME DETECTED</div>
+        <div style="font-size:18px;font-weight:700;margin-top:4px;">${rows.length} ticker${rows.length !== 1 ? 's' : ''} with abnormal flow on ${tradingDate}</div>
+        <div style="font-size:11px;color:#8090a0;margin-top:4px;">Tickers where today's premium volume or sentiment differs significantly from 20-day baseline</div>
+      </div>
+      <button onclick="document.getElementById('unusual-popup').remove()" 
+        style="background:transparent;border:none;color:#8090a0;font-size:28px;line-height:1;cursor:pointer;padding:0 8px;">×</button>
+    </div>`;
+  
+  const tbl = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="background:var(--bg3);color:#a0a8c0;font-size:10px;letter-spacing:1px;">
+          <th style="padding:8px 10px;text-align:left;">FLAG</th>
+          <th style="padding:8px 10px;text-align:left;">SYMBOL</th>
+          <th style="padding:8px 10px;text-align:left;">DIRECTION</th>
+          <th style="padding:8px 10px;text-align:right;">TODAY $</th>
+          <th style="padding:8px 10px;text-align:right;">vs AVG</th>
+          <th style="padding:8px 10px;text-align:left;">WHY</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr style="border-bottom:1px solid #1a1a28;cursor:pointer;"
+            onclick="showHoverPopup('${r.symbol}', null); document.getElementById('unusual-popup').remove();"
+            onmouseover="this.style.background='rgba(0,212,255,0.08)';"
+            onmouseout="this.style.background='';"
+          >
+            <td style="padding:8px 10px;"><span style="background:${flagColor(r.flag)}33;color:${flagColor(r.flag)};border:1px solid ${flagColor(r.flag)};padding:2px 8px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.5px;">${r.flag}</span></td>
+            <td style="padding:8px 10px;font-weight:700;color:var(--text);font-size:13px;">${r.symbol}</td>
+            <td style="padding:8px 10px;"><span style="color:${dirColor_unusual(r.direction)};font-weight:600;font-size:11px;">${r.direction}</span> <span style="color:#5a708a;font-size:10px;">${r.today_call_pct}% C</span></td>
+            <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmtMoneyShort(r.today_premium)}</td>
+            <td style="padding:8px 10px;text-align:right;color:var(--cyan);font-weight:700;">${r.vol_multiple}×</td>
+            <td style="padding:8px 10px;color:#a0a8c0;font-size:11px;">${r.why}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+  
+  popup.innerHTML = header + tbl;
+  document.body.appendChild(popup);
+  
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(ev){
+      if(!popup.contains(ev.target)){
+        popup.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    });
+  }, 100);
+}
+
+async function checkAndShowUnusualVolume(tradingDate){
+  const targetDate = tradingDate || (async () => {
+    const supa = await getSupabaseAsync();
+    if(!supa) return null;
+    const {data} = await supa.from('omen_daily_summary').select('trading_date').order('trading_date',{ascending:false}).limit(1);
+    return data && data[0] && data[0].trading_date;
+  });
+  const date = typeof targetDate === 'function' ? await targetDate() : targetDate;
+  if(!date) return;
+  const rows = await loadUnusualVolume(date);
+  showUnusualVolumePopup(rows, date);
+}
+  const padTop = 4, padBottom = 18, padLeft = 36, padRight = 6;
+  const chartH = H - padTop - padBottom;
+  const chartW = W - padLeft - padRight;
+  const maxContracts = Math.max(...vp.strikes.map(s => s.contracts)) || 1;
+  const rows = vp.strikes.length;
+  const rowH = chartH / rows;
+  const barH = Math.max(3, rowH * 0.7);
+
+  const bars = vp.strikes.map((s, i) => {
+    const y = padTop + chartH - (i + 1) * rowH + (rowH - barH) / 2;
+    const callW = (s.calls / maxContracts) * chartW;
+    const putW  = (s.puts  / maxContracts) * chartW;
+    const stroke = s.isPoc ? 'stroke="#00d4ff" stroke-width="1.5"' : '';
+    const labelColor = s.isPoc ? '#00d4ff' : '#8090a0';
+    const fontWeight = s.isPoc ? '700' : '500';
+    return `
+      <text x="${padLeft - 4}" y="${y + barH/2 + 3}" text-anchor="end" font-size="9" fill="${labelColor}" font-weight="${fontWeight}">$${s.strike}</text>
+      <rect x="${padLeft}" y="${y}" width="${callW}" height="${barH}" fill="#7fd0a8" opacity="0.85" ${stroke}/>
+      <rect x="${padLeft + callW}" y="${y}" width="${putW}" height="${barH}" fill="#d97f8a" opacity="0.85"/>
+    `;
+  }).join('');
+
+  let spotMarker = '';
+  if(vp.spot && vp.strikes.length){
+    const strikesAsc = vp.strikes;
+    let spotY = null;
+    for(let i = 0; i < strikesAsc.length - 1; i++){
+      if(vp.spot >= strikesAsc[i].strike && vp.spot <= strikesAsc[i+1].strike){
+        const yLo = padTop + chartH - (i + 1) * rowH + rowH/2;
+        const yHi = padTop + chartH - (i + 2) * rowH + rowH/2;
+        const frac = (vp.spot - strikesAsc[i].strike) / (strikesAsc[i+1].strike - strikesAsc[i].strike);
+        spotY = yLo + (yHi - yLo) * frac;
+        break;
+      }
+    }
+    if(spotY !== null){
+      spotMarker = `
+        <line x1="${padLeft - 2}" y1="${spotY}" x2="${W - padRight}" y2="${spotY}" stroke="#ffd060" stroke-width="0.8" stroke-dasharray="2,2" opacity="0.7"/>
+        <text x="${W - padRight}" y="${spotY - 2}" text-anchor="end" font-size="8" fill="#ffd060" font-weight="700">spot $${vp.spot.toFixed(2)}</text>
+      `;
+    }
+  }
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;">
+      ${bars}
+      ${spotMarker}
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:9px;color:#8090a0;margin-top:4px;padding:0 4px;">
+      <span><span style="color:#7fd0a8;">█</span> calls · <span style="color:#d97f8a;">█</span> puts</span>
+      <span>${vp.totalContracts.toLocaleString()} contracts</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:6px;padding:6px 8px;background:rgba(0,212,255,0.06);border-radius:4px;">
+      <div><span style="color:#8090a0;">POC</span> <span style="color:#00d4ff;font-weight:700;">$${vp.poc}</span></div>
+      <div><span style="color:#8090a0;">Range</span> <span style="color:var(--text);font-weight:600;">$${vp.vaLow}–$${vp.vaHigh}</span></div>
+      <div><span style="color:#8090a0;">VWAP</span> <span style="color:var(--text);font-weight:600;">$${vp.vwap}</span></div>
+    </div>
+  `;
+}
+
+// ============================================================
 // HOVER POPUP — Gainers / Losers
 // ============================================================
 let _hoverTimer = null;
@@ -5109,6 +5306,11 @@ async function saveFlowToSupabase(rows){
     } catch(e){ console.warn('[Supabase] aggregation error for', d, e); }
   }
   console.log('[Supabase] Inserted',totalInserted,'rows total');
+  
+  // After CSV upload + aggregation, show unusual volume popup for the uploaded date(s)
+  for(const d of uploadedDates){
+    try { await checkAndShowUnusualVolume(d); } catch(e){ /* silent */ }
+  }
 }
 
 // ============================================================
