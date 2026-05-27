@@ -6199,7 +6199,7 @@ window.showUnusualVolumePopup = function(rows, tradingDate){
   popup.id = 'unusual-popup';
   popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(720px,92vw);max-height:80vh;background:#0a1525;border:2px solid #00d4ff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.8);z-index:99999;overflow-y:auto;color:#e0e8f0;font-family:system-ui,sans-serif;';
   const flagColor = function(f){ if(f==='EXTREME')return '#ff4d6b'; if(f==='VOLUME'||f==='HIGH')return '#ffb020'; if(f==='SHIFT')return '#9d7dea'; if(f==='LEADER')return '#00d4ff'; if(f==='NOTABLE')return '#7fb0e8'; return '#5a708a'; };
-  const dirColor = function(d){ if(d==='BULLISH')return '#7fd0a8'; if(d==='BEARISH')return '#d97f8a'; return '#d4b070'; };
+  const dirColor = function(d){ if(d==='BULLISH')return '#4ea882'; if(d==='BEARISH')return '#c4606e'; return '#b89860'; };
   let html = '<div style="position:sticky;top:0;background:#0a1525;border-bottom:1px solid #1a2a44;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;z-index:5;">';
   html += '<div><div style="font-size:11px;color:#00d4ff;letter-spacing:2px;font-weight:600;">⚡ UNUSUAL VOLUME DETECTED</div>';
   html += '<div style="font-size:18px;font-weight:700;margin-top:4px;">' + rows.length + ' ticker' + (rows.length!==1?'s':'') + ' on ' + tradingDate + '</div>';
@@ -6212,11 +6212,11 @@ window.showUnusualVolumePopup = function(rows, tradingDate){
     const dc = dirColor(r.direction);
     html += '<tr style="border-bottom:1px solid #1a2a44;">';
     html += '<td style="padding:8px 10px;"><span style="background:' + fc + '33;color:' + fc + ';border:1px solid ' + fc + ';padding:2px 8px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.5px;">' + r.flag + '</span></td>';
-    html += '<td style="padding:8px 10px;font-weight:700;font-size:13px;">' + r.symbol + '</td>';
-    html += '<td style="padding:8px 10px;"><span style="color:' + dc + ';font-weight:600;font-size:11px;">' + r.direction + '</span> <span style="color:#5a708a;font-size:10px;">' + r.today_call_pct + '% C</span></td>';
-    html += '<td style="padding:8px 10px;text-align:right;font-weight:600;">' + window.fmtMoneyShort(r.today_premium) + '</td>';
-    html += '<td style="padding:8px 10px;text-align:right;color:#00d4ff;font-weight:700;">' + r.vol_multiple + '×</td>';
-    html += '<td style="padding:8px 10px;color:#a0a8c0;font-size:11px;">' + r.why + '</td>';
+    html += '<td style="padding:8px 10px;font-weight:600;font-size:13px;color:#d0d8e4;">' + r.symbol + '</td>';
+    html += '<td style="padding:8px 10px;"><span style="color:' + dc + ';font-weight:600;font-size:11px;text-shadow:0 1px 2px rgba(0,0,0,0.4);">' + r.direction + '</span> <span style="color:#5a708a;font-size:10px;">' + r.today_call_pct + '% C</span></td>';
+    html += '<td style="padding:8px 10px;text-align:right;font-weight:600;color:#c8d0dc;">' + window.fmtMoneyShort(r.today_premium) + '</td>';
+    html += '<td style="padding:8px 10px;text-align:right;color:#5bb4d8;font-weight:700;">' + r.vol_multiple + '×</td>';
+    html += '<td style="padding:8px 10px;color:#8a96b0;font-size:11px;">' + r.why + '</td>';
     html += '</tr>';
   }
   html += '</tbody></table>';
