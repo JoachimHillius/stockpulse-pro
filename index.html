@@ -1265,6 +1265,13 @@ async function refreshBriefStats(btn){
     if(typeof renderWatchlist==='function') renderWatchlist();
     if(typeof renderFlowPredictor==='function') renderFlowPredictor();
 
+    // 6. Re-render the top ticker carousel with fresh Finnhub quotes
+    if(typeof renderTape==='function') renderTape();
+    if(typeof renderTickerCarousel==='function') renderTickerCarousel();
+    if(typeof drawCarousel==='function') drawCarousel();
+    if(typeof updateCarousel==='function') updateCarousel();
+    if(typeof renderCarouselRow==='function') renderCarouselRow();
+
     console.log('[refresh] complete',errors.length?'(with errors: '+errors.join(', ')+')':'— all clean');
   }catch(e){
     console.warn('[refresh] outer error:',e);
@@ -1815,7 +1822,7 @@ function setTapePeriod(p,btn){
 function renderTape(){
   const syms=[...new Set(['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SMCI','BTDR','MARA'])];
   const scale=PERIOD_SCALE[tapePeriod]||1;
-  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading,stale:!!q.stale};});
+  const all=syms.map(s=>{const q=getQ(s);console.log('[carousel]',s,'live:',q?.p,'time:',q?.t);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading,stale:!!q.stale};});
   const gainers=[...all].filter(x=>x.dp>0).sort((a,b)=>b.dp-a.dp);
   const losers=[...all].filter(x=>x.dp<0).sort((a,b)=>a.dp-b.dp);
   const mkItem=(x)=>{
@@ -5594,8 +5601,15 @@ async function loadPredictorData(){
     _predData=all;
     console.log('[Predictor] Loaded',_predData.length,'daily summaries total');
     try{setRefreshed('flow_predictor');}catch(e){}
-    const latestDate=all.length?[...all].sort((a,b)=>b.trading_date.localeCompare(a.trading_date))[0].trading_date:null;
-    await loadTopContracts(latestDate);
+    const latestDate = _predData && _predData.length 
+      ? [...new Set(_predData.map(r => r.trading_date))].sort().slice(-1)[0]
+      : null;
+    if(latestDate){
+      await loadTopContracts(latestDate);
+      console.log('[Predictor] loaded top contracts for', latestDate, '— cache size:', Object.keys(_topContractsByTicker||{}).length);
+    } else {
+      console.warn('[Predictor] no latestDate, skipping top contracts');
+    }
     await loadSpyTrend();
     return _predData;
   }catch(e){
