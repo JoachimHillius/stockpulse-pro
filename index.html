@@ -5601,15 +5601,9 @@ async function loadPredictorData(){
     _predData=all;
     console.log('[Predictor] Loaded',_predData.length,'daily summaries total');
     try{setRefreshed('flow_predictor');}catch(e){}
-    const latestDate = _predData && _predData.length 
-      ? [...new Set(_predData.map(r => r.trading_date))].sort().slice(-1)[0]
-      : null;
-    if(latestDate){
-      await loadTopContracts(latestDate);
-      console.log('[Predictor] loaded top contracts for', latestDate, '— cache size:', Object.keys(_topContractsByTicker||{}).length);
-    } else {
-      console.warn('[Predictor] no latestDate, skipping top contracts');
-    }
+    // Top contracts now embedded in each row's top_calls/top_puts JSON columns — no separate fetch needed.
+    const sample = _predData && _predData.length ? _predData[_predData.length-1] : null;
+    console.log('[Predictor] data loaded —', _predData?.length || 0, 'rows. Sample top_calls:', sample?.top_calls);
     await loadSpyTrend();
     return _predData;
   }catch(e){
@@ -5714,6 +5708,8 @@ function predBuildRows(){
         const r=byDate[d];
         return{date:d,open:r?.open_price||null,close:r?.close_price||null};
       }),
+      top_calls:byDate[todayDate]?.top_calls||null,
+      top_puts:byDate[todayDate]?.top_puts||null,
     });
   }
   const top10=[...rows].sort((a,b)=>b.cumTotal-a.cumTotal).slice(0,10);
@@ -5824,22 +5820,23 @@ function dayBiasColor(label){
   if(label==='Mixed')return'#d4b070';
   return'#8090a0';
 }
-function renderTopContractCell(symbol,direction,idx){
-  const data=_topContractsByTicker[symbol];
-  if(!data)return'<td style="padding:6px;text-align:center;color:#5060a0;font-size:10px;">—</td>';
+function renderTopContractCell(symbol,direction,idx,row){
   let pool=[];
+  const calls=row&&row.top_calls?(Array.isArray(row.top_calls)?row.top_calls:[]):[];
+  const puts=row&&row.top_puts?(Array.isArray(row.top_puts)?row.top_puts:[]):[];
   if(direction==='UP'){
-    pool=data.Call||[];
+    pool=calls;
   }else if(direction==='DOWN'){
-    pool=data.Put||[];
+    pool=puts;
   }else{
-    pool=[...(data.Call||[]),...(data.Put||[])].sort((a,b)=>(b.premium_dollars||0)-(a.premium_dollars||0));
+    pool=[...calls,...puts].sort((a,b)=>(parseFloat(b.prem)||0)-(parseFloat(a.prem)||0));
   }
   const item=pool[idx];
   if(!item)return'<td style="padding:6px;text-align:center;color:#5060a0;font-size:10px;">—</td>';
-  const isCall=item.cp==='Call';
+  const isCall=calls.indexOf(item)!==-1||(direction==='UP');
   const typeColor=isCall?'#7fd0a8':'#d97f8a';
-  const strikeStr=`$${parseFloat(item.strike).toFixed(parseFloat(item.strike)%1===0?0:1)}`;
+  const strikeNum=parseFloat(item.strike);
+  const strikeStr=isNaN(strikeNum)?item.strike:`$${strikeNum.toFixed(strikeNum%1===0?0:(strikeNum*10%1===0?1:2))}`;
   return`<td style="padding:6px 8px;text-align:center;background:#0d1830;line-height:1.3;">
     <div style="font-size:12px;font-weight:700;color:${typeColor};">${strikeStr} ${isCall?'C':'P'}</div>
     <div style="font-size:9px;color:#8090a0;margin-top:2px;">Exp ${fmtExpiry(item.expiry)}</div>
@@ -5893,9 +5890,9 @@ function renderPredRow(r,rank,dates){
     <td style="padding:6px;text-align:right;color:#a0c4e8;">${fmtMoney(r.cumTotal)}</td>
     <td style="padding:6px;text-align:right;color:${sentColor(r.cumSent)};">${fmtSent(r.cumSent)}</td>
     <td style="background:var(--bg);padding:6px;text-align:center;">${dirHTML}${confHTML}</td>
-    ${renderTopContractCell(r.symbol,dir,0)}
-    ${renderTopContractCell(r.symbol,dir,1)}
-    ${renderTopContractCell(r.symbol,dir,2)}
+    ${renderTopContractCell(r.symbol,dir,0,r)}
+    ${renderTopContractCell(r.symbol,dir,1,r)}
+    ${renderTopContractCell(r.symbol,dir,2,r)}
     ${dates.map((d,i)=>{
       const p=r.prices.find(x=>x.date===d);
       const bg=i%2===0?'#0a0a14':'#101020';
