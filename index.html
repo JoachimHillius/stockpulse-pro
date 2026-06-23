@@ -5809,53 +5809,75 @@ function onRegimeSpyToggle(trend) {
 }
 
 function renderRegimeBanner() {
+  if (!_p2Regime && _p2Loading) {
+    return `<div style="padding:20px;text-align:center;color:#5a708a;font-size:13px;font-style:italic;">Loading market regime…</div>`;
+  }
   if (!_p2Regime) {
-    const msg = _p2Loading ? 'Loading market regime…' : 'Regime loading — SPY prices fetching';
-    return `<div style="padding:8px 14px;text-align:center;color:#5a708a;font-size:11px;font-style:italic;">${msg}</div>`;
+    return `<div style="padding:14px;text-align:center;color:#5a708a;font-size:12px;font-style:italic;">Regime unavailable — SPY price data could not be fetched. Check console for details.</div>`;
   }
   const r = _p2Regime;
   const rc = {
-    'Risk-on':      { bg:'rgba(0,229,176,0.07)',  border:'rgba(0,229,176,0.22)',  text:'#00e5b0' },
-    'Cautious Bull':{ bg:'rgba(255,176,32,0.07)', border:'rgba(255,176,32,0.22)', text:'#ffb020' },
-    'Risk-off':     { bg:'rgba(255,61,90,0.09)',  border:'rgba(255,61,90,0.22)',  text:'#ff3d5a' },
-    'Neutral':      { bg:'rgba(128,144,160,0.05)',border:'rgba(128,144,160,0.15)',text:'#8090a0' },
-  }[r.regime_label] || { bg:'rgba(128,144,160,0.05)', border:'rgba(128,144,160,0.15)', text:'#8090a0' };
+    'Risk-on':      { bg:'rgba(0,229,176,0.08)',  border:'rgba(0,229,176,0.25)',  text:'#00e5b0' },
+    'Cautious Bull':{ bg:'rgba(255,176,32,0.08)', border:'rgba(255,176,32,0.25)', text:'#ffb020' },
+    'Risk-off':     { bg:'rgba(255,61,90,0.10)',  border:'rgba(255,61,90,0.25)',  text:'#ff3d5a' },
+    'Neutral':      { bg:'rgba(128,144,160,0.06)',border:'rgba(128,144,160,0.18)',text:'#8090a0' },
+  }[r.regime_label] || { bg:'rgba(128,144,160,0.06)', border:'rgba(128,144,160,0.18)', text:'#8090a0' };
   const vixCol = (r.vix_band==='complacent'||r.vix_band==='calm')?'#7fd0a8':r.vix_band==='normal-elevated'?'#d4b070':'#d97f8a';
-  const vixLbl = {complacent:'VIX<13 LOW',calm:'VIX 13-18 CALM','normal-elevated':'VIX 18-22 ELEV',caution:'VIX 22-30 CAUTION',fear:'VIX>30 FEAR'}[r.vix_band]||'VIX —';
+  const vixBandLbl = {complacent:'<13 LOW',calm:'13–18 CALM','normal-elevated':'18–22 ELEV',caution:'22–30 CAUTION',fear:'>30 FEAR'}[r.vix_band]||'—';
   const isOverride = _p2OverrideVix != null || _p2OverrideSpy != null;
-  const overrideDot = isOverride ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#ffb020;margin-left:5px;vertical-align:middle;" title="Manual override active"></span>` : '';
 
-  // SPY trend toggle buttons
-  const spyOpts = [['uptrend','↑ UP'],['chop','↔ CHOP'],['downtrend','↓ DN']];
+  // SPY trend buttons — large, clearly clickable (Fix 1: was 9px/2px padding, now 12px/7px 16px)
+  const spyOpts = [['uptrend','↑ UPTREND'],['chop','↔ CHOP'],['downtrend','↓ DOWNTREND']];
   const spyBtns = spyOpts.map(([v,lbl]) => {
     const active = r.spy_trend === v;
     const col = v==='uptrend'?'#7fd0a8':v==='downtrend'?'#d97f8a':'#8090a0';
-    return `<button onclick="onRegimeSpyToggle('${v}')" style="padding:2px 7px;border-radius:3px;border:1px solid ${active?col:'var(--border)'};background:${active?col+'33':'var(--bg3)'};color:${active?col:'#8090a0'};font-size:9px;font-weight:${active?700:400};cursor:pointer;">${lbl}</button>`;
+    return `<button onclick="onRegimeSpyToggle('${v}')" style="padding:7px 16px;border-radius:5px;border:2px solid ${active?col:'var(--border)'};background:${active?col+'25':'var(--bg3)'};color:${active?col:'#8090a0'};font-size:12px;font-weight:${active?700:400};cursor:pointer;min-width:106px;transition:all 0.1s;">${lbl}</button>`;
   }).join('');
 
-  // VIX number input — pre-filled from override or live value
+  // VIX input — larger, easier to use
   const vixDisplayVal = _p2OverrideVix != null ? _p2OverrideVix : (r.vixLevel > 0 ? r.vixLevel.toFixed(1) : '');
   const vixInput = `<input type="number" min="5" max="100" step="0.1" value="${vixDisplayVal}"
     onchange="onRegimeVixChange(this.value)"
-    style="width:52px;padding:2px 5px;background:var(--bg3);color:${vixCol};border:1px solid ${_p2OverrideVix!=null?'#ffb020':'var(--border)'};border-radius:3px;font-size:10px;font-weight:700;text-align:center;"
-    title="Type a VIX value and press Enter — regime recomputes immediately">`;
+    style="width:68px;padding:6px 8px;background:var(--bg3);color:${vixCol};border:2px solid ${_p2OverrideVix!=null?'#ffb020':'var(--border)'};border-radius:5px;font-size:14px;font-weight:700;text-align:center;"
+    title="Type VIX and press Enter — regime label and TAPE flags recompute instantly">`;
 
   const resetBtn = isOverride
-    ? `<button onclick="resetRegimeOverride()" style="padding:2px 7px;border-radius:3px;border:1px solid #ffb020;background:rgba(255,176,32,0.12);color:#ffb020;font-size:9px;cursor:pointer;white-space:nowrap;">↺ Reset to live</button>`
+    ? `<button onclick="resetRegimeOverride()" style="padding:6px 12px;border-radius:5px;border:1px solid #ffb020;background:rgba(255,176,32,0.12);color:#ffb020;font-size:11px;cursor:pointer;white-space:nowrap;margin-left:6px;">↺ Reset to live</button>`
     : '';
 
-  return `<div style="padding:10px 14px;background:${rc.bg};border:1px solid ${rc.border};border-radius:6px;margin-bottom:8px;">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <div style="font-size:12px;font-weight:700;color:${rc.text};letter-spacing:1.5px;min-width:100px;">${r.regime_label.toUpperCase()}${overrideDot}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-        <span style="font-size:9px;color:#5a708a;">SPY:</span>${spyBtns}
-        <span style="font-size:9px;color:#5a708a;margin-left:6px;">VIX:</span>${vixInput}
-        <span style="font-size:9px;color:#5a708a;">${vixLbl}</span>
-        ${resetBtn}
-      </div>
-      <div style="flex:1;font-size:10px;color:#8090a0;min-width:160px;font-style:italic;">${r.regime_context}</div>
+  const overridePill = isOverride
+    ? `<span style="font-size:9px;font-weight:600;background:rgba(255,176,32,0.15);color:#ffb020;padding:2px 7px;border-radius:3px;margin-left:8px;vertical-align:middle;">OVERRIDE</span>`
+    : '';
+
+  const maLine = r.ma20!=null
+    ? `20MA $${r.ma20.toFixed(1)} · 50MA $${r.ma50.toFixed(1)}`
+    : 'SPY MA data unavailable (price fetch failed)';
+
+  return `<div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;">
+    <!-- Regime label block -->
+    <div style="padding:16px 20px;background:${rc.bg};border:1px solid ${rc.border};border-radius:6px;min-width:140px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;">
+      <div style="font-size:10px;color:${rc.text};letter-spacing:2px;margin-bottom:6px;opacity:0.8;">REGIME</div>
+      <div style="font-size:22px;font-weight:700;color:${rc.text};line-height:1.15;">${r.regime_label.toUpperCase().replace(' ','<br>')}${overridePill}</div>
     </div>
-    <div style="margin-top:5px;font-size:9px;color:#5a708a;">${r.ma20!=null?`20MA $${r.ma20.toFixed(1)} · 50MA $${r.ma50.toFixed(1)} · `:'SPY MA data unavailable · '}live VIX ${_liveVix!=null?_liveVix.toFixed(1):'—'}</div>
+    <!-- Controls column -->
+    <div style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:10px;">
+      <div>
+        <div style="font-size:10px;color:#8090a0;letter-spacing:1px;margin-bottom:6px;">SPY TREND</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">${spyBtns}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:10px;color:#8090a0;letter-spacing:1px;margin-bottom:4px;">VIX LEVEL</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${vixInput}
+            <span style="font-size:12px;font-weight:700;color:${vixCol};">VIX ${vixBandLbl}</span>
+            ${resetBtn}
+          </div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#8090a0;font-style:italic;">${r.regime_context}</div>
+      <div style="font-size:10px;color:#5a708a;">${maLine} · live VIX ${_liveVix!=null?_liveVix.toFixed(1):'—'}</div>
+    </div>
   </div>`;
 }
 
@@ -6172,9 +6194,12 @@ function phase1BuildRows() {
       row.sector_aligned = (bull && leading) || (bear && lagging);
       row.sector_diverge = (bull && lagging)  || (bear && leading);
     } else { row.sector_aligned = false; row.sector_diverge = false; }
+    // TAPE flag: fires when setup direction fights the tape.
+    // Uses spy_trend directly so the SPY override buttons take immediate effect
+    // regardless of VIX band (which would otherwise require VIX>22 for Risk-off label).
     row.regime_warning = _p2Regime
-      ? (row.direction === 'UP'   && _p2Regime.regime_label === 'Risk-off') ||
-        (row.direction === 'DOWN' && _p2Regime.regime_label === 'Risk-on')
+      ? (row.direction === 'UP'   && (_p2Regime.spy_trend === 'downtrend' || _p2Regime.regime_label === 'Risk-off')) ||
+        (row.direction === 'DOWN' && (_p2Regime.spy_trend === 'uptrend'   || _p2Regime.regime_label === 'Risk-on'))
       : false;
     // Down-rank SWING/LONG setups that span earnings (Phase 1 amendment from Phase 2 spec)
     // earningsRisk already set in computePhase1; used here only for display — no re-sort
@@ -6784,8 +6809,10 @@ function renderFlowPredictor(){
         </div>
       </div>
     </div>
-    <div class="card" style="padding:14px;margin-bottom:14px;">
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);letter-spacing:0.5px;margin-bottom:12px;">MARKET CONTEXT</div>
       ${renderRegimeBanner()}
+      ${_p2SectorRanks.length?'<div style="height:1px;background:var(--border);margin:14px 0 10px;"></div>':''}
       ${renderSectorLeaderboard()}
     </div>
     <div class="card" style="padding:14px;margin-bottom:14px;">
