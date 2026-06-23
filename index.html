@@ -3188,6 +3188,7 @@ function parseOMENcsv(text){
     const vals=parseCsvLine(line);
     const obj={};
     headers.forEach((h,i)=>{obj[h]=vals[i]||'';});
+    const rawSpread=(obj['tradespread']||obj['spread']||'').trim().toLowerCase();
     const row={
       score:    obj['score']||'',
       alerts:   obj['alerts']||'',
@@ -3199,15 +3200,18 @@ function parseOMENcsv(text){
       cp:       obj['callput']||obj['cp']||obj['type']||'',
       price:    obj['price']||'',
       spread:   obj['tradespread']||obj['spread']||'',
+      spread_side: rawSpread==='askish'||rawSpread==='at ask'?'ask':rawSpread==='bidish'||rawSpread==='at bid'?'bid':'mid',
       premium:  obj['premium']||'',
       stocklast:obj['stocklast']||'',
       size:     obj['tradesize']||obj['size']||'',
       oi:       obj['openinterest']||'',
       iv:       obj['impliedvol']||'',
       earnings: obj['earningsdate']||'',
+      earnings_date_raw: obj['earningsdate']||'',
+      earning_alerts_raw: (obj['earningalerts']||obj['earningalert']||'').trim(),
     };
-    const rawEa=(obj['earningalerts']||obj['earningalert']||'').trim();
-    const eaMap={'approaching':'Approaching','today':'Today','post-earnings':'Post-Earnings','postearnings':'Post-Earnings'};
+    const rawEa=row.earning_alerts_raw;
+    const eaMap={'approaching':'Approaching','today':'Today','post-earnings':'Post-Earnings','postearnings':'Post-Earnings','next5days':'Approaching','next 5 days':'Approaching'};
     row.earnings_context=eaMap[rawEa.toLowerCase()]||null;
     row.id=makeTradeId(row);
     // Fix swapped strike/expiry: if strike looks like a date, swap with expiry
@@ -4719,12 +4723,15 @@ async function getOmenTickerUniverse(){
 // Map Supabase omen_flow row → internal flowData format
 function _supaRowToFlow(r){
   const row={
-    score:r.score||'',alerts:'',flag:r.flag||'B',time:r.time||'',
+    score:r.score||'',alerts:r.alerts||'',flag:r.flag||'B',time:r.time||'',
     symbol:(r.symbol||'').toUpperCase(),expiry:r.expiry||'',strike:r.strike||'',
     cp:r.cp||'',price:'',spread:r.spread||'',premium:r.premium||'',
-    stocklast:r.stocklast||'',size:r.size||'',oi:'',iv:r.iv||'',earnings:'',
+    stocklast:r.stocklast||'',size:r.size||'',oi:r.oi!=null?String(r.oi):'',iv:r.iv||'',earnings:'',
     trading_date:r.trading_date||'',source:r.source||'omen',snapshot_type:r.snapshot_type||'eod',
     earnings_context:r.earnings_context||null,
+    spread_side:r.spread_side||'',
+    earnings_date_raw:r.earnings_date_raw||'',
+    earning_alerts_raw:r.earning_alerts_raw||'',
   };
   row.id=makeTradeId(row);
   // Fix swapped strike/expiry (same validation as CSV parser)
@@ -5081,6 +5088,11 @@ async function saveFlowToSupabase(rows){
       trading_date:r.trading_date,
       snapshot_type:r.snapshot_type||'eod',
       earnings_context:r.earnings_context||null,
+      oi: r.oi ? (parseInt(String(r.oi).replace(/,/g,''),10)||null) : null,
+      alerts: r.alerts||null,
+      spread_side: r.spread_side||null,
+      earnings_date_raw: r.earnings_date_raw||null,
+      earning_alerts_raw: r.earning_alerts_raw||null,
     }));
     // Upsert so DB enforces dedup. ignoreDuplicates=true means exact dupes are silently skipped — every NEW row gets inserted.
     const{data:insertedRows,error}=await supa
@@ -5569,6 +5581,360 @@ function posDragStart(e){
 }
 
 // ============================================================
+// PHASE 1 — Size-blind conviction ranking + multi-day accum
+// ============================================================
+let _p1FlowData = null;          // raw omen_flow rows for Phase 1 computation
+const P1_ACTIVITY_FLOOR = 20;   // min total_size contracts to qualify (tunable)
+const P1_PAGE_SIZE = 10;
+let _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
+
+function p1ParsePremium(s) {
+  if (!s) return 0;
+  const clean = String(s).replace(/[$, ]/g, '');
+  const n = parseFloat(clean);
+  if (isNaN(n)) return 0;
+  const lo = clean.toLowerCase();
+  return lo.endsWith('m') ? n * 1e6 : lo.endsWith('k') ? n * 1e3 : n;
+}
+
+function p1ParseInt(s) {
+  if (s === null || s === undefined || s === '') return 0;
+  const n = parseInt(String(s).replace(/,/g, ''), 10);
+  return isNaN(n) ? 0 : n;
+}
+
+function p1SpreadWeight(ss) {
+  if (ss === 'ask') return 1.0;
+  if (ss === 'mid') return 0.6;
+  return 0.3; // bid or unknown
+}
+
+function p1TenorBucket(expiryStr, scanDateStr) {
+  if (!expiryStr || !scanDateStr) return 'DAY';
+  try {
+    let exp;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(expiryStr)) {
+      exp = new Date(expiryStr + 'T12:00:00');
+    } else {
+      const pts = expiryStr.split('/');
+      if (pts.length === 3) {
+        const yr = pts[2].length === 2 ? '20' + pts[2] : pts[2];
+        exp = new Date(`${yr}-${pts[0].padStart(2,'0')}-${pts[1].padStart(2,'0')}T12:00:00`);
+      } else { return 'DAY'; }
+    }
+    const scan = new Date(scanDateStr + 'T12:00:00');
+    const days = Math.round((exp - scan) / 86400000);
+    if (days <= 14) return 'DAY';
+    if (days <= 65) return 'SWING';
+    return 'LONG';
+  } catch (e) { return 'DAY'; }
+}
+
+function p1ParseDate(s) {
+  if (!s) return null;
+  try {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T12:00:00');
+    const pts = s.split('/');
+    if (pts.length === 3) {
+      const yr = pts[2].length === 2 ? '20' + pts[2] : pts[2];
+      return new Date(`${yr}-${pts[0].padStart(2,'0')}-${pts[1].padStart(2,'0')}T12:00:00`);
+    }
+  } catch (e) {}
+  return null;
+}
+
+function p1ClassifySetup({ dayPrem, swingPrem, longPrem, oiRising, oiWasPriorAccum }) {
+  const total = dayPrem + swingPrem + longPrem;
+  // FADING: was building OI for ≥2 days, now declining
+  if (oiWasPriorAccum && !oiRising) return 'FADING';
+  if (total <= 0) return 'DAY_TRADE';
+  const dayF = dayPrem / total;
+  const swingF = swingPrem / total;
+  const longF = longPrem / total;
+  if (dayF >= swingF && dayF >= longF) return 'DAY_TRADE';
+  if (swingF >= dayF && swingF >= longF) return 'SWING';
+  return 'LONG';
+}
+
+function computePhase1(allRows) {
+  if (!allRows || !allRows.length) return { todayDate: null, allDates: [], bySymbol: {} };
+  const allDates = [...new Set(allRows.map(r => r.trading_date).filter(Boolean))].sort();
+  if (!allDates.length) return { todayDate: null, allDates: [], bySymbol: {} };
+  const todayDate = allDates[allDates.length - 1];
+
+  // contractOI[contractKey][date] = max OI seen for that contract on that date (never sum)
+  // contractKey = `${sym}|${expiry}|${strike}|${cpNorm}`
+  const contractOI = {};
+  const contractDailySz = {}; // contractKey → date → summed size
+
+  for (const r of allRows) {
+    const sym = r.symbol; const date = r.trading_date;
+    if (!sym || !date) continue;
+    const cpNorm = String(r.cp || '').toLowerCase().startsWith('c') ? 'call' : 'put';
+    const ck = `${sym}|${r.expiry||''}|${r.strike||''}|${cpNorm}`;
+    const oi = p1ParseInt(r.oi);
+    const sz = p1ParseInt(r.size);
+    if (!contractOI[ck]) contractOI[ck] = {};
+    if (oi > 0) contractOI[ck][date] = Math.max(contractOI[ck][date] || 0, oi);
+    if (!contractDailySz[ck]) contractDailySz[ck] = {};
+    contractDailySz[ck][date] = (contractDailySz[ck][date] || 0) + sz;
+  }
+
+  // Compute per-symbol metrics for todayDate
+  const bySymbol = {};
+  const todayRows = allRows.filter(r => r.trading_date === todayDate);
+  const bySymTrades = {};
+  for (const r of todayRows) { if (!r.symbol) continue; if (!bySymTrades[r.symbol]) bySymTrades[r.symbol]=[]; bySymTrades[r.symbol].push(r); }
+
+  for (const [sym, trades] of Object.entries(bySymTrades)) {
+    let callPrem=0,putPrem=0,convCall=0,convPut=0,totalSize=0,askPrem=0,totalPrem=0;
+    let dayPrem=0,swingPrem=0,longPrem=0;
+    let earningsRisk=false, earningsDateRaw=null;
+
+    for (const t of trades) {
+      const prem = p1ParsePremium(t.premium);
+      const sz = p1ParseInt(t.size);
+      const cpNorm = String(t.cp || '').toLowerCase().startsWith('c') ? 'call' : 'put';
+      // spread_side: stored field preferred, else normalize raw spread string
+      let ss = t.spread_side || '';
+      if (!ss) {
+        const raw = String(t.spread || '').toLowerCase().trim();
+        ss = (raw === 'askish' || raw === 'at ask') ? 'ask'
+           : (raw === 'bidish' || raw === 'at bid') ? 'bid' : 'mid';
+      }
+      const weight = p1SpreadWeight(ss);
+      const bucket = p1TenorBucket(t.expiry, todayDate);
+
+      if (cpNorm === 'call') { callPrem += prem; convCall += prem * weight; }
+      else                   { putPrem  += prem; convPut  += prem * weight; }
+
+      totalSize += sz;
+      if (ss === 'ask') askPrem += prem;
+      totalPrem += prem;
+      if (bucket === 'DAY') dayPrem += prem;
+      else if (bucket === 'SWING') swingPrem += prem;
+      else longPrem += prem;
+
+      // Earnings: SM "Next X Days" → always risk; OMEN: compare expiry vs earnings date
+      const ear = t.earning_alerts_raw || '';
+      if (ear && ear.toLowerCase().includes('next')) earningsRisk = true;
+      if (t.earnings_date_raw && !earningsDateRaw) earningsDateRaw = t.earnings_date_raw;
+    }
+
+    if (totalPrem <= 0) continue;
+
+    // OMEN earnings risk: any trade's expiry on/after earnings date
+    if (!earningsRisk && earningsDateRaw) {
+      const earDate = p1ParseDate(earningsDateRaw);
+      if (earDate) {
+        for (const t of trades) {
+          const expDate = p1ParseDate(t.expiry);
+          if (expDate && expDate >= earDate) { earningsRisk = true; break; }
+        }
+      }
+    }
+
+    const winTotal = callPrem + putPrem;
+    const skewPct = winTotal > 0 ? (callPrem - putPrem) / winTotal * 100 : 0;
+    const convTotal = convCall + convPut;
+    const convictionSkew = convTotal > 0 ? (convCall - convPut) / convTotal * 100 : 0;
+    const aggressivePct = totalPrem > 0 ? askPrem / totalPrem * 100 : 0;
+    const direction = convictionSkew >= PRED_DIRECTIONAL ? 'UP'
+                    : convictionSkew <= -PRED_DIRECTIONAL ? 'DOWN' : 'FLAT';
+
+    // Multi-day OI accumulation
+    const prevDates = allDates.filter(d => d < todayDate);
+    const symContracts = Object.keys(contractOI).filter(k => k.startsWith(sym + '|'));
+    let accumStreak = 0, freshOiFlag = false, oiRisingToday = false, oiWasPriorAccum = false;
+
+    for (const ck of symContracts) {
+      const oiHist = contractOI[ck];
+      const todayOI = oiHist[todayDate] || 0;
+      const prevWithOI = prevDates.filter(d => oiHist[d] != null).sort();
+      if (!prevWithOI.length) continue;
+
+      const lastPrev = prevWithOI[prevWithOI.length - 1];
+      const prevOI = oiHist[lastPrev] || 0;
+
+      if (todayOI > prevOI && todayOI > 0) oiRisingToday = true;
+
+      // Fresh OI: thin contract + large new volume
+      const todaySzCk = (contractDailySz[ck] && contractDailySz[ck][todayDate]) || 0;
+      if (prevOI > 0 && prevOI < 1000 && todaySzCk >= 3 * prevOI) freshOiFlag = true;
+
+      // Streak: consecutive rising OI days leading into today
+      if (todayOI > prevOI && todayOI > 0) {
+        let s = 1;
+        for (let i = prevWithOI.length - 1; i >= 1; i--) {
+          if ((oiHist[prevWithOI[i]] || 0) > (oiHist[prevWithOI[i-1]] || 0)) s++;
+          else break;
+        }
+        accumStreak = Math.max(accumStreak, s);
+      }
+
+      // Was it accumulating before today but now declining?
+      if (prevWithOI.length >= 2) {
+        let pStreak = 0;
+        for (let i = prevWithOI.length - 1; i >= 1; i--) {
+          if ((oiHist[prevWithOI[i]] || 0) > (oiHist[prevWithOI[i-1]] || 0)) pStreak++;
+          else break;
+        }
+        if (pStreak >= 2 && todayOI < prevOI) oiWasPriorAccum = true;
+      }
+    }
+
+    const setupClass = p1ClassifySetup({ dayPrem, swingPrem, longPrem, oiRising: oiRisingToday, oiWasPriorAccum });
+
+    bySymbol[sym] = {
+      symbol: sym, callPrem, putPrem, totalPrem: winTotal,
+      skewPct, convictionSkew, aggressivePct, totalSize,
+      dayPrem, swingPrem, longPrem,
+      accumStreak, freshOiFlag, earningsRisk, setupClass, direction,
+      // Legacy compat for renderHistoryStrip / showHoverPopup
+      hasToday: true,
+      cumCall: callPrem, cumPut: putPrem, cumTotal: winTotal, cumSent: skewPct,
+      todayCall: callPrem, todayPut: putPrem, todayTotal: winTotal, todaySent: skewPct,
+      confidence: Math.abs(convictionSkew) >= PRED_STRONG ? 'HIGH'
+                : Math.abs(convictionSkew) >= PRED_DIRECTIONAL ? 'MEDIUM' : 'LOW',
+      momentum: '—', earnings: null, prices: [], top_calls: null, top_puts: null,
+    };
+  }
+
+  return { todayDate, allDates, bySymbol };
+}
+
+function phase1BuildRows() {
+  const raw = _p1FlowData || [];
+  if (!raw.length) return { todayDate: null, allDates: [], classified: {}, allRows: [], visibleDates: [], searchRow: null };
+
+  const { todayDate, allDates, bySymbol } = computePhase1(raw);
+  if (!todayDate) return { todayDate: null, allDates: [], classified: {}, allRows: [], visibleDates: [], searchRow: null };
+
+  const visibleDates = pickVisibleDates(allDates);
+
+  // Augment with price data + top contracts from _predData
+  if (_predData && _predData.length) {
+    const bySD = {};
+    for (const r of _predData) {
+      if (!bySD[r.symbol]) bySD[r.symbol] = {};
+      bySD[r.symbol][r.trading_date] = r;
+    }
+    for (const sym of Object.keys(bySymbol)) {
+      const row = bySymbol[sym];
+      const sp = bySD[sym] || {};
+      row.prices = visibleDates.map(d => { const p = sp[d]; return { date: d, open: p?.open_price || null, close: p?.close_price || null }; });
+      const td = sp[todayDate];
+      if (td) { row.top_calls = td.top_calls || null; row.top_puts = td.top_puts || null; row.earnings = row.earnings || td.earnings_context || null; }
+    }
+  }
+
+  // Apply activity floor and rank by abs(conviction_skew)
+  const qualified = Object.values(bySymbol)
+    .filter(r => r.totalSize >= P1_ACTIVITY_FLOOR)
+    .sort((a, b) => {
+      const d = Math.abs(b.convictionSkew) - Math.abs(a.convictionSkew);
+      if (Math.abs(d) > 0.01) return d;
+      if (b.accumStreak !== a.accumStreak) return b.accumStreak - a.accumStreak;
+      if (b.freshOiFlag !== a.freshOiFlag) return (b.freshOiFlag ? 1 : 0) - (a.freshOiFlag ? 1 : 0);
+      return b.aggressivePct - a.aggressivePct;
+    });
+
+  const classified = { DAY_TRADE: [], SWING: [], LONG: [], FADING: [] };
+  for (const r of qualified) { (classified[r.setupClass] = classified[r.setupClass] || []).push(r); }
+
+  let searchRow = null;
+  if (_predSearchTicker) {
+    const found = bySymbol[_predSearchTicker];
+    if (found && found.totalSize >= 1) searchRow = found; // search bypasses activity floor
+  }
+
+  return { todayDate, allDates, visibleDates, classified, allRows: qualified, searchRow };
+}
+
+async function loadP1FlowData() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    const PAGE = 2000;
+    let all = [], from = 0;
+    while (true) {
+      const { data, error } = await supa
+        .from('omen_flow')
+        .select('symbol,expiry,strike,cp,spread,spread_side,premium,size,oi,alerts,trading_date,earnings_date_raw,earning_alerts_raw,earnings_context')
+        .order('trading_date', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) { console.warn('[P1] omen_flow load error:', error.message); break; }
+      if (!data || !data.length) break;
+      all = all.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+      if (from > 200000) break;
+    }
+    _p1FlowData = all;
+    console.log('[P1] Loaded', all.length, 'raw flow rows for Phase 1 computation');
+  } catch (e) {
+    console.warn('[P1] loadP1FlowData failed:', e);
+    _p1FlowData = [];
+  }
+}
+
+function setP1Page(section, page) {
+  _p1Pages[section] = page;
+  renderFlowPredictor();
+}
+
+function renderP1Row(r, rank, visibleDates) {
+  const dir = r.direction;
+  const setupColors = { DAY_TRADE:'#7fb0e8', SWING:'#d4b070', LONG:'#7fd0a8', FADING:'#d97f8a' };
+  const sc = r.setupClass || 'DAY_TRADE';
+  const scColor = setupColors[sc] || '#8090a0';
+  const scLabel = sc.replace('_',' ');
+  const dirBg = dir==='UP'?'var(--green)':dir==='DOWN'?'var(--red)':'#555';
+  const dirLabel = dir==='UP'?'BULLISH':dir==='DOWN'?'BEARISH':'NEUTRAL';
+  const convColor = sentColor(r.convictionSkew);
+  const freshDot = r.freshOiFlag
+    ? '<span title="Fresh OI — new positions opening into thin contract" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#00e5b0;margin-left:4px;vertical-align:middle;"></span>'
+    : '';
+  const erPill = r.earningsRisk
+    ? '<span style="display:inline-block;font-size:8px;font-weight:700;background:#ffb02033;color:#ffb020;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;" title="Expiry past earnings — IV crush + gap risk">⚠ EARN</span>'
+    : '';
+  const accumBadge = r.accumStreak >= 2
+    ? `<span style="font-size:9px;color:#7fd0a8;margin-left:4px;" title="${r.accumStreak} consecutive days of rising OI">↑${r.accumStreak}d</span>`
+    : '';
+  const confColor2 = confColor(r.confidence);
+  const priceCols = (visibleDates || []).map((d,i) => {
+    const p = (r.prices || []).find(x => x.date === d);
+    const bg = i%2===0 ? '#0a0a14' : '#101020';
+    return `<td style="padding:4px;background:${bg};text-align:right;color:#a0a8c0;">${p?.open!=null?p.open.toFixed(2):'—'}</td><td style="padding:4px;background:${bg};text-align:right;color:#a0a8c0;">${p?.close!=null?p.close.toFixed(2):'—'}</td>`;
+  }).join('');
+
+  return `<tr style="border-bottom:1px solid #1a1a28;cursor:pointer;"
+    onmouseenter="this.style.background='rgba(0,212,255,0.08)';renderHistoryStrip('${r.symbol}',_predLastDates||[])"
+    onmouseleave="this.style.background='';"
+    onclick="showHoverPopup('${r.symbol}',this)">
+    <td style="position:sticky;left:0;background:var(--bg);padding:6px;font-weight:600;color:#8090a0;z-index:1;">${rank}</td>
+    <td style="position:sticky;left:30px;background:var(--bg);padding:6px;z-index:1;min-width:130px;">
+      <div style="font-weight:700;color:var(--text);">${r.symbol}${freshDot}${erPill}</div>
+      <div style="font-size:9px;color:${scColor};font-weight:600;letter-spacing:0.5px;margin-top:2px;">${scLabel}${accumBadge}</div>
+    </td>
+    <td style="padding:6px;text-align:right;color:#7fd0a8;">${fmtMoney(r.callPrem)}</td>
+    <td style="padding:6px;text-align:right;color:#d97f8a;">${fmtMoney(r.putPrem)}</td>
+    <td style="padding:6px;text-align:right;color:#7fb0e8;font-size:10px;">${fmtMoney(r.dayPrem)}</td>
+    <td style="padding:6px;text-align:right;color:#d4b070;font-size:10px;">${fmtMoney(r.swingPrem)}</td>
+    <td style="padding:6px;text-align:right;color:#7fd0a8;font-size:10px;">${fmtMoney(r.longPrem)}</td>
+    <td style="padding:6px;text-align:right;color:${convColor};font-weight:700;">${fmtSent(r.convictionSkew)}</td>
+    <td style="padding:6px;text-align:right;color:${sentColor(r.skewPct)};font-size:10px;">${fmtSent(r.skewPct)}</td>
+    <td style="padding:6px;text-align:center;white-space:nowrap;">
+      <span style="background:${dirBg};color:#000;padding:2px 7px;border-radius:3px;font-weight:700;font-size:10px;">${dirLabel}</span>
+      <span style="display:inline-block;background:${confColor2}33;color:${confColor2};padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;margin-left:3px;">${r.confidence}</span>
+    </td>
+    ${renderTopContractCell(r.symbol,dir,0,r)}
+    ${renderTopContractCell(r.symbol,dir,1,r)}
+    ${priceCols}
+  </tr>`;
+}
+
+// ============================================================
 // FLOW PREDICTOR — v3 model
 // ============================================================
 const PRED_DIRECTIONAL=30;
@@ -5608,6 +5974,7 @@ async function loadPredictorData(){
     // Top contracts now embedded in each row's top_calls/top_puts JSON columns — no separate fetch needed.
     const sample = _predData && _predData.length ? _predData[_predData.length-1] : null;
     console.log('[Predictor] data loaded —', _predData?.length || 0, 'rows. Sample top_calls:', sample?.top_calls);
+    await loadP1FlowData();
     await loadSpyTrend();
     return _predData;
   }catch(e){
@@ -5908,17 +6275,75 @@ function renderPredRow(r,rank,dates){
 function renderFlowPredictor(){
   const root=document.getElementById('page-flowpredict');
   if(!root)return;
-  const built=predBuildRows();
-  const{dates,todayDate,top10,top5,searchRow}=built;
-  _predLastDates=dates;   // for hover history strip
-  if(!dates.length){
-    root.innerHTML='<div class="card" style="padding:40px;text-align:center;"><div style="font-size:48px;margin-bottom:16px;">🎯</div><div style="font-size:18px;font-weight:600;margin-bottom:8px;">No data yet</div><div style="font-size:13px;color:#c0c8d0;">Upload OMEN CSVs in the Options Flow tab to populate the predictor.</div></div>';
+
+  // Phase 1 primary path: size-blind conviction ranking from raw omen_flow
+  const p1 = phase1BuildRows();
+  const { todayDate: p1Today, visibleDates, classified, allRows: p1Rows, searchRow: p1Search } = p1;
+
+  // Fallback: use omen_daily_summary for sentiment stats banner (unchanged)
+  const dailyBuilt = predBuildRows();
+  const legacyDates = dailyBuilt.dates || visibleDates || [];
+  const displayDates = visibleDates && visibleDates.length ? visibleDates : legacyDates;
+  _predLastDates = displayDates;
+
+  const todayDate = p1Today || dailyBuilt.todayDate;
+
+  if (!todayDate && !dailyBuilt.dates.length) {
+    root.innerHTML='<div class="card" style="padding:40px;text-align:center;"><div style="font-size:48px;margin-bottom:16px;">🎯</div><div style="font-size:18px;font-weight:600;margin-bottom:8px;">No data yet</div><div style="font-size:13px;color:#c0c8d0;">Upload OMEN or SmartMoney CSVs in the Options Flow tab to populate the predictor.</div></div>';
     return;
   }
-  const tfStats=predComputeTimeframeStats();
-  const tfLabel=_predTimeframe==='D'?'Today':_predTimeframe==='W'?'This Week':_predTimeframe==='M'?'This Month':'This Year';
-  const tfPrefix=_predTimeframe==='D'?'DAY':_predTimeframe==='W'?'WEEK':_predTimeframe==='M'?'MONTH':'YEAR';
-  const colCount=11+dates.length*2;   // +3 for top contract columns
+
+  const tfStats = predComputeTimeframeStats();
+  const tfLabel = _predTimeframe==='D'?'Today':_predTimeframe==='W'?'This Week':_predTimeframe==='M'?'This Month':'This Year';
+  const colCount = 12 + displayDates.length * 2;
+
+  // Build Phase 1 section HTML helper
+  function p1Section(label, rows, bgColor, textColor, section) {
+    const page = _p1Pages[section] || 1;
+    const start = (page - 1) * P1_PAGE_SIZE;
+    const pageRows = rows.slice(start, start + P1_PAGE_SIZE);
+    const totalPages = Math.ceil(rows.length / P1_PAGE_SIZE);
+    const emptyMsg = `<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">No ${label.toLowerCase()} setups today</td></tr>`;
+    const pageControls = totalPages > 1 ? `<tr><td colspan="${colCount}" style="padding:6px 10px;background:#0a0a14;text-align:center;">
+      ${Array.from({length:totalPages},(_,i)=>`<button onclick="setP1Page('${section}',${i+1})" style="margin:0 2px;padding:3px 10px;border-radius:3px;border:1px solid var(--border);background:${page===i+1?'var(--cyan)':'var(--bg3)'};color:${page===i+1?'#000':'#c0c8d0'};font-size:10px;cursor:pointer;">${(i*P1_PAGE_SIZE+1)}–${Math.min((i+1)*P1_PAGE_SIZE,rows.length)}</button>`).join('')}
+      <span style="font-size:10px;color:#8090a0;margin-left:8px;">${rows.length} total</span>
+    </td></tr>` : '';
+    return `<tr><td colspan="${colCount}" style="padding:6px 10px;background:${bgColor};color:${textColor};font-size:11px;font-weight:700;letter-spacing:1px;">${label} · ${rows.length} setup${rows.length!==1?'s':''}</td></tr>
+      ${pageRows.length ? pageRows.map((r,i)=>renderP1Row(r,start+i+1,displayDates)).join('') : emptyMsg}
+      ${pageControls}`;
+  }
+
+  const p1TableHead = `<thead>
+    <tr style="background:var(--bg3);">
+      <th style="position:sticky;left:0;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:30px;">#</th>
+      <th style="position:sticky;left:30px;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:150px;">Symbol / Setup</th>
+      <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fd0a8;">CALL $</th>
+      <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#d97f8a;">PUT $</th>
+      <th style="padding:8px 6px;text-align:right;background:#15243a;color:#7fb0e8;font-size:10px;">DAY $</th>
+      <th style="padding:8px 6px;text-align:right;background:#15243a;color:#d4b070;font-size:10px;">SWING $</th>
+      <th style="padding:8px 6px;text-align:right;background:#15243a;color:#7fd0a8;font-size:10px;">LONG $</th>
+      <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#00d4ff;font-weight:700;">CONV.SKEW</th>
+      <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;font-size:10px;">SKEW%</th>
+      <th style="background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;min-width:90px;">DIRECTION</th>
+      <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #1</th>
+      <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #2</th>
+      ${displayDates.map((d,i)=>{
+        const bias=dayBiasNote(d);
+        const biasHTML=bias?`<div style="font-size:9px;color:${dayBiasColor(bias)};font-weight:600;margin-top:2px;">${bias} Bias</div>`:'';
+        return`<th colspan="2" style="padding:6px;text-align:center;background:${i%2===0?'#181828':'#222236'};font-size:10px;color:#a0a8c0;">${fmtDateHeader(d)}${biasHTML}</th>`;
+      }).join('')}
+    </tr>
+    <tr style="background:var(--bg3);font-size:10px;">
+      <th style="position:sticky;left:0;background:var(--bg3);z-index:2;"></th>
+      <th style="position:sticky;left:30px;background:var(--bg3);z-index:2;"></th>
+      <th colspan="2"></th><th colspan="3" style="background:#15243a;"></th>
+      <th colspan="2" style="background:#0d2540;font-size:9px;color:#6080a0;text-align:center;padding:2px 4px;">ask-weighted · primary rank</th>
+      <th style="background:#0a3020;"></th>
+      <th colspan="2" style="background:#15243a;"></th>
+      ${displayDates.map((d,i)=>`<th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Open</th><th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Close</th>`).join('')}
+    </tr>
+  </thead>`;
+
   root.innerHTML=`
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
@@ -5958,64 +6383,45 @@ function renderFlowPredictor(){
     </div>
     <div class="card" style="padding:14px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <div style="font-size:14px;font-weight:600;">DIRECTIONAL PREDICTION · ${fmtDateHeader(todayDate)}</div>
+        <div>
+          <div style="font-size:14px;font-weight:600;">PHASE 1 · SIZE-BLIND CONVICTION RANKING · ${fmtDateHeader(todayDate)}</div>
+          <div style="font-size:10px;color:#8090a0;margin-top:2px;">Ranked by ask-weighted conviction skew · Activity floor ≥${P1_ACTIVITY_FLOOR} contracts · Heuristic, not validated probability</div>
+        </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span style="display:inline-flex;align-items:center;vertical-align:middle;"><input id="pred-ticker-search" type="text" placeholder="Search ticker (NVDA, SPY…)" autocomplete="off" oninput="onPredTickerSearch(event)" value="${_predSearchTicker||''}" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:5px 10px;font-size:11px;border-radius:4px;width:200px;margin-right:4px;"><button id="unusual-btn" onclick="window.checkAndShowUnusualVolume()" style="background:rgba(0,212,255,0.15);border:1px solid #00d4ff;color:#00d4ff;padding:7px 14px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;margin-left:10px;white-space:nowrap;font-family:system-ui,sans-serif;" title="Show tickers with unusually high flow today vs 20-day baseline">⚡ UNUSUAL VOLUME</button></span>
-          <span style="font-size:11px;color:#8090a0;">Labels:</span>
-          ${['numbers','both','labels'].map(m=>`<button class="btn btn-sm" onclick="setPredLabelMode('${m}')" style="${_predLabelMode===m?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);text-transform:capitalize;">${m}</button>`).join('')}
         </div>
+      </div>
+      <div style="font-size:10px;color:#6080a0;margin-bottom:8px;padding:4px 0;">
+        <span style="color:#00e5b0;margin-right:12px;">● green dot = fresh OI</span>
+        <span style="color:#ffb020;margin-right:12px;">⚠ EARN = expiry past earnings</span>
+        <span style="color:#7fd0a8;margin-right:12px;">↑Nd = N-day OI streak</span>
+        <span style="color:#8090a0;">Activity floor: total_size ≥ ${P1_ACTIVITY_FLOOR} contracts</span>
       </div>
       <div id="pred-history-strip" style="padding:8px 10px;background:rgba(13,24,48,0.6);border:1px solid rgba(255,255,255,0.05);border-radius:6px;margin-bottom:10px;min-height:46px;display:flex;align-items:center;flex-wrap:wrap;overflow-x:auto;">
         <span style="color:#5a708a;font-size:11px;letter-spacing:0.5px;">▸ Hover a row to see that ticker's per-day call/put bias</span>
       </div>
       <div style="overflow-x:scroll;overflow-y:visible;width:100%;max-width:100%;-webkit-overflow-scrolling:touch;">
         <table style="border-collapse:collapse;font-size:11px;width:max-content;min-width:100%;">
-          <thead>
-            <tr style="background:var(--bg3);">
-              <th style="position:sticky;left:0;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:30px;">#</th>
-              <th style="position:sticky;left:30px;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:130px;">Symbol</th>
-              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">${tfPrefix} CALL $</th>
-              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">${tfPrefix} PUT $</th>
-              <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fb0e8;">${tfPrefix} SENT</th>
-              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">${tfPrefix} TOTAL $</th>
-              <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;">${tfPrefix} SENT %</th>
-              <th style="background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;min-width:80px;">Direction</th>
-              <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #1</th>
-              <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #2</th>
-              <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #3</th>
-              ${dates.map((d,i)=>{
-                const bias=dayBiasNote(d);
-                const biasHTML=bias?`<div style="font-size:9px;color:${dayBiasColor(bias)};font-weight:600;margin-top:2px;">${bias} Bias</div>`:'';
-                return`<th colspan="2" style="padding:6px;text-align:center;background:${i%2===0?'#181828':'#222236'};font-size:10px;color:#a0a8c0;">${fmtDateHeader(d)}${biasHTML}</th>`;
-              }).join('')}
-            </tr>
-            <tr style="background:var(--bg3);font-size:10px;">
-              <th style="position:sticky;left:0;background:var(--bg3);z-index:2;"></th>
-              <th style="position:sticky;left:30px;background:var(--bg3);z-index:2;"></th>
-              <th colspan="5"></th>
-              <th style="background:#0a3020;"></th>
-              <th colspan="3" style="background:#15243a;"></th>
-              ${dates.map((d,i)=>`<th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Open</th><th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Close</th>`).join('')}
-            </tr>
-          </thead>
+          ${p1TableHead}
           <tbody>
             ${_predSearchTicker ? `
               <tr><td colspan="${colCount}" style="padding:6px;background:#15243a;color:#7fb0e8;font-size:11px;font-weight:600;letter-spacing:1px;">SEARCH RESULT — ${_predSearchTicker}</td></tr>
-              ${searchRow ? renderPredRow(searchRow,1,dates) : (()=>{
-                const found=top10.find(r=>r.symbol===_predSearchTicker)||top5.find(r=>r.symbol===_predSearchTicker);
-                return found?renderPredRow(found,1,dates):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">"${_predSearchTicker}" not found in flow data.</td></tr>`;
-              })()}
+              ${p1Search ? renderP1Row(p1Search,1,displayDates) : `<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">"${_predSearchTicker}" not found in today's flow (may be below activity floor of ${P1_ACTIVITY_FLOOR} contracts).</td></tr>`}
             ` : `
-              <tr><td colspan="${colCount}" style="padding:6px;background:#15243a;color:#7fb0e8;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 10 BY CUMULATIVE VOLUME — PREDICTED DIRECTION</td></tr>
-              ${top10.map((r,i)=>renderPredRow(r,i+1,dates)).join('')}
-              <tr><td colspan="${colCount}" style="padding:6px;background:#3a1820;color:#e88080;font-size:11px;font-weight:600;letter-spacing:1px;">TOP 5 BY PUT $ — BEARISH LEADERS</td></tr>
-              ${top5.length?top5.map((r,i)=>renderPredRow(r,i+1,dates)).join(''):`<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">No tickers with put $ &gt; call $ in this window</td></tr>`}
+              ${p1Rows.length === 0 ?
+                `<tr><td colspan="${colCount}" style="padding:30px;text-align:center;color:#8090a0;">
+                  ${_p1FlowData === null ? 'Loading Phase 1 data…' : _p1FlowData.length === 0 ? 'No flow data — upload OMEN or SmartMoney CSVs in the Options Flow tab (re-upload existing files to add OI + spread_side columns).' : 'No symbols meet the activity floor (≥' + P1_ACTIVITY_FLOOR + ' contracts) for today.'}
+                </td></tr>` :
+                `${p1Section('DAY TRADE', classified.DAY_TRADE||[], '#1a2040', '#7fb0e8', 'DAY_TRADE')}
+                ${p1Section('SWING', classified.SWING||[], '#201a08', '#d4b070', 'SWING')}
+                ${p1Section('LONG', classified.LONG||[], '#0a2018', '#7fd0a8', 'LONG')}
+                ${(classified.FADING||[]).length ? p1Section('FADING', classified.FADING, '#201018', '#d97f8a', 'FADING') : ''}`
+              }
             `}
           </tbody>
         </table>
       </div>
     </div>`;
-  // Restore search input focus after re-render (innerHTML wipes the DOM node)
   if(_predSearchTicker){
     const srch=document.getElementById('pred-ticker-search');
     if(srch){srch.value=_predSearchTicker;srch.focus();const l=srch.value.length;srch.setSelectionRange(l,l);}
@@ -6024,13 +6430,9 @@ function renderFlowPredictor(){
 
 async function setPredTimeframe(tf){
   _predTimeframe=tf;
-  // Always reload fresh data when timeframe changes — guarantees latest CSV uploads visible
   try { await loadPredictorData(); } catch(e){ console.warn('[Predictor] reload failed:', e); }
-  const built = predBuildRows();
-  console.log('[Predictor] Timeframe', tf, '→ tfDays =', predTimeframeDays(tf),
-    '| total rows in _predData:', _predData?.length || 0,
-    '| dates in window:', built.dates.length,
-    '| top10 sample:', built.top10[0] ? {sym: built.top10[0].symbol, cumTotal: built.top10[0].cumTotal, cumSent: built.top10[0].cumSent} : null);
+  const p1 = phase1BuildRows();
+  console.log('[Predictor] Timeframe', tf, '| p1 qualified:', p1.allRows.length, '| DAY_TRADE:', (p1.classified.DAY_TRADE||[]).length, '| SWING:', (p1.classified.SWING||[]).length);
   renderFlowPredictor();
 }
 
@@ -6061,6 +6463,8 @@ async function refreshOptionsFlow(){
 
 async function refreshFlowPredictor(){
   _predData=null;
+  _p1FlowData=null;
+  _p1Pages={ DAY_TRADE:1, SWING:1, LONG:1, FADING:1 };
   await loadPredictorData();
   renderFlowPredictor();
   setRefreshed('flow_predictor');
