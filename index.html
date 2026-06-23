@@ -5053,6 +5053,16 @@ async function saveFlowToSupabase(rows){
         .eq('snapshot_type','intraday');
       if(delErr)console.warn('[Supabase] Intraday delete error:',delErr.message);
       else if(delCount>0)console.log(`[Supabase] Replaced ${delCount} intraday rows with EOD for ${trading_date} (${source})`);
+      // Force-replace: wipe existing EOD rows so re-upload writes new columns (oi, spread_side, …) fresh
+      if(forceReplace){
+        const{error:delEodErr,count:delEodCount}=await supa.from('omen_flow')
+          .delete()
+          .eq('trading_date',trading_date)
+          .eq('source',source)
+          .eq('snapshot_type','eod');
+        if(delEodErr)console.warn('[Supabase] EOD force-replace delete error:',delEodErr.message);
+        else console.log(`[Supabase] Force-replace: deleted ${delEodCount||0} existing EOD rows for ${trading_date} (${source})`);
+      }
     } else {
       // Intraday upload: check if EOD already exists
       const{data:existing,error:chkErr}=await supa.from('omen_flow')
