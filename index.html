@@ -5866,12 +5866,31 @@ async function loadP1FlowData() {
   const supa = await getSupabaseAsync();
   if (!supa) return;
   try {
-    const PAGE = 2000;
+    const PAGE = 1000;  // matches Supabase's per-request cap
+
+    // Step 1: get latest trading_date with its own tiny query — never derived from a truncated page
+    const { data: latestRow, error: latestErr } = await supa
+      .from('omen_flow')
+      .select('trading_date')
+      .order('trading_date', { ascending: false })
+      .limit(1);
+    if (latestErr) { console.warn('[P1] latest-date query failed:', latestErr.message); _p1FlowData = []; return; }
+    const latestDate = latestRow && latestRow[0] && latestRow[0].trading_date;
+    if (!latestDate) { _p1FlowData = []; return; }
+
+    // Step 2: scope to last 45 calendar days — enough for OI streak history, avoids loading 140K rows
+    const cutoff = new Date(latestDate + 'T00:00:00');
+    cutoff.setDate(cutoff.getDate() - 45);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    console.log('[P1] Latest trading_date:', latestDate, '| loading from:', cutoffStr);
+
+    // Step 3: paginate at PAGE=1000 ascending (oldest→newest for accumulation)
     let all = [], from = 0;
     while (true) {
       const { data, error } = await supa
         .from('omen_flow')
         .select('symbol,expiry,strike,cp,spread,spread_side,premium,size,oi,alerts,trading_date,earnings_date_raw,earning_alerts_raw,earnings_context')
+        .gte('trading_date', cutoffStr)
         .order('trading_date', { ascending: true })
         .range(from, from + PAGE - 1);
       if (error) { console.warn('[P1] omen_flow load error:', error.message); break; }
@@ -5879,10 +5898,10 @@ async function loadP1FlowData() {
       all = all.concat(data);
       if (data.length < PAGE) break;
       from += PAGE;
-      if (from > 200000) break;
+      if (from > 50000) break;  // safety cap — 45-day window shouldn't exceed this
     }
     _p1FlowData = all;
-    console.log('[P1] Loaded', all.length, 'raw flow rows for Phase 1 computation');
+    console.log('[P1] Loaded', all.length, 'rows in 45-day window (', cutoffStr, '→', latestDate, ')');
   } catch (e) {
     console.warn('[P1] loadP1FlowData failed:', e);
     _p1FlowData = [];
