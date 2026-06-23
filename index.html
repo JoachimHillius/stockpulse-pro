@@ -5818,9 +5818,13 @@ function phase1BuildRows() {
   const raw = _p1FlowData || [];
   if (!raw.length) return { todayDate: null, allDates: [], classified: {}, allRows: [], visibleDates: [], searchRow: null };
 
-  const { todayDate, allDates, bySymbol } = computePhase1(raw, _p1SelectedDate);
+  const { todayDate, allDates: loadedDates, bySymbol } = computePhase1(raw, _p1SelectedDate);
   if (!todayDate) return { todayDate: null, allDates: [], classified: {}, allRows: [], visibleDates: [], searchRow: null };
 
+  // Chip strip and price-column dates come from _predData (omen_daily_summary has all 34 trading
+  // dates). _p1FlowData now holds only today's trades so loadedDates = ['2026-06-22'] alone.
+  const predDates = [...new Set((_predData||[]).map(r=>r.trading_date).filter(Boolean))].sort();
+  const allDates = predDates.length ? predDates : loadedDates;
   const visibleDates = pickVisibleDates(allDates);
 
   // Augment with price data + top contracts from _predData
