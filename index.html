@@ -5734,25 +5734,13 @@ async function loadP2Data() {
     _p2SpyCloses = results['SPY'] || [];
     _p2SectorData = {};
     for (const etf of etfs) { if (results[etf]) _p2SectorData[etf] = results[etf]; }
-    _p2Regime = computeRegime(_p2SpyCloses, _liveVix ?? 22);
-    // SPY fetch failed or returned < 51 closes — synthesize fallback so banner renders with controls
-    if (!_p2Regime) {
-      const vix = _liveVix ?? 22;
-      const vix_band = vix < 13 ? 'complacent' : vix < 18 ? 'calm'
-                     : vix < 22 ? 'normal-elevated' : vix < 30 ? 'caution' : 'fear';
-      _p2Regime = { spy_trend: 'chop', vix_band, vixLevel: vix,
-                    ma20: null, ma50: null, spyPrice: null,
-                    ...p2RecomputeLabel('chop', vix_band) };
-      _p2Regime.regime_context = 'SPY price data unavailable — override trend and VIX manually above';
-      console.warn('[P2] SPY data unavailable (', _p2SpyCloses.length, 'closes) — regime defaulted to manual mode');
-    }
+    // Route through applyRegimeOverride so any active manual overrides survive the re-fetch.
+    // applyRegimeOverride reads _p2SpyCloses (just set above), _p2OverrideVix, _p2OverrideSpy.
+    // It handles the SPY-unavailable fallback and calls renderFlowPredictor internally.
+    applyRegimeOverride();
     _p2SectorRanks = computeSectorRanks(_p2SectorData);
     console.log('[P2] Regime:', _p2Regime?.regime_label, '| Sectors ranked:', _p2SectorRanks.length,
       '| SPY closes:', _p2SpyCloses.length);
-    // Re-render predictor if it's currently visible so regime/sector appear without manual refresh
-    if (document.getElementById('page-flowpredict')?.classList.contains('active')) {
-      renderFlowPredictor();
-    }
   } catch (e) {
     console.warn('[P2] loadP2Data failed:', e);
   } finally {
@@ -5786,6 +5774,10 @@ function applyRegimeOverride() {
     base = { spy_trend, vix_band, vixLevel: vix, ma20: null, ma50: null, spyPrice: null };
   }
   Object.assign(base, p2RecomputeLabel(base.spy_trend, base.vix_band));
+  // Instructive context when SPY data is missing and user hasn't manually set either control
+  if (!_p2SpyCloses.length && !_p2OverrideSpy && _p2OverrideVix == null) {
+    base.regime_context = 'SPY price data unavailable — override trend and VIX manually above';
+  }
   _p2Regime = base;
   renderFlowPredictor();
 }
@@ -6910,7 +6902,8 @@ async function refreshFlowPredictor(){
   _p1Pages={ DAY_TRADE:1, SWING:1, LONG:1, FADING:1 };
   _p1SelectedDate=null;
   _p2Regime=null; _p2SectorRanks=[]; _p2SpyCloses=[]; _p2SectorData={};
-  _p2OverrideVix=null; _p2OverrideSpy=null;
+  // Intentionally preserve _p2OverrideVix and _p2OverrideSpy — manual overrides survive refresh.
+  // Only "Reset to live" button clears them.
   await loadPredictorData();
   renderFlowPredictor();
   setRefreshed('flow_predictor');
