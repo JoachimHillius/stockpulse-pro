@@ -5653,14 +5653,27 @@ function getTickerSectorETF(symbol) {
 
 async function fetchYahoo3M(sym) {
   try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 6000); // 6s per-fetch timeout
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=3mo`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: ctrl.signal });
+    clearTimeout(tid);
+    if (!res.ok) {
+      console.warn('[P2] Yahoo', sym, '→ HTTP', res.status, res.statusText);
+      return null;
+    }
     const json = await res.json();
+    const errMsg = json?.chart?.error?.description;
+    if (errMsg) { console.warn('[P2] Yahoo', sym, '→ chart error:', errMsg); return null; }
     const result = json?.chart?.result?.[0];
-    if (!result) return null;
-    return (result.indicators?.quote?.[0]?.close || []).filter(c => c != null);
-  } catch (e) { return null; }
+    if (!result) { console.warn('[P2] Yahoo', sym, '→ no result in response'); return null; }
+    const closes = (result.indicators?.quote?.[0]?.close || []).filter(c => c != null);
+    if (!closes.length) console.warn('[P2] Yahoo', sym, '→ 0 closes returned');
+    return closes;
+  } catch (e) {
+    console.warn('[P2] fetchYahoo3M', sym, '→', e.name === 'AbortError' ? 'timed out (6s)' : e.message);
+    return null;
+  }
 }
 
 function computeRegime(spyCloses, vixLevel) {
@@ -5722,6 +5735,17 @@ async function loadP2Data() {
     _p2SectorData = {};
     for (const etf of etfs) { if (results[etf]) _p2SectorData[etf] = results[etf]; }
     _p2Regime = computeRegime(_p2SpyCloses, _liveVix ?? 22);
+    // SPY fetch failed or returned < 51 closes — synthesize fallback so banner renders with controls
+    if (!_p2Regime) {
+      const vix = _liveVix ?? 22;
+      const vix_band = vix < 13 ? 'complacent' : vix < 18 ? 'calm'
+                     : vix < 22 ? 'normal-elevated' : vix < 30 ? 'caution' : 'fear';
+      _p2Regime = { spy_trend: 'chop', vix_band, vixLevel: vix,
+                    ma20: null, ma50: null, spyPrice: null,
+                    ...p2RecomputeLabel('chop', vix_band) };
+      _p2Regime.regime_context = 'SPY price data unavailable — override trend and VIX manually above';
+      console.warn('[P2] SPY data unavailable (', _p2SpyCloses.length, 'closes) — regime defaulted to manual mode');
+    }
     _p2SectorRanks = computeSectorRanks(_p2SectorData);
     console.log('[P2] Regime:', _p2Regime?.regime_label, '| Sectors ranked:', _p2SectorRanks.length,
       '| SPY closes:', _p2SpyCloses.length);
@@ -5748,11 +5772,19 @@ function p2RecomputeLabel(spy_trend, vix_band) {
 }
 
 function applyRegimeOverride() {
-  if (!_p2SpyCloses.length) return;
   const vix = _p2OverrideVix != null ? _p2OverrideVix : (_liveVix ?? 22);
-  const base = computeRegime(_p2SpyCloses, vix);
-  if (!base) return;
-  if (_p2OverrideSpy) base.spy_trend = _p2OverrideSpy;
+  let base;
+  if (_p2SpyCloses.length >= 51) {
+    base = computeRegime(_p2SpyCloses, vix);
+    if (!base) return;
+    if (_p2OverrideSpy) base.spy_trend = _p2OverrideSpy;
+  } else {
+    // No SPY history — build regime entirely from user overrides (no MA data)
+    const spy_trend = _p2OverrideSpy || 'chop';
+    const vix_band = vix < 13 ? 'complacent' : vix < 18 ? 'calm'
+                   : vix < 22 ? 'normal-elevated' : vix < 30 ? 'caution' : 'fear';
+    base = { spy_trend, vix_band, vixLevel: vix, ma20: null, ma50: null, spyPrice: null };
+  }
   Object.assign(base, p2RecomputeLabel(base.spy_trend, base.vix_band));
   _p2Regime = base;
   renderFlowPredictor();
@@ -5823,7 +5855,7 @@ function renderRegimeBanner() {
       </div>
       <div style="flex:1;font-size:10px;color:#8090a0;min-width:160px;font-style:italic;">${r.regime_context}</div>
     </div>
-    <div style="margin-top:5px;font-size:9px;color:#5a708a;">20MA $${r.ma20.toFixed(1)} · 50MA $${r.ma50.toFixed(1)} · live VIX ${_liveVix!=null?_liveVix.toFixed(1):'—'}</div>
+    <div style="margin-top:5px;font-size:9px;color:#5a708a;">${r.ma20!=null?`20MA $${r.ma20.toFixed(1)} · 50MA $${r.ma50.toFixed(1)} · `:'SPY MA data unavailable · '}live VIX ${_liveVix!=null?_liveVix.toFixed(1):'—'}</div>
   </div>`;
 }
 
