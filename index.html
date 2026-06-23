@@ -5597,6 +5597,7 @@ let _p1FlowData = null;          // raw omen_flow rows for Phase 1 computation
 const P1_ACTIVITY_FLOOR = 20;   // min total_size contracts to qualify (tunable)
 const P1_PAGE_SIZE = 10;
 let _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
+let _p1SelectedDate = null;  // null = use latest; set by date chips
 
 function p1ParsePremium(s) {
   if (!s) return 0;
@@ -5666,11 +5667,11 @@ function p1ClassifySetup({ dayPrem, swingPrem, longPrem, oiRising, oiWasPriorAcc
   return 'LONG';
 }
 
-function computePhase1(allRows) {
+function computePhase1(allRows, targetDate) {
   if (!allRows || !allRows.length) return { todayDate: null, allDates: [], bySymbol: {} };
   const allDates = [...new Set(allRows.map(r => r.trading_date).filter(Boolean))].sort();
   if (!allDates.length) return { todayDate: null, allDates: [], bySymbol: {} };
-  const todayDate = allDates[allDates.length - 1];
+  const todayDate = (targetDate && allDates.includes(targetDate)) ? targetDate : allDates[allDates.length - 1];
 
   // contractOI[contractKey][date] = max OI seen for that contract on that date (never sum)
   // contractKey = `${sym}|${expiry}|${strike}|${cpNorm}`
@@ -5817,7 +5818,7 @@ function phase1BuildRows() {
   const raw = _p1FlowData || [];
   if (!raw.length) return { todayDate: null, allDates: [], classified: {}, allRows: [], visibleDates: [], searchRow: null };
 
-  const { todayDate, allDates, bySymbol } = computePhase1(raw);
+  const { todayDate, allDates, bySymbol } = computePhase1(raw, _p1SelectedDate);
   if (!todayDate) return { todayDate: null, allDates: [], classified: {}, allRows: [], visibleDates: [], searchRow: null };
 
   const visibleDates = pickVisibleDates(allDates);
@@ -5890,6 +5891,12 @@ async function loadP1FlowData() {
 
 function setP1Page(section, page) {
   _p1Pages[section] = page;
+  renderFlowPredictor();
+}
+
+function setP1Date(date) {
+  _p1SelectedDate = date;
+  _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
   renderFlowPredictor();
 }
 
@@ -6401,6 +6408,14 @@ function renderFlowPredictor(){
           <span style="display:inline-flex;align-items:center;vertical-align:middle;"><input id="pred-ticker-search" type="text" placeholder="Search ticker (NVDA, SPY…)" autocomplete="off" oninput="onPredTickerSearch(event)" value="${_predSearchTicker||''}" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:5px 10px;font-size:11px;border-radius:4px;width:200px;margin-right:4px;"><button id="unusual-btn" onclick="window.checkAndShowUnusualVolume()" style="background:rgba(0,212,255,0.15);border:1px solid #00d4ff;color:#00d4ff;padding:7px 14px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;margin-left:10px;white-space:nowrap;font-family:system-ui,sans-serif;" title="Show tickers with unusually high flow today vs 20-day baseline">⚡ UNUSUAL VOLUME</button></span>
         </div>
       </div>
+      <div style="margin:6px 0 8px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+        <span style="font-size:10px;color:#8090a0;letter-spacing:0.5px;margin-right:4px;">DATE:</span>
+        ${(p1.allDates||[]).slice().reverse().map(d=>{
+          const sel=d===todayDate;
+          return`<button onclick="setP1Date('${d}')" style="padding:3px 10px;border-radius:4px;border:1px solid ${sel?'var(--cyan)':'var(--border)'};background:${sel?'var(--cyan)':'var(--bg3)'};color:${sel?'#000':'#c0c8d0'};font-size:10px;cursor:pointer;font-weight:${sel?700:400};">${fmtDateHeader(d)}</button>`;
+        }).join('')}
+        ${!(p1.allDates||[]).length?'<span style="font-size:10px;color:#5a708a;">No dates loaded — click ↻ Refresh</span>':''}
+      </div>
       <div style="font-size:10px;color:#6080a0;margin-bottom:8px;padding:4px 0;">
         <span style="color:#00e5b0;margin-right:12px;">● green dot = fresh OI</span>
         <span style="color:#ffb020;margin-right:12px;">⚠ EARN = expiry past earnings</span>
@@ -6483,7 +6498,7 @@ async function refreshFlowPredictor(){
 }
 
 async function initFlowPredictor(){
-  if(!_predData)await loadPredictorData();
+  if(!_predData || !_p1FlowData)await loadPredictorData();
   renderFlowPredictor();
 }
 
