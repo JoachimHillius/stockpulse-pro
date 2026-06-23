@@ -5598,6 +5598,7 @@ const P1_ACTIVITY_FLOOR = 20;   // min total_size contracts to qualify (tunable)
 const P1_PAGE_SIZE = 10;
 let _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
 let _p1SelectedDate = null;  // null = use latest; set by date chips
+let _p1RecentDates = [];     // last 7 actual trading dates from omen_flow (for price-strip columns)
 
 function p1ParsePremium(s) {
   if (!s) return 0;
@@ -5821,12 +5822,12 @@ function phase1BuildRows() {
   const { todayDate, allDates: loadedDates, bySymbol } = computePhase1(raw, _p1SelectedDate);
   if (!todayDate) return { todayDate: null, allDates: [], classified: {}, allRows: [], visibleDates: [], searchRow: null };
 
-  // loadedDates = today's trades + OI history rows from get_p1_oi_history RPC — reflects actual
-  // omen_flow dates (Jun 15-18 present, ghost dates like Jun 01 absent).
-  // predDates (omen_daily_summary) may be stale, so it's the fallback when OI RPC isn't set up.
+  // allDates for chip strip: prefer loadedDates (omen_flow via OI RPC — correct) over predDates
+  // (omen_daily_summary — may be stale). _p1RecentDates drives the price-column strip directly.
   const predDates = [...new Set((_predData||[]).map(r=>r.trading_date).filter(Boolean))].sort();
   const allDates = loadedDates.length > 1 ? loadedDates : (predDates.length ? predDates : loadedDates);
-  const visibleDates = pickVisibleDates(allDates);
+  // visibleDates: last 7 actual trading dates from omen_flow cursor walk — never stale
+  const visibleDates = _p1RecentDates.length ? _p1RecentDates : pickVisibleDates(allDates);
 
   // Augment with price data + top contracts from _predData
   if (_predData && _predData.length) {
@@ -5882,6 +5883,24 @@ async function loadP1FlowData() {
     if (latestErr) { console.warn('[P1] latest-date query failed:', latestErr.message); _p1FlowData = []; return; }
     const latestDate = latestRow?.[0]?.trading_date;
     if (!latestDate) { _p1FlowData = []; return; }
+
+    // Step 1b: walk backward through omen_flow to get the last 7 actual trading dates.
+    // Each cursor request returns exactly 1 row — 6 requests total, no row-cap issue.
+    const recent = [latestDate];
+    let cursor = latestDate;
+    for (let i = 0; i < 6; i++) {
+      const { data: prev } = await supa
+        .from('omen_flow')
+        .select('trading_date')
+        .lt('trading_date', cursor)
+        .order('trading_date', { ascending: false })
+        .limit(1);
+      if (!prev || !prev[0]) break;
+      cursor = prev[0].trading_date;
+      recent.unshift(cursor);
+    }
+    _p1RecentDates = recent;  // ascending, e.g. ['2026-06-05','2026-06-08',...,'2026-06-22']
+    console.log('[P1] Last 7 trading dates:', _p1RecentDates);
 
     // Step 2: 45-day cutoff — full window for swing OI accumulation history
     const cutoff = new Date(latestDate + 'T00:00:00');
@@ -6535,6 +6554,7 @@ async function refreshOptionsFlow(){
 async function refreshFlowPredictor(){
   _predData=null;
   _p1FlowData=null;
+  _p1RecentDates=[];
   _p1Pages={ DAY_TRADE:1, SWING:1, LONG:1, FADING:1 };
   _p1SelectedDate=null;
   await loadPredictorData();
