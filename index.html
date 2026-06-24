@@ -6360,11 +6360,20 @@ function renderP1Row(r, rank, visibleDates) {
     const klPrice = kl.key_level.price.toFixed(2);
     const klDist  = kl.distance_pct != null ? kl.distance_pct.toFixed(1) : null;
     const klSide  = kl.key_level.side === 'resistance' ? '#d97f8a' : '#7fd0a8';
+    const klDir   = kl.key_level.side === 'resistance' ? 'above' : 'below';
     const partialMark = kl.partial ? '<span style="color:#504050;font-size:8px;"> ~</span>' : '';
     const distText = klDist != null ? `<div style="font-size:8px;color:#6080a0;">${klDist}% away</div>` : '';
-    keyLvlCell = `<td style="padding:6px;text-align:right;">
-      <div style="font-weight:700;color:${klSide};font-size:11px;">$${klPrice}${partialMark}</div>
-      ${distText}
+    keyLvlCell = `<td style="padding:6px;text-align:right;" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;">
+        <div>
+          <div style="font-weight:700;color:${klSide};font-size:11px;">$${klPrice}${partialMark}</div>
+          ${distText}
+        </div>
+        <button onclick="showAlarmForm('${r.symbol}',${klPrice},'${klDir}')"
+          title="Arm alarm at this level"
+          style="background:none;border:none;cursor:pointer;color:#506070;font-size:13px;padding:2px 3px;line-height:1;border-radius:3px;"
+          onmouseenter="this.style.color='#ffb020'" onmouseleave="this.style.color='#506070'">🔔</button>
+      </div>
     </td>`;
   }
 
@@ -6482,11 +6491,18 @@ function buildLevelPanel(symbol) {
     const str        = Math.min(l.strength || 1, 5);
     const dots       = '●'.repeat(str) + '○'.repeat(5 - str);
     const partialTag = isPartial ? ' <span style="color:#504050;font-size:8px;">~partial</span>' : '';
+    const lvlDir = l.side === 'resistance' ? 'above' : 'below';
     return `<tr style="background:${bg};">
       <td style="padding:3px 6px;color:${priceColor};font-weight:700;font-size:11px;">${l.price.toFixed(2)}</td>
       <td style="padding:3px 6px;color:#6080a0;font-size:9px;">${l.side.toUpperCase()}</td>
       <td style="padding:3px 6px;color:#8090a0;font-size:9px;max-width:160px;word-break:break-word;">${types}${partialTag}</td>
       <td style="padding:3px 6px;color:#c0a060;font-size:10px;letter-spacing:1px;" title="confluence ${l.strength}">${dots}</td>
+      <td style="padding:3px 4px;text-align:right;">
+        <button onclick="showAlarmForm('${symbol}',${l.price},'${lvlDir}')"
+          title="Arm alarm at $${l.price.toFixed(2)}"
+          style="background:none;border:none;cursor:pointer;color:#506070;font-size:12px;padding:1px 3px;line-height:1;"
+          onmouseenter="this.style.color='#ffb020'" onmouseleave="this.style.color='#506070'">🔔</button>
+      </td>
     </tr>`;
   }).join('');
   return `<div style="margin-top:12px;border-top:1px solid #1a1a28;padding-top:10px;">
@@ -6498,10 +6514,95 @@ function buildLevelPanel(symbol) {
         <th style="padding:2px 6px;text-align:left;">Side</th>
         <th style="padding:2px 6px;text-align:left;">Type</th>
         <th style="padding:2px 6px;text-align:left;">Strength</th>
+        <th style="padding:2px 4px;"></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
+}
+
+// ── Phase 3 Step 4: alarms ────────────────────────────────────────────────────
+let _armedCount = 0;
+
+async function loadArmedAlarmCount() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  const { count } = await supa
+    .from('alarms')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'armed');
+  _armedCount = count || 0;
+  // Refresh the badge if the predictor is already rendered
+  const badge = document.getElementById('alarm-count-badge');
+  if (badge) badge.textContent = _armedCount > 0 ? `🔔 ${_armedCount} armed` : '';
+}
+
+async function armAlarm(symbol, level, direction, note) {
+  const supa = await getSupabaseAsync();
+  if (!supa) { showToast('Alarms', 'No database connection', 'error'); return; }
+  const { error } = await supa.from('alarms').insert({
+    symbol, level: Number(level), direction, note: note || null
+  });
+  if (error) {
+    // Unique partial index violation = duplicate armed alarm
+    if (error.code === '23505') {
+      showToast(symbol, `Already armed: ${direction} $${Number(level).toFixed(2)}`, 'info');
+    } else {
+      showToast('Alarms', 'Insert failed: ' + error.message, 'error');
+    }
+    return;
+  }
+  showToast(symbol, `🔔 Armed: ${direction} $${Number(level).toFixed(2)}${note ? ' · ' + note : ''}`, 'info');
+  loadArmedAlarmCount();
+}
+
+function showAlarmForm(symbol, level, direction) {
+  let modal = document.getElementById('alarm-form-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'alarm-form-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:#12121e;border:1px solid #2a2a40;border-radius:10px;padding:22px 24px;min-width:280px;max-width:340px;box-shadow:0 8px 40px rgba(0,0,0,0.7);">
+      <div style="font-size:13px;font-weight:700;color:#c0c8d0;margin-bottom:16px;letter-spacing:0.5px;">🔔 ARM ALARM</div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10px;color:#6080a0;margin-bottom:3px;">SYMBOL</div>
+        <div style="font-size:13px;font-weight:700;color:#e0e8f0;">${symbol}</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10px;color:#6080a0;margin-bottom:3px;">PRICE LEVEL</div>
+        <input id="alarm-level-input" type="number" step="0.01" value="${Number(level).toFixed(2)}"
+          style="width:100%;box-sizing:border-box;background:#0a0a16;border:1px solid #2a2a40;border-radius:4px;color:#e0e8f0;padding:6px 8px;font-size:13px;">
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10px;color:#6080a0;margin-bottom:3px;">FIRE WHEN PRICE IS</div>
+        <select id="alarm-dir-select"
+          style="width:100%;box-sizing:border-box;background:#0a0a16;border:1px solid #2a2a40;border-radius:4px;color:#e0e8f0;padding:6px 8px;font-size:13px;">
+          <option value="above" ${direction==='above'?'selected':''}>Above level (resistance break)</option>
+          <option value="below" ${direction==='below'?'selected':''}>Below level (support loss)</option>
+        </select>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:10px;color:#6080a0;margin-bottom:3px;">NOTE (optional)</div>
+        <textarea id="alarm-note-input" rows="2" placeholder="e.g. breakout above 200MA"
+          style="width:100%;box-sizing:border-box;background:#0a0a16;border:1px solid #2a2a40;border-radius:4px;color:#e0e8f0;padding:6px 8px;font-size:12px;resize:none;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="(async()=>{
+          const lvl=document.getElementById('alarm-level-input').value;
+          const dir=document.getElementById('alarm-dir-select').value;
+          const note=document.getElementById('alarm-note-input').value.trim();
+          document.getElementById('alarm-form-modal').style.display='none';
+          await armAlarm('${symbol}',lvl,dir,note);
+        })()" style="flex:1;padding:8px;background:#00d4ff22;border:1px solid #00d4ff;border-radius:5px;color:#00d4ff;font-weight:700;font-size:12px;cursor:pointer;">ARM</button>
+        <button onclick="document.getElementById('alarm-form-modal').style.display='none'"
+          style="padding:8px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:#8090a0;font-size:12px;cursor:pointer;">Cancel</button>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
 }
 
 async function loadPredictorData(){
@@ -6535,6 +6636,7 @@ async function loadPredictorData(){
     await loadSpyTrend();
     loadP2Data(); // fire-and-forget: ~3s for 18 Yahoo fetches; auto-rerenders predictor when done
     loadP3LevelData(); // fire-and-forget: fetches level_history for selected date, re-renders when done
+    loadArmedAlarmCount(); // fire-and-forget: updates bell badge count
     return _predData;
   }catch(e){
     console.error('[Predictor] Load failed:',e);
@@ -6955,6 +7057,7 @@ function renderFlowPredictor(){
           <div style="font-size:10px;color:#8090a0;margin-top:2px;">Ranked by ask-weighted conviction skew · Activity floor ≥${P1_ACTIVITY_FLOOR} contracts · Heuristic, not validated probability</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span id="alarm-count-badge" style="font-size:10px;font-weight:600;color:#ffb020;background:#ffb02018;border:1px solid #ffb02044;border-radius:12px;padding:3px 10px;display:${_armedCount>0?'inline':'none'};">${_armedCount>0?`🔔 ${_armedCount} armed`:''}</span>
           <span style="display:inline-flex;align-items:center;vertical-align:middle;"><input id="pred-ticker-search" type="text" placeholder="Search ticker (NVDA, SPY…)" autocomplete="off" oninput="onPredTickerSearch(event)" value="${_predSearchTicker||''}" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:5px 10px;font-size:11px;border-radius:4px;width:200px;margin-right:4px;"><button id="unusual-btn" onclick="window.checkAndShowUnusualVolume()" style="background:rgba(0,212,255,0.15);border:1px solid #00d4ff;color:#00d4ff;padding:7px 14px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;margin-left:10px;white-space:nowrap;font-family:system-ui,sans-serif;" title="Show tickers with unusually high flow today vs 20-day baseline">⚡ UNUSUAL VOLUME</button></span>
         </div>
       </div>
