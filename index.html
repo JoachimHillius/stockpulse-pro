@@ -6522,19 +6522,35 @@ function buildLevelPanel(symbol) {
 }
 
 // ── Phase 3 Step 4: alarms ────────────────────────────────────────────────────
-let _armedCount = 0;
+let _armedCount     = 0;
+let _triggeredCount = 0;
 
 async function loadArmedAlarmCount() {
   const supa = await getSupabaseAsync();
   if (!supa) return;
-  const { count } = await supa
-    .from('alarms')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'armed');
-  _armedCount = count || 0;
-  // Refresh the badge if the predictor is already rendered
+  const [armedRes, trigRes] = await Promise.all([
+    supa.from('alarms').select('*', { count: 'exact', head: true }).eq('status', 'armed'),
+    supa.from('alarms').select('*', { count: 'exact', head: true }).eq('status', 'triggered')
+  ]);
+  _armedCount     = armedRes.count  || 0;
+  _triggeredCount = trigRes.count   || 0;
+  _updateAlarmBadge();
+}
+
+function _updateAlarmBadge() {
   const badge = document.getElementById('alarm-count-badge');
-  if (badge) badge.textContent = _armedCount > 0 ? `🔔 ${_armedCount} armed` : '';
+  if (!badge) return;
+  if (_armedCount === 0 && _triggeredCount === 0) {
+    badge.style.display = 'none'; badge.textContent = ''; return;
+  }
+  let text = '';
+  if (_armedCount     > 0) text += `🔔 ${_armedCount} armed`;
+  if (_triggeredCount > 0) text += `${text ? ' · ' : ''}⚡ ${_triggeredCount} triggered`;
+  badge.textContent = text;
+  badge.style.display      = 'inline';
+  badge.style.color        = _triggeredCount > 0 ? '#ff3d5a' : '#ffb020';
+  badge.style.background   = _triggeredCount > 0 ? '#ff3d5a18' : '#ffb02018';
+  badge.style.borderColor  = _triggeredCount > 0 ? '#ff3d5a44' : '#ffb02044';
 }
 
 async function armAlarm(symbol, level, direction, note) {
@@ -6605,6 +6621,96 @@ function showAlarmForm(symbol, level, direction) {
   modal.style.display = 'flex';
 }
 
+// ── Phase 3 Step 4d: alarm evaluation engine ─────────────────────────────────
+let _firedAlarmIds  = new Set(); // session debounce — prevents re-fire even if DB update lags
+let _alarmPollTimer = null;
+
+// Thin single-symbol quote wrapper: checks _fhCache first, then Finnhub /quote.
+// Returns { price, quoteTime } or null.  quoteTime is the Unix timestamp from Finnhub
+// (the time the exchange last reported a trade, typically ~15 min delayed on free tier).
+async function fetchPriceForAlarm(symbol) {
+  const fhKey = localStorage.getItem('sp_fh');
+  if (!fhKey) return null;
+  const cached = _fhCache.get(symbol);
+  if (cached && (Date.now() - cached.fetchedAt) < FH_CACHE_TTL_MS) {
+    return { price: cached.c, quoteTime: cached.t };
+  }
+  try {
+    const r = await fetch('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(symbol) + '&token=' + fhKey);
+    const d = await r.json();
+    if (d.c && d.c !== 0) {
+      _fhCache.set(symbol, { c: d.c, d: d.d || 0, dp: d.dp || 0, t: d.t, fetchedAt: Date.now() });
+      return { price: d.c, quoteTime: d.t };
+    }
+  } catch(e) { console.warn('[Alarms] price fetch failed:', symbol, e.message); }
+  return null;
+}
+
+async function checkAlarmsNow() {
+  if (!isInTradingWindow()) return;
+  if (!localStorage.getItem('sp_fh')) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+
+  const { data: armed, error } = await supa
+    .from('alarms').select('*').eq('status', 'armed');
+  if (error || !armed || !armed.length) return;
+
+  // Skip any alarm already fired this session (memory debounce layer 1)
+  const toCheck = armed.filter(a => !_firedAlarmIds.has(a.id));
+  if (!toCheck.length) return;
+
+  // One Finnhub request per unique symbol (not per alarm)
+  const symbols = [...new Set(toCheck.map(a => a.symbol))];
+  const prices = {};
+  for (const sym of symbols) {
+    const q = await fetchPriceForAlarm(sym);
+    if (q) prices[sym] = q;
+  }
+
+  const fired = [];
+  for (const alarm of toCheck) {
+    const q = prices[alarm.symbol];
+    if (!q) continue;
+    const crossed = (alarm.direction === 'above' && q.price >= Number(alarm.level)) ||
+                    (alarm.direction === 'below' && q.price <= Number(alarm.level));
+    if (crossed) {
+      _firedAlarmIds.add(alarm.id); // debounce immediately — before DB confirms (layer 1)
+      fired.push({ alarm, q });
+    }
+  }
+  if (!fired.length) return;
+
+  // Flip status in DB (layer 2 debounce: SELECT WHERE status='armed' won't return these again)
+  await supa.from('alarms')
+    .update({ status: 'triggered', triggered_at: new Date().toISOString() })
+    .in('id', fired.map(f => f.alarm.id));
+
+  // Deliver: toast with delay disclosure
+  for (const { alarm, q } of fired) {
+    // quoteTime is Unix seconds — show local ET time so user knows how stale the price is
+    const timeLabel = q.quoteTime
+      ? new Date(q.quoteTime * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+      : null;
+    const delayNote = timeLabel
+      ? ` (delayed quote · last ${timeLabel} ET)`
+      : ' (delayed quote)';
+    showToast(
+      alarm.symbol,
+      `⚡ ${alarm.symbol} crossed $${Number(alarm.level).toFixed(2)} ${alarm.direction}${alarm.note ? ' · ' + alarm.note : ''}${delayNote}`,
+      'info'
+    );
+  }
+
+  loadArmedAlarmCount(); // refresh badge: armed count drops, triggered count rises
+}
+
+function startAlarmPoll() {
+  if (_alarmPollTimer) clearInterval(_alarmPollTimer);
+  _alarmPollTimer = setInterval(checkAlarmsNow, 60_000);
+  checkAlarmsNow(); // immediate check on load — don't make user wait 60s for first tick
+}
+
 async function loadPredictorData(){
   const supa = await getSupabaseAsync();
   if(!supa){console.warn('[Predictor] No Supabase even after wait');return;}
@@ -6637,6 +6743,7 @@ async function loadPredictorData(){
     loadP2Data(); // fire-and-forget: ~3s for 18 Yahoo fetches; auto-rerenders predictor when done
     loadP3LevelData(); // fire-and-forget: fetches level_history for selected date, re-renders when done
     loadArmedAlarmCount(); // fire-and-forget: updates bell badge count
+    startAlarmPoll(); // start/restart 60s evaluation engine for armed alarms
     return _predData;
   }catch(e){
     console.error('[Predictor] Load failed:',e);
