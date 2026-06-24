@@ -6421,7 +6421,11 @@ async function loadP3LevelData() {
       _levelMap[row.symbol] = { current_close: row.stock_close, levels: row.levels.levels };
     }
   });
-  console.log('[P3] Levels loaded:', Object.keys(_levelMap).length, 'symbols for', targetDate);
+  const keys = Object.keys(_levelMap);
+  const sample = keys[0];
+  console.log('[P3] Levels loaded:', keys.length, 'symbols for', targetDate,
+    '| sample key:', JSON.stringify(sample), typeof sample,
+    '| sample value:', sample ? JSON.stringify(_levelMap[sample]).slice(0,120) : 'none');
   renderFlowPredictor();
 }
 
@@ -6433,7 +6437,19 @@ function _p3IsPartial(zone) {
 // ── Phase 3: nearest support/resistance + key level for a row ─────────────────
 function extractKeyLevel(symbol, direction) {
   const row = _levelMap[symbol];
-  if (!row || !row.levels || !row.levels.length) return null;
+  if (!row || !row.levels || !row.levels.length) {
+    // Log once per unique miss to avoid flooding
+    if (!extractKeyLevel._logged) extractKeyLevel._logged = {};
+    if (!extractKeyLevel._logged[symbol]) {
+      extractKeyLevel._logged[symbol] = true;
+      const mapKeys = Object.keys(_levelMap);
+      console.log('[P3] miss sym=', JSON.stringify(symbol), typeof symbol,
+        '| mapSize=', mapKeys.length,
+        '| sampleKey=', JSON.stringify(mapKeys[0]), typeof mapKeys[0],
+        '| directMatch=', symbol in _levelMap);
+    }
+    return null;
+  }
   const close = row.current_close;
   const levels = row.levels;
   const above = levels.filter(l => l.price > close);
