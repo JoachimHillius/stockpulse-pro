@@ -4491,7 +4491,7 @@ function showHoverPopup(sym, triggerEl){
 
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
-  content.innerHTML = html;
+  content.innerHTML = html + buildLevelPanel(sym);
 
   // FIXED lower-right corner — never tracks the hovered row
   const popW = 480;
@@ -6307,6 +6307,7 @@ function setP1Date(date) {
   _p1SelectedDate = date;
   _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
   renderFlowPredictor();
+  loadP3LevelData(); // refresh levels for the newly selected date
 }
 
 function renderP1Row(r, rank, visibleDates) {
@@ -6339,6 +6340,21 @@ function renderP1Row(r, rank, visibleDates) {
     return `<td style="padding:4px;background:${bg};text-align:right;color:#a0a8c0;">${p?.open!=null?p.open.toFixed(2):'—'}</td><td style="padding:4px;background:${bg};text-align:right;color:#a0a8c0;">${p?.close!=null?p.close.toFixed(2):'—'}</td>`;
   }).join('');
 
+  // Phase 3: key level cell
+  const kl = extractKeyLevel(r.symbol, dir);
+  let keyLvlCell = '<td style="padding:6px;text-align:right;color:#606070;font-size:10px;">—</td>';
+  if (kl && kl.key_level) {
+    const klPrice = kl.key_level.price.toFixed(2);
+    const klDist  = kl.distance_pct != null ? kl.distance_pct.toFixed(1) : null;
+    const klSide  = kl.key_level.side === 'resistance' ? '#d97f8a' : '#7fd0a8';
+    const partialMark = kl.partial ? '<span style="color:#504050;font-size:8px;"> ~</span>' : '';
+    const distText = klDist != null ? `<div style="font-size:8px;color:#6080a0;">${klDist}% away</div>` : '';
+    keyLvlCell = `<td style="padding:6px;text-align:right;">
+      <div style="font-weight:700;color:${klSide};font-size:11px;">$${klPrice}${partialMark}</div>
+      ${distText}
+    </td>`;
+  }
+
   return `<tr style="border-bottom:1px solid #1a1a28;cursor:pointer;"
     onmouseenter="this.style.background='rgba(0,212,255,0.08)';renderHistoryStrip('${r.symbol}',_predLastDates||[])"
     onmouseleave="this.style.background='';"
@@ -6359,6 +6375,7 @@ function renderP1Row(r, rank, visibleDates) {
       <span style="background:${dirBg};color:#000;padding:2px 7px;border-radius:3px;font-weight:700;font-size:10px;">${dirLabel}</span>
       <span style="display:inline-block;background:${confColor2}33;color:${confColor2};padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;margin-left:3px;">${r.confidence}</span>
     </td>
+    ${keyLvlCell}
     ${renderTopContractCell(r.symbol,dir,0,r)}
     ${renderTopContractCell(r.symbol,dir,1,r)}
     ${priceCols}
@@ -6377,8 +6394,109 @@ let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
 let _predLastDates = [];
 let _predLabelMode='both';
 let _predSearchTicker=null;
+let _levelMap = {};  // Phase 3: { symbol: { current_close, levels[] } } for active date
+
+// ── Phase 3: load level_history for the currently-selected date ───────────────
+async function loadP3LevelData() {
+  console.log('[P3] loadP3LevelData called, _p1SelectedDate=', _p1SelectedDate, '_predData rows=', (_predData||[]).length);
+  const supa = await getSupabaseAsync();
+  if (!supa) { console.warn('[P3] no supa — aborting'); return; }
+  // Mirror the date-chip logic: _p1SelectedDate if set, else latest in predData
+  let targetDate = _p1SelectedDate;
+  if (!targetDate) {
+    const dates = (_predData || []).map(r => r.trading_date).filter(Boolean);
+    if (!dates.length) { console.warn('[P3] no dates in _predData — aborting'); return; }
+    targetDate = dates.reduce((a, b) => (a > b ? a : b));
+  }
+  console.log('[P3] fetching level_history for', targetDate);
+  const { data, error } = await supa
+    .from('level_history')
+    .select('symbol, stock_close, levels')
+    .eq('trading_date', targetDate)
+    .not('levels', 'is', null);
+  if (error || !data) { console.warn('[P3] level load failed', error); return; }
+  _levelMap = {};
+  data.forEach(row => {
+    if (row.levels && Array.isArray(row.levels.levels)) {
+      _levelMap[row.symbol] = { current_close: row.stock_close, levels: row.levels.levels };
+    }
+  });
+  console.log('[P3] Levels loaded:', Object.keys(_levelMap).length, 'symbols for', targetDate);
+  renderFlowPredictor();
+}
+
+// Returns true if every type in a zone ends with _partial (limited history)
+function _p3IsPartial(zone) {
+  return Array.isArray(zone.types) && zone.types.length > 0 && zone.types.every(t => String(t).endsWith('_partial'));
+}
+
+// ── Phase 3: nearest support/resistance + key level for a row ─────────────────
+function extractKeyLevel(symbol, direction) {
+  const row = _levelMap[symbol];
+  if (!row || !row.levels || !row.levels.length) return null;
+  const close = row.current_close;
+  const levels = row.levels;
+  const above = levels.filter(l => l.price > close);
+  const below = levels.filter(l => l.price < close);
+  const nearest_resistance = above.length ? above.reduce((a, b) => (a.price < b.price ? a : b)) : null;
+  const nearest_support    = below.length ? below.reduce((a, b) => (a.price > b.price ? a : b)) : null;
+  // Prefer a confirmed level over a partial one if it sits within 1% extra distance
+  const candidates = direction === 'UP' ? above : (direction === 'DOWN' ? below : []);
+  let key_level = null;
+  if (candidates.length) {
+    const sorted = [...candidates].sort((a, b) => Math.abs(a.price - close) - Math.abs(b.price - close));
+    const nearest = sorted[0];
+    const nearestDist = Math.abs(nearest.price - close) / close;
+    if (_p3IsPartial(nearest) && sorted.length > 1) {
+      const nextConfirmed = sorted.find(z => !_p3IsPartial(z) && Math.abs(z.price - close) / close <= nearestDist + 0.01);
+      key_level = nextConfirmed || nearest;
+    } else {
+      key_level = nearest;
+    }
+  }
+  const distance_pct = key_level && close > 0 ? Math.abs(close - key_level.price) / close * 100 : null;
+  return { key_level, nearest_resistance, nearest_support, distance_pct, partial: key_level ? _p3IsPartial(key_level) : false, current_close: close };
+}
+
+// ── Phase 3: level panel for the click popup ──────────────────────────────────
+function buildLevelPanel(symbol) {
+  const row = _levelMap[symbol];
+  if (!row || !row.levels || !row.levels.length) return '';
+  const close = row.current_close;
+  const sorted = [...row.levels].sort((a, b) => b.price - a.price);
+  const rows = sorted.map(l => {
+    const isNear    = Math.abs(l.price - close) / close < 0.02;
+    const isPartial = _p3IsPartial(l);
+    const priceColor = l.side === 'support' ? '#7fd0a8' : '#d97f8a';
+    const bg         = isNear ? 'rgba(255,200,50,0.07)' : 'transparent';
+    const types      = Array.isArray(l.types) ? l.types.join(', ') : String(l.types);
+    const str        = Math.min(l.strength || 1, 5);
+    const dots       = '●'.repeat(str) + '○'.repeat(5 - str);
+    const partialTag = isPartial ? ' <span style="color:#504050;font-size:8px;">~partial</span>' : '';
+    return `<tr style="background:${bg};">
+      <td style="padding:3px 6px;color:${priceColor};font-weight:700;font-size:11px;">${l.price.toFixed(2)}</td>
+      <td style="padding:3px 6px;color:#6080a0;font-size:9px;">${l.side.toUpperCase()}</td>
+      <td style="padding:3px 6px;color:#8090a0;font-size:9px;max-width:160px;word-break:break-word;">${types}${partialTag}</td>
+      <td style="padding:3px 6px;color:#c0a060;font-size:10px;letter-spacing:1px;" title="confluence ${l.strength}">${dots}</td>
+    </tr>`;
+  }).join('');
+  return `<div style="margin-top:12px;border-top:1px solid #1a1a28;padding-top:10px;">
+    <div style="font-size:10px;font-weight:700;color:#a0a8c0;margin-bottom:4px;letter-spacing:1px;">KEY LEVELS — ${symbol}</div>
+    <div style="font-size:9px;color:#6080a0;margin-bottom:8px;">close $${close.toFixed(2)} · highlighted = within 2% · ~partial = &lt;150 days history</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="font-size:9px;color:#5070a0;border-bottom:1px solid #1a2030;">
+        <th style="padding:2px 6px;text-align:left;">Price</th>
+        <th style="padding:2px 6px;text-align:left;">Side</th>
+        <th style="padding:2px 6px;text-align:left;">Type</th>
+        <th style="padding:2px 6px;text-align:left;">Strength</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
 
 async function loadPredictorData(){
+  console.log('[P3] TEST — loadPredictorData entered');
   const supa = await getSupabaseAsync();
   if(!supa){console.warn('[Predictor] No Supabase even after wait');return;}
   try{
@@ -6408,6 +6526,7 @@ async function loadPredictorData(){
     await loadP1FlowData();
     await loadSpyTrend();
     loadP2Data(); // fire-and-forget: ~3s for 18 Yahoo fetches; auto-rerenders predictor when done
+    loadP3LevelData(); // fire-and-forget: fetches level_history for selected date, re-renders when done
     return _predData;
   }catch(e){
     console.error('[Predictor] Load failed:',e);
@@ -6727,7 +6846,7 @@ function renderFlowPredictor(){
 
   const tfStats = predComputeTimeframeStats();
   const tfLabel = _predTimeframe==='D'?'Today':_predTimeframe==='W'?'This Week':_predTimeframe==='M'?'This Month':'This Year';
-  const colCount = 12 + displayDates.length * 2;
+  const colCount = 13 + displayDates.length * 2;
 
   // Build Phase 1 section HTML helper
   function p1Section(label, rows, bgColor, textColor, section) {
@@ -6757,6 +6876,7 @@ function renderFlowPredictor(){
       <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#00d4ff;font-weight:700;">CONV.SKEW</th>
       <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;font-size:10px;">SKEW%</th>
       <th style="background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;min-width:90px;">DIRECTION</th>
+      <th style="padding:8px 6px;text-align:right;background:#181828;color:#8090b0;font-size:10px;letter-spacing:0.5px;min-width:80px;" title="Nearest key level in setup direction from level_history. ~ = partial history (&lt;150 days)">KEY LVL</th>
       <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #1</th>
       <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #2</th>
       ${displayDates.map((d,i)=>{
@@ -6771,6 +6891,7 @@ function renderFlowPredictor(){
       <th colspan="2"></th><th colspan="3" style="background:#15243a;"></th>
       <th colspan="2" style="background:#0d2540;font-size:9px;color:#6080a0;text-align:center;padding:2px 4px;">ask-weighted · primary rank</th>
       <th style="background:#0a3020;"></th>
+      <th style="background:#181828;"></th>
       <th colspan="2" style="background:#15243a;"></th>
       ${displayDates.map((d,i)=>`<th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Open</th><th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Close</th>`).join('')}
     </tr>
