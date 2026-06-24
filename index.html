@@ -6398,17 +6398,14 @@ let _levelMap = {};  // Phase 3: { symbol: { current_close, levels[] } } for act
 
 // ── Phase 3: load level_history for the currently-selected date ───────────────
 async function loadP3LevelData() {
-  console.log('[P3] loadP3LevelData called, _p1SelectedDate=', _p1SelectedDate, '_predData rows=', (_predData||[]).length);
   const supa = await getSupabaseAsync();
-  if (!supa) { console.warn('[P3] no supa — aborting'); return; }
-  // Mirror the date-chip logic: _p1SelectedDate if set, else latest in predData
+  if (!supa) return;
   let targetDate = _p1SelectedDate;
   if (!targetDate) {
     const dates = (_predData || []).map(r => r.trading_date).filter(Boolean);
-    if (!dates.length) { console.warn('[P3] no dates in _predData — aborting'); return; }
+    if (!dates.length) return;
     targetDate = dates.reduce((a, b) => (a > b ? a : b));
   }
-  console.log('[P3] fetching level_history for', targetDate);
   const { data, error } = await supa
     .from('level_history')
     .select('symbol, stock_close, levels')
@@ -6421,11 +6418,6 @@ async function loadP3LevelData() {
       _levelMap[row.symbol] = { current_close: row.stock_close, levels: row.levels.levels };
     }
   });
-  const keys = Object.keys(_levelMap);
-  const sample = keys[0];
-  console.log('[P3] Levels loaded:', keys.length, 'symbols for', targetDate,
-    '| sample key:', JSON.stringify(sample), typeof sample,
-    '| sample value:', sample ? JSON.stringify(_levelMap[sample]).slice(0,120) : 'none');
   renderFlowPredictor();
 }
 
@@ -6437,19 +6429,7 @@ function _p3IsPartial(zone) {
 // ── Phase 3: nearest support/resistance + key level for a row ─────────────────
 function extractKeyLevel(symbol, direction) {
   const row = _levelMap[symbol];
-  if (!row || !row.levels || !row.levels.length) {
-    // Log once per unique miss to avoid flooding
-    if (!extractKeyLevel._logged) extractKeyLevel._logged = {};
-    if (!extractKeyLevel._logged[symbol]) {
-      extractKeyLevel._logged[symbol] = true;
-      const mapKeys = Object.keys(_levelMap);
-      console.log('[P3] miss sym=', JSON.stringify(symbol), typeof symbol,
-        '| mapSize=', mapKeys.length,
-        '| sampleKey=', JSON.stringify(mapKeys[0]), typeof mapKeys[0],
-        '| directMatch=', symbol in _levelMap);
-    }
-    return null;
-  }
+  if (!row || !row.levels || !row.levels.length) return null;
   const close = row.current_close;
   const levels = row.levels;
   const above = levels.filter(l => l.price > close);
@@ -6512,7 +6492,6 @@ function buildLevelPanel(symbol) {
 }
 
 async function loadPredictorData(){
-  console.log('[P3] TEST — loadPredictorData entered');
   const supa = await getSupabaseAsync();
   if(!supa){console.warn('[Predictor] No Supabase even after wait');return;}
   try{
