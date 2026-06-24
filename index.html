@@ -5134,6 +5134,19 @@ async function saveFlowToSupabase(rows){
           'P $' + Number(result.latest_put_premium||0).toLocaleString());
       }
     } catch(e){ console.warn('[Supabase] aggregation error for', d, e); }
+
+    // Phase 3: rebuild level_history rows then compute levels for the uploaded date.
+    // rebuild_level_history_for_date upserts OHLC + OI accumulation from omen_flow.
+    // update_levels_for_date fills the levels JSONB column via compute_levels_for_symbol_date.
+    try {
+      const {error: lvlErr} = await supa.rpc('rebuild_level_history_for_date', {p_date: d});
+      if(lvlErr) { console.warn('[Supabase] level_history rebuild failed for', d, ':', lvlErr.message); }
+      else {
+        const {error: updErr} = await supa.rpc('update_levels_for_date', {p_date: d});
+        if(updErr) console.warn('[Supabase] update_levels failed for', d, ':', updErr.message);
+        else console.log('[Supabase] Levels computed for', d);
+      }
+    } catch(e){ console.warn('[Supabase] level computation error for', d, e); }
   }
   console.log('[Supabase] Inserted',totalInserted,'rows total');
 }
