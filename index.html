@@ -414,6 +414,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
+    <button class="nav-btn" onclick="goPage('momentum',this)">Momentum</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
   </nav>
@@ -866,6 +867,18 @@ select option{background:var(--bg2);}
 <section id="page-flowpredict" class="page">
   <div style="padding:14px;text-align:center;color:#8090a0;font-size:13px;">Loading predictor...</div>
 </section>
+
+<!-- ============ PAGE: MOMENTUM ============ -->
+<div id="page-momentum" class="page">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM SWING WATCHLIST</span>
+    <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
+    <button onclick="showMomentumForm(null)" style="margin-left:auto;padding:6px 14px;background:var(--cyan);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">+ ADD STOCK</button>
+  </div>
+  <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
+    <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading...</div>
+  </div>
+</div>
 
 <!-- ============ PAGE: HISTORY ============ -->
 <div id="page-history" class="page">
@@ -4333,6 +4346,9 @@ function goPage(name,btn){
   if(name==='flowpredict'){
     setTimeout(initFlowPredictor,50);
   }
+  if(name==='momentum'){
+    setTimeout(initMomentum,50);
+  }
   if(name==='settings'){
     setTimeout(refreshPriceHistoryStatus,50);
   }
@@ -7439,6 +7455,329 @@ window.checkAndShowUnusualVolume = async function(tradingDate){
   window.showUnusualVolumePopup(rows, date);
 };
 
+
+// ============================================================
+// MOMENTUM SWING WATCHLIST
+// ============================================================
+
+let _swingData       = [];            // all rows from swing_watchlist
+let _optionsSymbolsSet = new Set();   // distinct symbols seen in omen_flow (for OP badge)
+let _momentumOpLoaded = false;        // true once options symbols fetch has run
+
+async function loadOptionsSymbols() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  // Get latest date to keep the query bounded to one day's rows (~3500 rows max)
+  const { data: ld } = await supa.from('omen_flow').select('trading_date').order('trading_date', { ascending: false }).limit(1);
+  const latestDate = ld?.[0]?.trading_date;
+  if (!latestDate) return;
+  // Paginate through symbol-only rows for that date — avoids the 1000-row silent cap
+  let from = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await supa.from('omen_flow').select('symbol').eq('trading_date', latestDate).range(from, from + PAGE - 1);
+    if (error || !data || !data.length) break;
+    data.forEach(r => _optionsSymbolsSet.add(r.symbol));
+    if (data.length < PAGE) break;
+    from += PAGE;
+    if (from > 20000) break;
+  }
+  _momentumOpLoaded = true;
+  const el = document.getElementById('mom-op-status');
+  if (el) el.textContent = `${_optionsSymbolsSet.size} options symbols loaded`;
+}
+
+async function loadSwingData() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  const { data, error } = await supa.from('swing_watchlist').select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('rating_greenzone', { ascending: false });
+  if (error) { console.warn('[Momentum] load failed', error.message); return; }
+  _swingData = data || [];
+}
+
+async function initMomentum() {
+  const loads = [loadSwingData()];
+  if (!_momentumOpLoaded) {
+    // Seed from _p1FlowData if already loaded (user visited Flow Predictor) — no extra query needed
+    if (_p1FlowData && _p1FlowData.length) {
+      _p1FlowData.forEach(r => { if (r.symbol) _optionsSymbolsSet.add(r.symbol); });
+      _momentumOpLoaded = true;
+    } else {
+      loads.push(loadOptionsSymbols());
+    }
+  }
+  renderMomentum(); // show loading state immediately
+  await Promise.all(loads);
+  renderMomentum();
+}
+
+function _momFmt(val, prefix, suffix, decimals) {
+  if (val === null || val === undefined || val === '') return '—';
+  const n = Number(val);
+  if (isNaN(n)) return '—';
+  return (prefix || '') + n.toFixed(decimals ?? 2) + (suffix || '');
+}
+
+function _momRatingBadge(val, label) {
+  if (val === null || val === undefined || val === '') return `<span style="color:#505060;font-size:10px;">—</span>`;
+  const n = Number(val);
+  const color = n >= 80 ? '#00e5b0' : n >= 60 ? '#ffb020' : n >= 40 ? '#a0a8c0' : '#ff3d5a';
+  return `<span title="${label}" style="font-size:11px;font-weight:700;color:${color};">${n}</span>`;
+}
+
+function _momRetColor(pct) {
+  if (pct === null || pct === undefined || pct === '') return '#a0a8c0';
+  return Number(pct) >= 0 ? '#00e5b0' : '#ff3d5a';
+}
+
+function _momTableHead() {
+  return `<thead>
+    <tr style="background:var(--bg3);font-size:10px;letter-spacing:0.5px;color:#8090a8;">
+      <th style="padding:6px 5px;text-align:left;min-width:30px;"></th>
+      <th style="padding:6px 8px;text-align:left;min-width:100px;">SYMBOL</th>
+      <th style="padding:6px 8px;text-align:left;min-width:140px;">SECURITY</th>
+      <th style="padding:6px 5px;text-align:center;min-width:38px;" title="GreenZone rating">GZ</th>
+      <th style="padding:6px 5px;text-align:center;min-width:38px;" title="IRIS rating">IRIS</th>
+      <th style="padding:6px 5px;text-align:center;min-width:38px;" title="XGPT rating">XGPT</th>
+      <th style="padding:6px 5px;text-align:right;min-width:62px;">OPEN $</th>
+      <th style="padding:6px 5px;text-align:right;min-width:72px;">OPEN DATE</th>
+      <th style="padding:6px 5px;text-align:right;min-width:62px;">CURR $</th>
+      <th style="padding:6px 5px;text-align:right;min-width:62px;">CLOSE $</th>
+      <th style="padding:6px 5px;text-align:right;min-width:72px;">CLOSE DATE</th>
+      <th style="padding:6px 5px;text-align:right;min-width:58px;">STOP $</th>
+      <th style="padding:6px 5px;text-align:right;min-width:46px;">DIV%</th>
+      <th style="padding:6px 5px;text-align:right;min-width:54px;">RET%</th>
+      <th style="padding:6px 5px;text-align:left;min-width:54px;">ACTION</th>
+      <th style="padding:6px 5px;text-align:right;min-width:60px;"></th>
+    </tr>
+  </thead>`;
+}
+
+function _momRow(row) {
+  const catBadge = row.category === 'all_market'
+    ? `<span style="font-size:9px;font-weight:700;color:#000;background:#00e5b0;border-radius:3px;padding:1px 5px;letter-spacing:0.3px;">M</span>`
+    : `<span style="font-size:9px;font-weight:700;color:#000;background:#00d4ff;border-radius:3px;padding:1px 5px;letter-spacing:0.3px;">TT</span>`;
+
+  const hasOp = _optionsSymbolsSet.size > 0 && _optionsSymbolsSet.has(row.symbol);
+  const opBadge = hasOp
+    ? `<span title="Options data available" style="font-size:8px;font-weight:700;color:#ffb020;background:rgba(255,176,32,0.15);border:1px solid rgba(255,176,32,0.3);border-radius:3px;padding:1px 4px;margin-left:4px;vertical-align:middle;">OP</span>`
+    : '';
+
+  const retColor = _momRetColor(row.return_pct);
+  const retTxt   = row.return_pct !== null && row.return_pct !== undefined && row.return_pct !== ''
+    ? `<span style="color:${retColor};font-weight:700;">${Number(row.return_pct) >= 0 ? '+' : ''}${Number(row.return_pct).toFixed(1)}%</span>`
+    : '<span style="color:#505060;">—</span>';
+
+  const actionColor = row.action === 'Buy' ? '#00e5b0' : row.action === 'Sell' || row.action === 'Sold' ? '#ff3d5a' : '#a0a8c0';
+
+  const safeId = Number(row.id);
+  const rowBg  = row.status === 'closed' ? 'rgba(255,255,255,0.02)' : 'transparent';
+
+  return `<tr data-id="${safeId}" style="border-bottom:1px solid var(--border);background:${rowBg};" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background='${rowBg}'">
+    <td style="padding:7px 5px;text-align:left;">${catBadge}</td>
+    <td style="padding:7px 8px;font-weight:700;font-size:12px;white-space:nowrap;">${row.symbol}${opBadge}</td>
+    <td style="padding:7px 8px;font-size:11px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.security || ''}">${row.security || '—'}</td>
+    <td style="padding:7px 5px;text-align:center;">${_momRatingBadge(row.rating_greenzone,'GreenZone')}</td>
+    <td style="padding:7px 5px;text-align:center;">${_momRatingBadge(row.rating_iris,'IRIS')}</td>
+    <td style="padding:7px 5px;text-align:center;">${_momRatingBadge(row.rating_xgpt,'XGPT')}</td>
+    <td style="padding:7px 5px;text-align:right;font-size:11px;">${_momFmt(row.open_price,'$','',2)}</td>
+    <td style="padding:7px 5px;text-align:right;font-size:10px;color:#8090a8;">${row.open_date || '—'}</td>
+    <td style="padding:7px 5px;text-align:right;font-size:11px;color:#6080a0;">—</td>
+    <td style="padding:7px 5px;text-align:right;font-size:11px;">${_momFmt(row.close_price,'$','',2)}</td>
+    <td style="padding:7px 5px;text-align:right;font-size:10px;color:#8090a8;">${row.close_date || '—'}</td>
+    <td style="padding:7px 5px;text-align:right;font-size:11px;color:#ff8050;">${_momFmt(row.stop_price,'$','',2)}</td>
+    <td style="padding:7px 5px;text-align:right;font-size:11px;">${_momFmt(row.dividend_yield,'','%',2)}</td>
+    <td style="padding:7px 5px;text-align:right;">${retTxt}</td>
+    <td style="padding:7px 5px;font-size:11px;font-weight:600;color:${actionColor};">${row.action || '—'}</td>
+    <td style="padding:7px 5px;text-align:right;white-space:nowrap;">
+      <button onclick="showMomentumForm(_swingData.find(r=>r.id===${safeId}))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 4px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+      <button onclick="deleteMomentumRow(${safeId},'${row.symbol.replace(/'/g,"\\\'")}')" title="Delete" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">🗑</button>
+    </td>
+  </tr>`;
+}
+
+function _momSection(title, rows, borderColor, maxRows) {
+  const shown   = rows.slice(0, maxRows);
+  const overflow = rows.length > maxRows ? rows.length - maxRows : 0;
+  const overflowNote = overflow > 0
+    ? `<div style="font-size:10px;color:#6080a0;padding:6px 10px;text-align:right;">+ ${overflow} more (showing top ${maxRows} by GreenZone rating)</div>`
+    : '';
+  const empty = shown.length === 0
+    ? `<tr><td colspan="16" style="padding:14px;text-align:center;color:#505060;font-size:11px;">No positions</td></tr>`
+    : '';
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden;">
+    <div style="padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);">
+      <span style="font-size:11px;font-weight:700;color:${borderColor};letter-spacing:1px;">${title}</span>
+      <span style="font-size:10px;color:#6080a0;">${rows.length} position${rows.length !== 1 ? 's' : ''}</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-family:var(--font);">
+        ${_momTableHead()}
+        <tbody>${shown.map(_momRow).join('') || empty}</tbody>
+      </table>
+    </div>
+    ${overflowNote}
+  </div>`;
+}
+
+function renderMomentum() {
+  const body = document.getElementById('mom-body');
+  if (!body) return;
+  if (!_swingData.length) {
+    body.innerHTML = `<div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">No swing positions yet — click <strong style="color:var(--cyan)">+ ADD STOCK</strong> to add your first.</div>`;
+    return;
+  }
+  // Sort each group by rating_greenzone DESC (null last)
+  const sortByGZ = arr => [...arr].sort((a, b) => {
+    const ga = a.rating_greenzone ?? -1, gb = b.rating_greenzone ?? -1;
+    return gb - ga;
+  });
+  const allOpen  = sortByGZ(_swingData.filter(r => r.category === 'all_market' && r.status === 'open'));
+  const ttOpen   = sortByGZ(_swingData.filter(r => r.category === 'tech_titans' && r.status === 'open'));
+  const closed   = sortByGZ(_swingData.filter(r => r.status === 'closed'));
+
+  body.innerHTML = [
+    _momSection('ALL MARKETS — OPEN', allOpen, '#00e5b0', 10),
+    _momSection('TECH TITANS — OPEN', ttOpen, '#00d4ff', 10),
+    closed.length ? _momSection('CLOSED POSITIONS', closed, '#6080a0', 999) : '',
+  ].filter(Boolean).join('');
+}
+
+function showMomentumForm(row) {
+  let modal = document.getElementById('momentum-form-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'momentum-form-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);overflow-y:auto;padding:20px;';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.body.appendChild(modal);
+  }
+  const isEdit = !!row;
+  const v = k => row ? (row[k] ?? '') : '';
+  const sel = (k, opt) => opt.map(o => `<option value="${o}" ${v(k) === o ? 'selected' : ''}>${o}</option>`).join('');
+
+  const fld = (label, id, type, extra, val) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:9px;color:#6080a0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
+      <input id="sw-${id}" type="${type}" ${extra} value="${val ?? ''}"
+        style="width:100%;box-sizing:border-box;background:#0a0a16;border:1px solid #2a2a40;border-radius:4px;color:#e0e8f0;padding:6px 8px;font-size:12px;font-family:var(--font);">
+    </div>`;
+
+  const selFld = (label, id, opts, current) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:9px;color:#6080a0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
+      <select id="sw-${id}" style="width:100%;box-sizing:border-box;background:#0a0a16;border:1px solid #2a2a40;border-radius:4px;color:#e0e8f0;padding:6px 8px;font-size:12px;font-family:var(--font);">
+        ${opts.map(o => `<option value="${o}" ${current === o ? 'selected' : ''}>${o}</option>`).join('')}
+      </select>
+    </div>`;
+
+  modal.innerHTML = `
+    <div style="background:#12121e;border:1px solid #2a2a40;border-radius:10px;padding:22px 24px;width:100%;max-width:540px;box-shadow:0 8px 40px rgba(0,0,0,0.8);">
+      <div style="font-size:12px;font-weight:700;color:#c0c8d0;margin-bottom:16px;letter-spacing:0.8px;">${isEdit ? '✎ EDIT — ' + row.symbol : '+ ADD SWING POSITION'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+        ${fld('SYMBOL', 'symbol', 'text', isEdit ? 'readonly style="opacity:0.6"' : '', v('symbol'))}
+        ${fld('SECURITY NAME', 'security', 'text', '', v('security'))}
+        ${selFld('CATEGORY', 'category', ['all_market','tech_titans'], v('category') || 'all_market')}
+        ${selFld('STATUS', 'status', ['open','closed'], v('status') || 'open')}
+        ${fld('RATING — GREENZONE', 'gz', 'number', 'min="0" max="100" step="1"', v('rating_greenzone'))}
+        ${fld('RATING — IRIS', 'iris', 'number', 'min="0" max="100" step="1"', v('rating_iris'))}
+        ${fld('RATING — XGPT', 'xgpt', 'number', 'min="0" max="100" step="1"', v('rating_xgpt'))}
+        <div style="margin-bottom:10px;">
+          <div style="font-size:9px;color:#6080a0;margin-bottom:3px;letter-spacing:0.5px;">ACTION</div>
+          <input id="sw-action" list="sw-action-list" value="${v('action')}"
+            style="width:100%;box-sizing:border-box;background:#0a0a16;border:1px solid #2a2a40;border-radius:4px;color:#e0e8f0;padding:6px 8px;font-size:12px;font-family:var(--font);">
+          <datalist id="sw-action-list">
+            <option value="Buy"><option value="Hold"><option value="Sell"><option value="Sold">
+          </datalist>
+        </div>
+        ${fld('OPEN PRICE', 'open-price', 'number', 'step="0.01" min="0"', v('open_price'))}
+        ${fld('OPEN DATE', 'open-date', 'date', '', v('open_date'))}
+        ${fld('CLOSE PRICE', 'close-price', 'number', 'step="0.01" min="0"', v('close_price'))}
+        ${fld('CLOSE DATE', 'close-date', 'date', '', v('close_date'))}
+        ${fld('STOP PRICE', 'stop-price', 'number', 'step="0.01" min="0"', v('stop_price'))}
+        ${fld('DIVIDEND YIELD %', 'div-yield', 'number', 'step="0.01" min="0"', v('dividend_yield'))}
+        ${fld('RETURN %', 'ret-pct', 'number', 'step="0.01"', v('return_pct'))}
+        ${fld('SORT ORDER', 'sort', 'number', 'step="1" min="0"', v('sort_order'))}
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:9px;color:#6080a0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
+        <textarea id="sw-notes" rows="2"
+          style="width:100%;box-sizing:border-box;background:#0a0a16;border:1px solid #2a2a40;border-radius:4px;color:#e0e8f0;padding:6px 8px;font-size:12px;resize:none;font-family:var(--font);">${v('notes')}</textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="saveMomentumRow(${isEdit ? row.id : 'null'})"
+          style="flex:1;padding:8px;background:#00d4ff22;border:1px solid #00d4ff;border-radius:5px;color:#00d4ff;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">
+          ${isEdit ? 'SAVE CHANGES' : 'ADD POSITION'}
+        </button>
+        <button onclick="document.getElementById('momentum-form-modal').style.display='none'"
+          style="padding:8px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:#8090a0;font-size:12px;cursor:pointer;font-family:var(--font);">Cancel</button>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
+}
+
+async function saveMomentumRow(id) {
+  const g = idSuffix => {
+    const el = document.getElementById('sw-' + idSuffix);
+    return el ? el.value.trim() : '';
+  };
+  const numOrNull = val => {
+    const n = parseFloat(val);
+    return (val === '' || isNaN(n)) ? null : n;
+  };
+  const dateOrNull = val => val === '' ? null : val;
+
+  const symbol = g('symbol').toUpperCase();
+  if (!symbol) { showToast('Momentum', 'Symbol is required', 'error'); return; }
+
+  const fields = {
+    symbol,
+    security:         g('security') || null,
+    category:         g('category'),
+    status:           g('status'),
+    rating_greenzone: numOrNull(g('gz')),
+    rating_iris:      numOrNull(g('iris')),
+    rating_xgpt:      numOrNull(g('xgpt')),
+    action:           g('action') || null,
+    open_price:       numOrNull(g('open-price')),
+    open_date:        dateOrNull(g('open-date')),
+    close_price:      numOrNull(g('close-price')),
+    close_date:       dateOrNull(g('close-date')),
+    stop_price:       numOrNull(g('stop-price')),
+    dividend_yield:   numOrNull(g('div-yield')),
+    return_pct:       numOrNull(g('ret-pct')),
+    sort_order:       numOrNull(g('sort')) ?? null,
+    notes:            g('notes') || null,
+  };
+
+  const supa = await getSupabaseAsync();
+  if (!supa) { showToast('Momentum', 'No database connection', 'error'); return; }
+
+  let error;
+  if (id === null) {
+    ({ error } = await supa.from('swing_watchlist').insert(fields));
+  } else {
+    ({ error } = await supa.from('swing_watchlist').update(fields).eq('id', id));
+  }
+
+  if (error) { showToast('Momentum', 'Save failed: ' + error.message, 'error'); return; }
+
+  document.getElementById('momentum-form-modal').style.display = 'none';
+  showToast(symbol, id === null ? 'Position added' : 'Position updated', 'info');
+  await loadSwingData();
+  renderMomentum();
+}
+
+async function deleteMomentumRow(id, symbol) {
+  if (!confirm(`Delete ${symbol} from Momentum watchlist? This cannot be undone.`)) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) { showToast('Momentum', 'No database connection', 'error'); return; }
+  const { error } = await supa.from('swing_watchlist').delete().eq('id', id);
+  if (error) { showToast('Momentum', 'Delete failed: ' + error.message, 'error'); return; }
+  showToast(symbol, 'Position deleted', 'info');
+  await loadSwingData();
+  renderMomentum();
+}
 
 // ============= END STEP 70 =============
 </script>
