@@ -134,7 +134,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 
 /* WATCHLIST — dense single-line layout */
 /* 14 columns: SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | Bull | Bear | dots */
-:root{--wl-grid:60px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 65px 65px 22px;}
+:root{
+  --wl-grid:60px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 65px 65px 22px;
+  /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
+  --mom-grid:108px 118px 74px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
+}
 .wl-col-hdr{
   display:grid;grid-template-columns:var(--wl-grid);gap:2px;
   padding:6px 10px;
@@ -176,6 +180,12 @@ body.light-mode .wl-price-cell{color:#0d1420;}
 .wl-chevron.closed{transform:rotate(-90deg);}
 .wl-sector-rows{overflow:hidden;}
 .wl-sector-rows.collapsed{display:none;}
+/* MOMENTUM WATCHLIST — dense grid, 22 columns */
+.mom-col-hdr{display:grid;grid-template-columns:var(--mom-grid);gap:2px;padding:6px 10px;font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--text);background:var(--bg3);border-bottom:1px solid var(--border2);}
+body.light-mode .mom-col-hdr{color:#1a2235;background:#dde3ef;}
+.mom-dense-row{display:grid;grid-template-columns:var(--mom-grid);gap:2px;padding:5px 10px;border-radius:2px;transition:background 0.08s;align-items:center;border-bottom:1px solid var(--border);}
+.mom-dense-row:hover{background:rgba(255,255,255,0.04);}
+body.light-mode .mom-dense-row:hover{background:rgba(0,0,0,0.04);}
 .pct-cell{font-size:12px;text-align:right;font-weight:600;white-space:nowrap;}
 .pct-pos{color:var(--green);}
 .pct-neg{color:var(--red);}
@@ -414,7 +424,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
-    <button class="nav-btn" onclick="goPage('momentum',this)">Momentum</button>
+    <button class="nav-btn" onclick="goPage('momentum',this)">Momentum WL</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
   </nav>
@@ -871,9 +881,10 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: MOMENTUM ============ -->
 <div id="page-momentum" class="page">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
-    <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM SWING WATCHLIST</span>
+    <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
-    <button onclick="showMomentumForm(null)" style="margin-left:auto;padding:6px 14px;background:var(--cyan);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">+ ADD STOCK</button>
+    <button onclick="refreshMomentumPrices()" style="margin-left:auto;padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Refresh live prices">↻ Prices</button>
+    <button onclick="showMomentumForm(null)" style="padding:6px 14px;background:var(--cyan);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">+ ADD STOCK</button>
   </div>
   <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
     <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading...</div>
@@ -4287,7 +4298,8 @@ async function fetchLiveAll(force){
   if(!fhKey){console.warn('[Ticker] No Finnhub key — skipping live quotes');return;}
   // Fetch ALL watchlist tickers — throttled to ~54/min to stay under Finnhub's 60/min free limit
   const userSyms=(_userWatchlist||[]).map(r=>r.symbol);
-  const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms])];
+  const swingSyms=(_swingData||[]).map(r=>r.symbol);
+  const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms,...swingSyms])];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
   console.log('[fetchLiveAll] fetching',tickerList.length,'tickers');
   // Mark only un-seen tickers as loading; tickers with existing data keep showing last value
@@ -4324,11 +4336,13 @@ async function fetchLiveAll(force){
     if((i+1)%10===0||i===tickerList.length-1){
       console.log('[fetchLiveAll] progress:',(i+1),'/',tickerList.length);
       renderTape();renderWatchlist();renderMoverLists();
+      if(typeof renderMomentum==='function')renderMomentum();
       if(typeof updateStatBoxes==='function')updateStatBoxes();
     }
   }
   console.log('[fetchLiveAll] COMPLETE — fetched',tickerList.length,'tickers');
   renderWatchlist();renderMoverLists();renderTape();
+  if(typeof renderMomentum==='function')renderMomentum();
   if(typeof updateStatBoxes==='function')updateStatBoxes();
   document.getElementById('st-refresh').textContent=new Date().toLocaleTimeString();
   setRefreshed('carousel');
@@ -7508,7 +7522,14 @@ async function initMomentum() {
   }
   renderMomentum(); // show loading state immediately
   await Promise.all(loads);
-  renderMomentum();
+  renderMomentum(); // render with whatever liveData already has
+  // Kick a background price refresh so swing symbols (now in _swingData) get quoted
+  if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
+}
+
+function refreshMomentumPrices() {
+  if (!localStorage.getItem('sp_fh')) { showToast('Momentum', 'No Finnhub API key — add one in Settings', 'error'); return; }
+  fetchLiveAll(true);
 }
 
 function _momFmt(val, prefix, suffix, decimals) {
@@ -7530,91 +7551,121 @@ function _momRetColor(pct) {
   return Number(pct) >= 0 ? '#00e5b0' : '#ff3d5a';
 }
 
-function _momTableHead() {
-  return `<thead>
-    <tr style="background:var(--bg3);font-size:10px;letter-spacing:0.5px;color:#8090a8;">
-      <th style="padding:6px 5px;text-align:left;min-width:30px;"></th>
-      <th style="padding:6px 8px;text-align:left;min-width:100px;">SYMBOL</th>
-      <th style="padding:6px 8px;text-align:left;min-width:140px;">SECURITY</th>
-      <th style="padding:6px 5px;text-align:center;min-width:38px;" title="GreenZone rating">GZ</th>
-      <th style="padding:6px 5px;text-align:center;min-width:38px;" title="IRIS rating">IRIS</th>
-      <th style="padding:6px 5px;text-align:center;min-width:38px;" title="XGPT rating">XGPT</th>
-      <th style="padding:6px 5px;text-align:right;min-width:62px;">OPEN $</th>
-      <th style="padding:6px 5px;text-align:right;min-width:72px;">OPEN DATE</th>
-      <th style="padding:6px 5px;text-align:right;min-width:62px;">CURR $</th>
-      <th style="padding:6px 5px;text-align:right;min-width:62px;">CLOSE $</th>
-      <th style="padding:6px 5px;text-align:right;min-width:72px;">CLOSE DATE</th>
-      <th style="padding:6px 5px;text-align:right;min-width:58px;">STOP $</th>
-      <th style="padding:6px 5px;text-align:right;min-width:46px;">DIV%</th>
-      <th style="padding:6px 5px;text-align:right;min-width:54px;">RET%</th>
-      <th style="padding:6px 5px;text-align:left;min-width:54px;">ACTION</th>
-      <th style="padding:6px 5px;text-align:right;min-width:60px;"></th>
-    </tr>
-  </thead>`;
+function _momColHdr() {
+  const th = (label, align) => `<span style="text-align:${align||'right'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${label}</span>`;
+  return `<div class="mom-col-hdr">
+    ${th('SYMBOL','left')}
+    ${th('SECURITY','left')}
+    ${th('PRICE')}
+    ${th('NET$')}
+    ${th('5M')}
+    ${th('1H')}
+    ${th('1D')}
+    ${th('1W')}
+    ${th('1M')}
+    ${th('6M')}
+    ${th('GZ','center')}
+    ${th('IRIS','center')}
+    ${th('XGPT','center')}
+    ${th('OPEN$')}
+    ${th('OPEN DATE','left')}
+    ${th('CLOSE$')}
+    ${th('CLOSE DATE','left')}
+    ${th('STOP$')}
+    ${th('DAY P/L')}
+    ${th('ENTRY P/L')}
+    ${th('ACTION','left')}
+    <span></span>
+  </div>`;
 }
 
 function _momRow(row) {
-  const catBadge = row.category === 'all_market'
-    ? `<span style="font-size:9px;font-weight:700;color:#000;background:#00e5b0;border-radius:3px;padding:1px 5px;letter-spacing:0.3px;">M</span>`
-    : `<span style="font-size:9px;font-weight:700;color:#000;background:#00d4ff;border-radius:3px;padding:1px 5px;letter-spacing:0.3px;">TT</span>`;
+  const sym = row.symbol;
+  const q   = getQ(sym);
+  const perf = histBaselines[sym]?.perf;
 
-  const hasOp = _optionsSymbolsSet.size > 0 && _optionsSymbolsSet.has(row.symbol);
+  // Category + OP badges
+  const catBadge = row.category === 'all_market'
+    ? `<span style="font-size:8px;font-weight:700;color:#000;background:#00e5b0;border-radius:3px;padding:1px 4px;">M</span>`
+    : `<span style="font-size:8px;font-weight:700;color:#000;background:#00d4ff;border-radius:3px;padding:1px 4px;">TT</span>`;
+  const hasOp  = _optionsSymbolsSet.size > 0 && _optionsSymbolsSet.has(sym);
   const opBadge = hasOp
-    ? `<span title="Options data available" style="font-size:8px;font-weight:700;color:#ffb020;background:rgba(255,176,32,0.15);border:1px solid rgba(255,176,32,0.3);border-radius:3px;padding:1px 4px;margin-left:4px;vertical-align:middle;">OP</span>`
+    ? `<span title="Options data available" style="font-size:7px;font-weight:700;color:#ffb020;background:rgba(255,176,32,0.15);border:1px solid rgba(255,176,32,0.3);border-radius:3px;padding:1px 3px;margin-left:3px;">OP</span>`
     : '';
 
-  const retColor = _momRetColor(row.return_pct);
-  const retTxt   = row.return_pct !== null && row.return_pct !== undefined && row.return_pct !== ''
-    ? `<span style="color:${retColor};font-weight:700;">${Number(row.return_pct) >= 0 ? '+' : ''}${Number(row.return_pct).toFixed(1)}%</span>`
-    : '<span style="color:#505060;">—</span>';
+  // Live price columns (same helpers as Watchlist)
+  const pctCell = val => {
+    if (val == null) return `<span class="pct-cell pct-na">—</span>`;
+    const cls = Math.abs(val) < 0.05 ? 'pct-zero' : val > 0 ? 'pct-pos' : 'pct-neg';
+    return `<span class="pct-cell ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
+  };
+  const netClr = (q.d ?? 0) >= 0 ? 'pct-pos' : 'pct-neg';
+  const m5  = getPriceChangePct(sym, 5);
+  const h1  = getPriceChangePct(sym, 60);
+  const d1  = perf?.d1 ?? q.dp;
+  const w1  = perf?.w1 ?? null;
+  const m1  = perf?.m1 ?? null;
+  const m6  = perf?.m6 ?? null;
 
-  const actionColor = row.action === 'Buy' ? '#00e5b0' : row.action === 'Sell' || row.action === 'Sold' ? '#ff3d5a' : '#a0a8c0';
+  // Swing-specific P/L
+  const currentPrice = q.p;
+  const openPrice    = row.open_price != null && row.open_price !== '' ? Number(row.open_price) : null;
+  const dayPL        = d1;  // today's % change (same as 1D — reinforces significance in swing context)
+  const entryPL      = (currentPrice && openPrice && openPrice > 0)
+    ? (currentPrice - openPrice) / openPrice * 100 : null;
 
+  const actionColor = row.action === 'Buy' ? '#00e5b0' : (row.action === 'Sell' || row.action === 'Sold') ? '#ff3d5a' : '#a0a8c0';
   const safeId = Number(row.id);
-  const rowBg  = row.status === 'closed' ? 'rgba(255,255,255,0.02)' : 'transparent';
+  const safeSymEsc = row.symbol.replace(/'/g, "\\'");
 
-  return `<tr data-id="${safeId}" style="border-bottom:1px solid var(--border);background:${rowBg};" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background='${rowBg}'">
-    <td style="padding:7px 5px;text-align:left;">${catBadge}</td>
-    <td style="padding:7px 8px;font-weight:700;font-size:12px;white-space:nowrap;">${row.symbol}${opBadge}</td>
-    <td style="padding:7px 8px;font-size:11px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.security || ''}">${row.security || '—'}</td>
-    <td style="padding:7px 5px;text-align:center;">${_momRatingBadge(row.rating_greenzone,'GreenZone')}</td>
-    <td style="padding:7px 5px;text-align:center;">${_momRatingBadge(row.rating_iris,'IRIS')}</td>
-    <td style="padding:7px 5px;text-align:center;">${_momRatingBadge(row.rating_xgpt,'XGPT')}</td>
-    <td style="padding:7px 5px;text-align:right;font-size:11px;">${_momFmt(row.open_price,'$','',2)}</td>
-    <td style="padding:7px 5px;text-align:right;font-size:10px;color:#8090a8;">${row.open_date || '—'}</td>
-    <td style="padding:7px 5px;text-align:right;font-size:11px;color:#6080a0;">—</td>
-    <td style="padding:7px 5px;text-align:right;font-size:11px;">${_momFmt(row.close_price,'$','',2)}</td>
-    <td style="padding:7px 5px;text-align:right;font-size:10px;color:#8090a8;">${row.close_date || '—'}</td>
-    <td style="padding:7px 5px;text-align:right;font-size:11px;color:#ff8050;">${_momFmt(row.stop_price,'$','',2)}</td>
-    <td style="padding:7px 5px;text-align:right;font-size:11px;">${_momFmt(row.dividend_yield,'','%',2)}</td>
-    <td style="padding:7px 5px;text-align:right;">${retTxt}</td>
-    <td style="padding:7px 5px;font-size:11px;font-weight:600;color:${actionColor};">${row.action || '—'}</td>
-    <td style="padding:7px 5px;text-align:right;white-space:nowrap;">
-      <button onclick="showMomentumForm(_swingData.find(r=>r.id===${safeId}))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 4px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
-      <button onclick="deleteMomentumRow(${safeId},'${row.symbol.replace(/'/g,"\\\'")}')" title="Delete" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">🗑</button>
-    </td>
-  </tr>`;
+  return `<div class="mom-dense-row">
+    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${catBadge}<span>${sym}</span>${opBadge}</span>
+    <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
+    <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
+    <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
+    ${pctCell(m5)}
+    ${pctCell(h1)}
+    ${pctCell(d1)}
+    ${pctCell(w1)}
+    ${pctCell(m1)}
+    ${pctCell(m6)}
+    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone, 'GreenZone')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
+    <span style="text-align:right;font-size:11px;">${_momFmt(row.open_price, '$', '', 2)}</span>
+    <span style="font-size:10px;color:#8090a8;">${row.open_date || '—'}</span>
+    <span style="text-align:right;font-size:11px;">${_momFmt(row.close_price, '$', '', 2)}</span>
+    <span style="font-size:10px;color:#8090a8;">${row.close_date || '—'}</span>
+    <span style="text-align:right;font-size:11px;color:#ff8050;">${_momFmt(row.stop_price, '$', '', 2)}</span>
+    ${pctCell(dayPL)}
+    ${pctCell(entryPL)}
+    <span style="font-size:11px;font-weight:600;color:${actionColor};">${row.action || '—'}</span>
+    <span style="text-align:right;white-space:nowrap;">
+      <button onclick="showMomentumForm(_swingData.find(r=>r.id===${safeId}))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+      <button onclick="deleteMomentumRow(${safeId},'${safeSymEsc}')" title="Delete" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">🗑</button>
+    </span>
+  </div>`;
 }
 
 function _momSection(title, rows, borderColor, maxRows) {
-  const shown   = rows.slice(0, maxRows);
+  const shown    = rows.slice(0, maxRows);
   const overflow = rows.length > maxRows ? rows.length - maxRows : 0;
   const overflowNote = overflow > 0
-    ? `<div style="font-size:10px;color:#6080a0;padding:6px 10px;text-align:right;">+ ${overflow} more (showing top ${maxRows} by GreenZone rating)</div>`
+    ? `<div style="font-size:10px;color:#6080a0;padding:5px 10px;text-align:right;">+ ${overflow} more — showing top ${maxRows} by GreenZone rating</div>`
     : '';
-  const empty = shown.length === 0
-    ? `<tr><td colspan="16" style="padding:14px;text-align:center;color:#505060;font-size:11px;">No positions</td></tr>`
+  const emptyRow = shown.length === 0
+    ? `<div style="padding:14px;text-align:center;color:#505060;font-size:11px;">No positions</div>`
     : '';
   return `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden;">
-    <div style="padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);">
+    <div style="padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);">
       <span style="font-size:11px;font-weight:700;color:${borderColor};letter-spacing:1px;">${title}</span>
       <span style="font-size:10px;color:#6080a0;">${rows.length} position${rows.length !== 1 ? 's' : ''}</span>
     </div>
     <div style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-family:var(--font);">
-        ${_momTableHead()}
-        <tbody>${shown.map(_momRow).join('') || empty}</tbody>
-      </table>
+      <div style="min-width:1340px;">
+        ${_momColHdr()}
+        ${shown.map(_momRow).join('') || emptyRow}
+      </div>
     </div>
     ${overflowNote}
   </div>`;
