@@ -6270,12 +6270,22 @@ async function loadP1FlowData(targetDate = null) {
     const cutoffStr = cutoff.toISOString().slice(0, 10);
 
     // Step 3: full trade rows for fetchDate — conviction / skew / tenor ranking.
+    // Paginated because a single date can have >1000 rows (Supabase default cap).
     // Prior-day OI rows (Step 4) have null premium/size and never enter the conviction math.
-    const { data: todayRows, error: todayErr } = await supa
-      .from('omen_flow')
-      .select('symbol,expiry,strike,cp,spread,spread_side,premium,size,oi,alerts,trading_date,earnings_date_raw,earning_alerts_raw,earnings_context')
-      .eq('trading_date', fetchDate);
-    if (todayErr) console.warn('[P1] today rows error:', todayErr.message);
+    let todayRows = [], todayFrom = 0;
+    while (true) {
+      const { data: chunk, error: todayErr } = await supa
+        .from('omen_flow')
+        .select('symbol,expiry,strike,cp,spread,spread_side,premium,size,oi,alerts,trading_date,earnings_date_raw,earning_alerts_raw,earnings_context')
+        .eq('trading_date', fetchDate)
+        .range(todayFrom, todayFrom + PAGE - 1);
+      if (todayErr) { console.warn('[P1] today rows error:', todayErr.message); break; }
+      if (!chunk || !chunk.length) break;
+      todayRows = todayRows.concat(chunk);
+      if (chunk.length < PAGE) break;
+      todayFrom += PAGE;
+      if (todayFrom > 200000) break;
+    }
 
     // Step 4: aggregated OI history for the 45 days before fetchDate via RPC.
     // p_today = fetchDate so OI history ends the day before the viewed date (correct for accumulation).
