@@ -884,6 +884,8 @@ select option{background:var(--bg2);}
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
     <button onclick="refreshMomentumPrices()" style="margin-left:auto;padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Refresh live prices">↻ Prices</button>
+    <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
+    <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
     <button onclick="showMomentumForm(null)" style="padding:6px 14px;background:var(--cyan);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">+ ADD STOCK</button>
   </div>
   <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
@@ -7687,7 +7689,7 @@ function renderMomentum() {
   body.innerHTML = [
     _momSection('ALL MARKETS — OPEN', allOpen, '#00e5b0', 10),
     _momSection('TECH TITANS — OPEN', ttOpen, '#00d4ff', 10),
-    _momSection('CLOSED POSITIONS', closed, '#6080a0', 999),
+    _momSection('POSITIONS', closed, '#6080a0', 999),
   ].join('');
 }
 
@@ -7825,6 +7827,117 @@ async function deleteMomentumRow(id, symbol) {
   showToast(symbol, 'Position deleted', 'info');
   await loadSwingData();
   renderMomentum();
+}
+
+// ── Momentum CSV Import ──────────────────────────────────────────────────────
+
+function triggerMomentumCsvImport() {
+  const inp = document.getElementById('mom-csv-input');
+  if (inp) { inp.value = ''; inp.click(); }
+}
+
+function _parseMomDate(raw) {
+  if (!raw) return null;
+  const s = raw.trim();
+  if (!s) return null;
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // MM/DD/YYYY
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  return null;
+}
+
+function _parseMomNumber(raw) {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).replace(/[$%,\s]/g, '').trim();
+  if (s === '') return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function _parseMomCsv(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2) return [];
+  // Parse header, normalise to lower_snake
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,''));
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // Naive CSV split: handles quoted fields with commas
+    const cells = [];
+    let cur = '', inQ = false;
+    for (let c = 0; c < line.length; c++) {
+      const ch = line[c];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cells.push(cur); cur = ''; }
+      else { cur += ch; }
+    }
+    cells.push(cur);
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = (cells[idx] ?? '').trim(); });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+async function handleMomentumCsvFiles(files) {
+  if (!files || !files.length) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) { showToast('Import', 'No database connection', 'error'); return; }
+
+  // Confirm if table already has rows
+  if (_swingData.length > 0) {
+    if (!confirm(`Table has ${_swingData.length} row${_swingData.length !== 1 ? 's' : ''}. Import anyway? New rows will be added.`)) return;
+  }
+
+  let totalInserted = 0, totalSkipped = 0;
+
+  for (const file of Array.from(files)) {
+    const text = await file.text();
+    const parsed = _parseMomCsv(text);
+
+    const toInsert = [];
+    for (const r of parsed) {
+      const sym = (r.symbol || '').trim().toUpperCase();
+      if (!sym) { totalSkipped++; continue; }
+      toInsert.push({
+        symbol:           sym,
+        security:         r.security || null,
+        category:         (r.category || '').trim() || 'all_market',
+        status:           (r.status || '').trim() || 'open',
+        open_price:       _parseMomNumber(r.open_price),
+        open_date:        _parseMomDate(r.open_date),
+        close_price:      _parseMomNumber(r.close_price),
+        close_date:       _parseMomDate(r.close_date),
+        stop_price:       _parseMomNumber(r.stop_price),
+        dividend_yield:   _parseMomNumber(r.dividend_yield),
+        return_pct:       _parseMomNumber(r.return_pct),
+        action:           r.action || null,
+        rating_greenzone: _parseMomNumber(r.rating_greenzone),
+        rating_iris:      _parseMomNumber(r.rating_iris),
+        rating_xgpt:      _parseMomNumber(r.rating_xgpt),
+        current_price:    _parseMomNumber(r.current_price),
+        notes:            r.notes || null,
+      });
+    }
+
+    if (!toInsert.length) { totalSkipped += parsed.length; continue; }
+
+    const { error } = await supa.from('swing_watchlist').insert(toInsert);
+    if (error) {
+      showToast('Import', `${file.name}: insert failed — ${error.message}`, 'error');
+      totalSkipped += toInsert.length;
+    } else {
+      totalInserted += toInsert.length;
+    }
+  }
+
+  showToast('Import', `Imported ${totalInserted} row${totalInserted !== 1 ? 's' : ''}${totalSkipped ? ` (${totalSkipped} skipped — bad format)` : ''}`, 'info');
+  await loadSwingData();
+  renderMomentum();
+  if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
 }
 
 // ============= END STEP 70 =============
