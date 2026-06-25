@@ -4320,11 +4320,13 @@ async function fetchLiveAll(force){
       try{
         const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey);
         const d=await r.json();
-        if(d.c&&d.c!==0){
-          const quote={c:d.c,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now()};
+        const lastPx=(d.c&&d.c!==0)?d.c:(d.pc&&d.pc!==0?d.pc:null);
+        if(lastPx!=null){
+          const isLast=!(d.c&&d.c!==0);
+          const quote={c:lastPx,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now(),lastClose:isLast};
           _fhCache.set(sym,quote);
-          liveData[sym]={p:d.c,dp:d.dp||0,d:d.d||0,t:d.t||0,loading:false};
-          recordPriceSnapshot(sym,d.c);
+          liveData[sym]={p:lastPx,dp:d.dp||0,d:d.d||0,t:d.t||0,loading:false,lastClose:isLast};
+          recordPriceSnapshot(sym,lastPx);
         }else{
           const prev=liveData[sym]||{};
           liveData[sym]={p:prev.p||null,dp:prev.dp||null,d:prev.d||null,t:prev.t||null,loading:false,stale:true};
