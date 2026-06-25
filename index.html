@@ -4302,7 +4302,7 @@ async function fetchLiveAll(force){
   if(!fhKey){console.warn('[Ticker] No Finnhub key — skipping live quotes');return;}
   // Fetch ALL watchlist tickers — throttled to ~54/min to stay under Finnhub's 60/min free limit
   const userSyms=(_userWatchlist||[]).map(r=>r.symbol);
-  const swingSyms=(_swingData||[]).map(r=>r.symbol);
+  const swingSyms=(_swingData||[]).filter(r=>r.status!=='closed').map(r=>r.symbol);
   const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms,...swingSyms])];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
   console.log('[fetchLiveAll] fetching',tickerList.length,'tickers');
