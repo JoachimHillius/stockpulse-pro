@@ -420,11 +420,11 @@ select option{background:var(--bg2);}
   <nav class="nav">
     <button class="nav-btn active" onclick="goPage('morning',this)">Morning Brief</button>
     <button class="nav-btn" onclick="goPage('watchlist',this)">Watchlist</button>
+    <button class="nav-btn" onclick="goPage('momentum',this)" style="white-space:normal;line-height:1.2;padding:0 12px;font-size:10px;">Momentum<br>Watchlist</button>
     <button class="nav-btn" onclick="goPage('flow',this)">Options Flow</button>
     <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
-    <button class="nav-btn" onclick="goPage('momentum',this)">Momentum WL</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
   </nav>
@@ -7674,24 +7674,21 @@ function _momSection(title, rows, borderColor, maxRows) {
 function renderMomentum() {
   const body = document.getElementById('mom-body');
   if (!body) return;
-  if (!_swingData.length) {
-    body.innerHTML = `<div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">No swing positions yet — click <strong style="color:var(--cyan)">+ ADD STOCK</strong> to add your first.</div>`;
-    return;
-  }
-  // Sort each group by rating_greenzone DESC (null last)
+  // Always render all three sections — _momSection handles the empty-rows state internally.
+  // Do NOT early-return on empty _swingData; the framed containers must always be visible.
   const sortByGZ = arr => [...arr].sort((a, b) => {
     const ga = a.rating_greenzone ?? -1, gb = b.rating_greenzone ?? -1;
     return gb - ga;
   });
-  const allOpen  = sortByGZ(_swingData.filter(r => r.category === 'all_market' && r.status === 'open'));
-  const ttOpen   = sortByGZ(_swingData.filter(r => r.category === 'tech_titans' && r.status === 'open'));
-  const closed   = sortByGZ(_swingData.filter(r => r.status === 'closed'));
+  const allOpen = sortByGZ(_swingData.filter(r => r.category === 'all_market' && r.status === 'open'));
+  const ttOpen  = sortByGZ(_swingData.filter(r => r.category === 'tech_titans' && r.status === 'open'));
+  const closed  = sortByGZ(_swingData.filter(r => r.status === 'closed'));
 
   body.innerHTML = [
     _momSection('ALL MARKETS — OPEN', allOpen, '#00e5b0', 10),
     _momSection('TECH TITANS — OPEN', ttOpen, '#00d4ff', 10),
-    closed.length ? _momSection('CLOSED POSITIONS', closed, '#6080a0', 999) : '',
-  ].filter(Boolean).join('');
+    _momSection('CLOSED POSITIONS', closed, '#6080a0', 999),
+  ].join('');
 }
 
 function showMomentumForm(row) {
