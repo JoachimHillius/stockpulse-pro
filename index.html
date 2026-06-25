@@ -600,8 +600,7 @@ select option{background:var(--bg2);}
       <button class="fbtn" onclick="setWlFilter('Crypto / Digital Assets',this)">Crypto</button>
       <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="refreshWatchlist()" style="margin-left:auto;">↻ Refresh</button>
-    <button class="btn btn-ghost btn-sm" onclick="fetchLiveAll(true)" title="Fetch live prices from Finnhub" style="margin-left:4px;">↻ Prices</button>
+    <button class="btn btn-ghost btn-sm" onclick="refreshAll('watchlist')" style="margin-left:auto;">↻ Refresh</button>
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
   </div>
   <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
@@ -886,7 +885,7 @@ select option{background:var(--bg2);}
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
-    <button onclick="refreshMomentumPrices()" style="margin-left:auto;padding:5px 14px;background:rgba(0,212,255,0.1);border:1px solid var(--cyan);border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;color:var(--cyan);cursor:pointer;letter-spacing:0.3px;" title="Refresh live prices">↻ Prices</button>
+    <button class="btn btn-ghost btn-sm" onclick="refreshAll('momentum')" style="margin-left:auto;">↻ Refresh</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
     <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
     <button onclick="showMomentumForm(null)" style="padding:6px 14px;background:var(--cyan);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">+ ADD STOCK</button>
@@ -7530,6 +7529,11 @@ async function initMomentum() {
   renderMomentum(); // render with whatever liveData already has
   // Kick a background price refresh so swing symbols (now in _swingData) get quoted
   if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
+}
+
+function refreshAll(which) {
+  if (!localStorage.getItem('sp_fh')) { showToast(which === 'momentum' ? 'Momentum' : 'Watchlist', 'No Finnhub API key — add one in Settings', 'error'); return; }
+  fetchLiveAll(true);
 }
 
 function refreshMomentumPrices() {
