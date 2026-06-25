@@ -884,7 +884,7 @@ select option{background:var(--bg2);}
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
-    <button onclick="refreshMomentumPrices()" style="margin-left:auto;padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Refresh live prices">↻ Prices</button>
+    <button onclick="refreshMomentumPrices()" style="margin-left:auto;padding:5px 14px;background:rgba(0,212,255,0.1);border:1px solid var(--cyan);border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;color:var(--cyan);cursor:pointer;letter-spacing:0.3px;" title="Refresh live prices">↻ Prices</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
     <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
     <button onclick="showMomentumForm(null)" style="padding:6px 14px;background:var(--cyan);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">+ ADD STOCK</button>
@@ -3926,7 +3926,7 @@ async function fetchYahooHistory(sym){
       m1:closes.length>=22?(closes.at(-1)-closes.at(-22))/closes.at(-22)*100:null,
       m3:closes.length>=63?(closes.at(-1)-closes.at(-63))/closes.at(-63)*100:null,
       m6:closes.length>=126?(closes.at(-1)-closes.at(-126))/closes.at(-126)*100:null,
-      y1:closes.length>=2?(closes.at(-1)-closes.at(0))/closes.at(0)*100:null,
+      y1:closes.length>=253?(closes.at(-1)-closes.at(-253))/closes.at(-253)*100:null,
     };
     return{sym,avgVol,avgClose,avgDailyMove,days:closes.length,updated:Date.now(),
       recent20:closes.slice(-20), perf};
@@ -7561,12 +7561,12 @@ function _momColHdr() {
     ${th('SECURITY','left')}
     ${th('PRICE')}
     ${th('NET$')}
-    ${th('5M')}
     ${th('1H')}
     ${th('1D')}
     ${th('1W')}
     ${th('1M')}
     ${th('6M')}
+    ${th('1Y')}
     ${th('GZ','center')}
     ${th('IRIS','center')}
     ${th('XGPT','center')}
@@ -7603,12 +7603,12 @@ function _momRow(row) {
     return `<span class="pct-cell ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
   };
   const netClr = (q.d ?? 0) >= 0 ? 'pct-pos' : 'pct-neg';
-  const m5  = getPriceChangePct(sym, 5);
   const h1  = getPriceChangePct(sym, 60);
   const d1  = perf?.d1 ?? q.dp;
   const w1  = perf?.w1 ?? null;
   const m1  = perf?.m1 ?? null;
   const m6  = perf?.m6 ?? null;
+  const y1  = perf?.y1 ?? null;
 
   // Swing-specific P/L
   const currentPrice = q.p;
@@ -7626,12 +7626,12 @@ function _momRow(row) {
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
     <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
     <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
-    ${pctCell(m5)}
     ${pctCell(h1)}
     ${pctCell(d1)}
     ${pctCell(w1)}
     ${pctCell(m1)}
     ${pctCell(m6)}
+    ${pctCell(y1)}
     <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone, 'GreenZone')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
