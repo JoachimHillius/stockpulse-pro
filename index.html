@@ -161,7 +161,7 @@ body.light-mode .wl-col-hdr{color:#1a2235;background:#dde3ef;}
 body.light-mode .wl-dense-row:hover{background:rgba(0,0,0,0.04);}
 .wl-sym-cell{font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;}
 body.light-mode .wl-sym-cell{color:#0d1420;}
-.wl-name-cell{font-size:11px;color:#8899aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;}
+.wl-name-cell{font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;}
 body.light-mode .wl-name-cell{color:#4a5a70;}
 .wl-price-cell{font-size:12px;font-weight:700;color:var(--text);text-align:right;white-space:nowrap;}
 body.light-mode .wl-price-cell{color:#0d1420;}
@@ -599,6 +599,7 @@ select option{background:var(--bg2);}
       <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
     </div>
     <button class="btn btn-ghost btn-sm" onclick="refreshWatchlist()" style="margin-left:auto;">↻ Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick="fetchLiveAll(true)" title="Fetch live prices from Finnhub" style="margin-left:4px;">↻ Prices</button>
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
   </div>
   <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
@@ -7635,9 +7636,9 @@ function _momRow(row) {
     <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
     <span style="text-align:right;font-size:11px;">${_momFmt(row.open_price, '$', '', 2)}</span>
-    <span style="font-size:10px;color:#8090a8;">${row.open_date || '—'}</span>
+    <span style="font-size:10px;color:#c4cedb;margin-left:6px;">${row.open_date || '—'}</span>
     <span style="text-align:right;font-size:11px;">${_momFmt(row.close_price, '$', '', 2)}</span>
-    <span style="font-size:10px;color:#8090a8;">${row.close_date || '—'}</span>
+    <span style="font-size:10px;color:#c4cedb;margin-left:6px;">${row.close_date || '—'}</span>
     <span style="text-align:right;font-size:11px;color:#ff8050;">${_momFmt(row.stop_price, '$', '', 2)}</span>
     ${pctCell(dayPL)}
     ${pctCell(entryPL)}
