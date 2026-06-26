@@ -886,6 +886,7 @@ select option{background:var(--bg2);}
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
     <button class="btn btn-ghost btn-sm" onclick="refreshAll('momentum')" style="margin-left:auto;">↻ Refresh</button>
+    <button onclick="syncSwingBaselines()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Fetch 1W/1M/6M/1Y history for all positions (stored in DB)">↻ Sync Hist</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
     <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
     <button onclick="exportMomentumCsv()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Export all positions to CSV">⬇ Export CSV</button>
@@ -7566,6 +7567,28 @@ async function backfillSwingSectors(){
   }
 }
 
+async function syncSwingBaselines(){
+  const supa = await getSupabaseAsync(); if(!supa){ showToast('Baselines','No DB','error'); return; }
+  const syms = [...new Set((_swingData||[]).map(r=>r.symbol))];
+  let done=0, failed=0;
+  showToast('Baselines', 'Syncing '+syms.length+' symbols… (1-2 min)', 'info');
+  for(const sym of syms){
+    try{
+      const data = await fetchYahooHistory(sym);
+      if(data && data.perf){
+        const perf = {...data.perf, recent20:data.recent20, updated:Date.now()};
+        await supa.from('swing_watchlist').update({perf}).eq('symbol', sym);
+        (_swingData||[]).forEach(r=>{ if(r.symbol===sym) r.perf=perf; });
+        done++;
+      } else failed++;
+    }catch(e){ failed++; }
+    if(done % 10 === 0) renderMomentum();
+    await sleep(150);
+  }
+  renderMomentum();
+  showToast('Baselines', '✓ '+done+' synced ('+failed+' failed)', 'info');
+}
+
 async function initMomentum() {
   const loads = [loadSwingData()];
   if (!_momentumOpLoaded) {
@@ -7647,7 +7670,7 @@ function _momColHdr() {
 function _momRow(row) {
   const sym = row.symbol;
   const q   = getQ(sym);
-  const perf = histBaselines[sym]?.perf;
+  const perf = row.perf || histBaselines[sym]?.perf;
 
   // Category + OP badges
   const catBadge = row.category === 'all_market'
