@@ -137,7 +137,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 :root{
   --wl-grid:60px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
-  --mom-grid:108px 118px 90px 74px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
+  --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
 .wl-col-hdr{
   display:grid;grid-template-columns:var(--wl-grid);gap:2px;
@@ -7648,6 +7648,7 @@ function _momColHdr() {
     ${th('SECURITY','left')}
     ${th('SECTOR','left')}
     ${th('PRICE')}
+    ${th('QTY')}
     ${th('NET$')}
     ${th('1H')}
     ${th('1D')}
@@ -7725,6 +7726,7 @@ function _momRow(row) {
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector || ''}">${row.sector || '—'}</span>
     <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;">${row.qty != null && row.qty !== '' ? row.qty : '—'}</span>
     <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
     ${pctCell(h1)}
     ${pctCell(d1)}
@@ -7786,11 +7788,13 @@ function renderMomentum() {
   });
   const allOpen = sortByGZ(_swingData.filter(r => r.category === 'all_market' && r.status === 'open'));
   const ttOpen  = sortByGZ(_swingData.filter(r => r.category === 'tech_titans' && r.status === 'open'));
+  const jhRows  = [..._swingData.filter(r => r.category === 'jh')].sort((a, b) => (a.symbol||'').localeCompare(b.symbol||''));
   const closed  = sortByGZ(_swingData.filter(r => r.status === 'closed'));
 
   body.innerHTML = [
     _momSection('ALL MARKETS — OPEN', allOpen, '#00e5b0', 10),
     _momSection('TECH TITANS — OPEN', ttOpen, '#00d4ff', 10),
+    _momSection('JH', jhRows, '#ffb020', 999),
     _momSection('POSITIONS', closed, '#6080a0', 999),
   ].join('');
 }
@@ -7869,7 +7873,7 @@ function showMomentumForm(row) {
         ${fld('SYMBOL', 'symbol', 'text', isEdit ? 'readonly style="opacity:0.6"' : '', v('symbol'))}
         ${fld('SECURITY NAME', 'security', 'text', '', v('security'))}
         ${fld('SECTOR', 'sector', 'text', '', v('sector'))}
-        ${selFld('CATEGORY', 'category', ['all_market','tech_titans'], v('category') || 'all_market')}
+        ${selFld('CATEGORY', 'category', ['all_market','tech_titans','jh'], v('category') || 'all_market')}
         ${selFld('STATUS', 'status', ['open','closed'], v('status') || 'open')}
         ${selFld('LIVE', 'is-held', ['no','yes'], (v('is_held')===true||v('is_held')==='true'||v('is_held')==='yes')?'yes':'no')}
         ${selFld('REPLACED ★', 'replace-marker', ['','*','**','***'], v('replace_marker'))}
@@ -7886,6 +7890,7 @@ function showMomentumForm(row) {
           </datalist>
         </div>
         ${fld('OPEN PRICE', 'open-price', 'number', 'step="0.01" min="0"', v('open_price'))}
+        ${fld('QTY (SHARES)', 'qty', 'number', 'step="any"', v('qty'))}
         ${fld('OPEN DATE', 'open-date', 'date', '', v('open_date'))}
         ${fld('CLOSE PRICE', 'close-price', 'number', 'step="0.01" min="0"', v('close_price'))}
         ${fld('CLOSE DATE', 'close-date', 'date', '', v('close_date'))}
@@ -7948,6 +7953,7 @@ async function saveMomentumRow(id) {
     rating_xgpt:      numOrNull(g('xgpt')),
     action:           g('action') || null,
     open_price:       numOrNull(g('open-price')),
+    qty:              numOrNull(g('qty')),
     open_date:        dateOrNull(g('open-date')),
     close_price:      numOrNull(g('close-price')),
     close_date:       dateOrNull(g('close-date')),
@@ -8017,7 +8023,7 @@ async function deleteMomentumRow(id, symbol) {
 
 function exportMomentumCsv(){
   if(!_swingData || !_swingData.length){ showToast('Export','Nothing to export yet','error'); return; }
-  const cols=['symbol','security','sector','category','open_price','open_date','close_price','close_date',
+  const cols=['symbol','security','sector','category','open_price','qty','open_date','close_price','close_date',
     'stop_price','dividend_yield','return_pct','action','rating_greenzone','rating_greenzone_current',
     'rating_iris','rating_xgpt','current_price','status','notes','replace_marker','is_held'];
   const esc=v=>{ if(v===null||v===undefined) return ''; const s=String(v);
@@ -8110,6 +8116,7 @@ async function handleMomentumCsvFiles(files) {
         category:         (r.category || '').trim() || 'all_market',
         status:           (r.status || '').trim() || 'open',
         open_price:       _parseMomNumber(r.open_price),
+        qty:              _parseMomNumber(r.qty),
         open_date:        _parseMomDate(r.open_date),
         close_price:      _parseMomNumber(r.close_price),
         close_date:       _parseMomDate(r.close_date),
