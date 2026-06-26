@@ -188,6 +188,9 @@ body.light-mode .mom-col-hdr{color:#1a2235;background:#dde3ef;}
 body.light-mode .mom-dense-row:hover{background:rgba(0,0,0,0.04);}
 @keyframes momAlarmPulse{0%,100%{background:rgba(255,61,90,0.06);}50%{background:rgba(255,61,90,0.18);}}
 .mom-row-alarm{animation:momAlarmPulse 1.6s ease-in-out infinite;border-left:2px solid #ff3d5a !important;}
+.mom-live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#ff3d4a;margin-right:5px;vertical-align:middle;box-shadow:0 0 4px rgba(255,61,74,0.7);}
+.mom-live-dot.flashing{animation:momLiveBlink 1s ease-in-out infinite;}
+@keyframes momLiveBlink{0%,100%{opacity:1;}50%{opacity:0.2;}}
 .pct-cell{font-size:12px;text-align:right;font-weight:600;white-space:nowrap;}
 .pct-pos{color:var(--green);}
 .pct-neg{color:var(--red);}
@@ -7715,7 +7718,7 @@ function _momRow(row) {
       : (() => { const cls = Math.abs(entryPL) < 0.05 ? 'pct-zero' : entryPL > 0 ? 'pct-pos' : 'pct-neg'; return `<span class="pct-cell ${cls}">${entryPL >= 0 ? '+' : ''}${entryPL.toFixed(2)}%</span>`; })();
 
   return `<div class="mom-dense-row${alarm ? ' mom-row-alarm' : ''}">
-    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}${row.replace_marker ? `<span title="${(row.notes||'No note').replace(/"/g,'&quot;')}" style="color:#ffb020;font-weight:700;font-size:11px;margin-left:3px;cursor:help;">${row.replace_marker}</span>` : ''}</span>
+    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${row.status==='open' ? `<span class="mom-live-dot${isMarketOpen()?' flashing':''}" title="${isMarketOpen()?'Live · held position':'Held position'}"></span>` : ''}${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}${row.replace_marker ? `<span title="${(row.notes||'No note').replace(/"/g,'&quot;')}" style="color:#ffb020;font-weight:700;font-size:11px;margin-left:3px;cursor:help;">${row.replace_marker}</span>` : ''}</span>
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector || ''}">${row.sector || '—'}</span>
     <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
