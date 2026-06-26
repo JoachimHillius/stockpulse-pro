@@ -888,6 +888,7 @@ select option{background:var(--bg2);}
     <button class="btn btn-ghost btn-sm" onclick="refreshAll('momentum')" style="margin-left:auto;">↻ Refresh</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
     <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
+    <button onclick="exportMomentumCsv()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Export all positions to CSV">⬇ Export CSV</button>
     <button onclick="showMomentumForm(null)" style="padding:6px 14px;background:var(--cyan);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">+ ADD STOCK</button>
   </div>
   <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
@@ -7919,6 +7920,23 @@ async function deleteMomentumRow(id, symbol) {
 }
 
 // ── Momentum CSV Import ──────────────────────────────────────────────────────
+
+function exportMomentumCsv(){
+  if(!_swingData || !_swingData.length){ showToast('Export','Nothing to export yet','error'); return; }
+  const cols=['symbol','security','category','open_price','open_date','close_price','close_date',
+    'stop_price','dividend_yield','return_pct','action','rating_greenzone','rating_greenzone_current',
+    'rating_iris','rating_xgpt','current_price','status','notes','replace_marker'];
+  const esc=v=>{ if(v===null||v===undefined) return ''; const s=String(v);
+    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const lines=[cols.join(',')];
+  for(const r of _swingData){ lines.push(cols.map(c=>esc(r[c])).join(',')); }
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='swing_watchlist_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  showToast('Export', _swingData.length+' rows exported','success');
+}
 
 function triggerMomentumCsvImport() {
   const inp = document.getElementById('mom-csv-input');
