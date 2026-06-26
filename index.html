@@ -137,7 +137,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 :root{
   --wl-grid:60px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
-  --mom-grid:108px 118px 74px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
+  --mom-grid:108px 118px 74px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
 .wl-col-hdr{
   display:grid;grid-template-columns:var(--wl-grid);gap:2px;
@@ -7575,9 +7575,10 @@ function _momColHdr() {
     ${th('1M')}
     ${th('6M')}
     ${th('1Y')}
-    ${th('GZ','center')}
+    <span style="text-align:center;line-height:1.0;font-size:9px;">Current<br>GZ</span>
     ${th('IRIS','center')}
     ${th('XGPT','center')}
+    ${th('GZ','center')}
     ${th('OPEN$')}
     ${th('OPEN DATE','left')}
     ${th('CLOSE$')}
@@ -7648,9 +7649,10 @@ function _momRow(row) {
     ${pctCell(m1)}
     ${pctCell(m6)}
     ${pctCell(y1)}
-    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone, 'GreenZone')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone, 'GreenZone')}</span>
     <span style="text-align:right;font-size:11px;">${_momFmt(row.open_price, '$', '', 2)}</span>
     <span style="font-size:10px;color:#c4cedb;margin-left:6px;">${row.open_date || '—'}</span>
     <span style="text-align:right;font-size:11px;">${_momFmt(row.close_price, '$', '', 2)}</span>
@@ -7746,7 +7748,8 @@ function showMomentumForm(row) {
         ${selFld('CATEGORY', 'category', ['all_market','tech_titans'], v('category') || 'all_market')}
         ${selFld('STATUS', 'status', ['open','closed'], v('status') || 'open')}
         ${selFld('REPLACED ★', 'replace-marker', ['','*','**','***'], v('replace_marker'))}
-        ${fld('RATING — GREENZONE', 'gz', 'number', 'min="0" max="100" step="1"', v('rating_greenzone'))}
+        ${fld('GZ — AT OPEN', 'gz', 'number', 'min="0" max="100" step="1"', v('rating_greenzone'))}
+        ${fld('GZ — CURRENT', 'gz-cur', 'number', 'min="0" max="100" step="1"', v('rating_greenzone_current'))}
         ${fld('RATING — IRIS', 'iris', 'number', 'min="0" max="100" step="1"', v('rating_iris'))}
         ${fld('RATING — XGPT', 'xgpt', 'number', 'min="0" max="100" step="1"', v('rating_xgpt'))}
         <div style="margin-bottom:10px;">
@@ -7805,6 +7808,7 @@ async function saveMomentumRow(id) {
     status:           g('status'),
     replace_marker:   g('replace-marker') || null,
     rating_greenzone: numOrNull(g('gz')),
+    rating_greenzone_current: numOrNull(g('gz-cur')),
     rating_iris:      numOrNull(g('iris')),
     rating_xgpt:      numOrNull(g('xgpt')),
     action:           g('action') || null,
@@ -7961,6 +7965,7 @@ async function handleMomentumCsvFiles(files) {
         return_pct:       _parseMomNumber(r.return_pct),
         action:           r.action || null,
         rating_greenzone: _parseMomNumber(r.rating_greenzone),
+        rating_greenzone_current: _parseMomNumber(r.rating_greenzone_current),
         rating_iris:      _parseMomNumber(r.rating_iris),
         rating_xgpt:      _parseMomNumber(r.rating_xgpt),
         current_price:    _parseMomNumber(r.current_price),
