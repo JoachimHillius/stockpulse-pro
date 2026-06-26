@@ -7628,7 +7628,7 @@ function _momRow(row) {
   const alarm        = entryPL != null && entryPL <= -5;
 
   const actionColor = row.action === 'Buy' ? '#00e5b0' : (row.action === 'Sell' || row.action === 'Sold') ? '#ff3d5a' : '#a0a8c0';
-  const safeId = Number(row.id);
+  const safeId = String(row.id).replace(/'/g, "\\'");
   const safeSymEsc = row.symbol.replace(/'/g, "\\'");
 
   const alarmBadge = alarm ? `<span title="Down 5%+ from open" style="font-size:9px;font-weight:700;color:#ff3d5a;margin-left:4px;">⚠</span>` : '';
@@ -7662,8 +7662,8 @@ function _momRow(row) {
     ${entryPLCell}
     <span style="font-size:11px;font-weight:600;color:${actionColor};">${row.action || '—'}</span>
     <span style="text-align:right;white-space:nowrap;">
-      <button onclick="showMomentumForm(_swingData.find(r=>r.id===${safeId}))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
-      <button onclick="deleteMomentumRow(${safeId},'${safeSymEsc}')" title="Delete" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">🗑</button>
+      <button onclick="showMomentumForm(_swingData.find(r=>String(r.id)==='${safeId}'))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+      <button onclick="deleteMomentumRow('${safeId}','${safeSymEsc}')" title="Delete" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">🗑</button>
     </span>
   </div>`;
 }
@@ -7775,11 +7775,11 @@ function showMomentumForm(row) {
           style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;resize:none;font-family:var(--font);">${v('notes')}</textarea>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button onclick="saveMomentumRow(${isEdit ? row.id : 'null'})"
+        <button onclick="saveMomentumRow(${isEdit ? "'" + String(row.id).replace(/'/g,"\\'") + "'" : 'null'})"
           style="flex:1;padding:8px;background:#00d4ff22;border:1px solid #00d4ff;border-radius:5px;color:#00d4ff;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">
           ${isEdit ? 'SAVE CHANGES' : 'ADD POSITION'}
         </button>
-        ${isEdit ? `<button onclick="closeMomentumPosition(${row.id})" style="padding:8px 14px;background:#ff8c0022;border:1px solid #ff8c00;border-radius:5px;color:#ffb020;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">✓ CLOSE → POSITIONS</button>` : ''}
+        ${isEdit ? `<button onclick="closeMomentumPosition('${String(row.id).replace(/'/g,"\\'")}')" style="padding:8px 14px;background:#ff8c0022;border:1px solid #ff8c00;border-radius:5px;color:#ffb020;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">✓ CLOSE → POSITIONS</button>` : ''}
         <button onclick="document.getElementById('momentum-form-modal').style.display='none'"
           style="padding:8px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:#8090a0;font-size:12px;cursor:pointer;font-family:var(--font);">Cancel</button>
       </div>
@@ -7842,7 +7842,7 @@ async function saveMomentumRow(id) {
 }
 
 async function closeMomentumPosition(id) {
-  const row = _swingData.find(r => r.id === id);
+  const row = _swingData.find(r => String(r.id) === String(id));
   if (!row) { showToast('Momentum', 'Position not found', 'error'); return; }
   if (!confirm(`Close ${row.symbol}? This will set status → closed and record today's price.`)) return;
 
