@@ -7651,8 +7651,8 @@ function _momRow(row) {
     ${pctCell(y1)}
     <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
-    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
-    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone, 'GreenZone')}</span>
+    <span onclick="showMomentumGauge('${safeId}')" title="GreenZone gauge" style="text-align:center;cursor:pointer;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
+    <span onclick="showMomentumGauge('${safeId}')" title="GreenZone gauge" style="text-align:center;cursor:pointer;">${_momRatingBadge(row.rating_greenzone, 'GreenZone')}</span>
     <span style="text-align:right;font-size:11px;">${_momFmt(row.open_price, '$', '', 2)}</span>
     <span style="font-size:10px;color:#c4cedb;margin-left:6px;">${row.open_date || '—'}</span>
     <span style="text-align:right;font-size:11px;">${_momFmt(row.close_price, '$', '', 2)}</span>
@@ -7710,6 +7710,46 @@ function renderMomentum() {
     _momSection('TECH TITANS — OPEN', ttOpen, '#00d4ff', 10),
     _momSection('POSITIONS', closed, '#6080a0', 999),
   ].join('');
+}
+
+function _gzSentiment(n){
+  if(n>=80) return ['Strong Bullish','#00e5b0'];
+  if(n>=60) return ['Bullish','#82e0aa'];
+  if(n>=40) return ['Neutral','#f1c40f'];
+  if(n>=20) return ['Bearish','#e67e22'];
+  return ['Strong Bearish','#ff3d5a'];
+}
+function _gaugeBar(value){
+  if(value===null||value===undefined||value==='') return '<div style="color:#8090a0;font-size:11px;">No rating set</div>';
+  const n=Number(value); const [label,col]=_gzSentiment(n); const pct=Math.max(0,Math.min(100,n));
+  return `
+   <div style="margin-bottom:8px;font-size:14px;font-weight:700;color:${col};">${n} · ${label}</div>
+   <div style="position:relative;height:18px;border-radius:9px;background:linear-gradient(90deg,#c0392b 0%,#e67e22 25%,#f1c40f 50%,#82e0aa 75%,#27ae60 100%);">
+     <div style="position:absolute;top:-10px;left:${pct}%;transform:translateX(-50%);font-size:13px;color:var(--text);">▼</div>
+   </div>`;
+}
+function showMomentumGauge(id){
+  const row=_swingData.find(r=>String(r.id)===String(id)); if(!row)return;
+  let modal=document.getElementById('momentum-gauge-modal');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='momentum-gauge-modal';
+    modal.style.cssText='position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(8,30,45,0.55);padding:20px;';
+    modal.addEventListener('click',e=>{if(e.target===modal)modal.style.display='none';});
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML=`
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:22px 26px;width:100%;max-width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+      <div style="font-size:15px;font-weight:700;color:var(--text);">${row.symbol}</div>
+      <div style="font-size:11px;color:#c4d2e0;margin-bottom:20px;">${row.security||''}</div>
+      <div style="font-size:9px;color:#8090a0;letter-spacing:0.5px;margin-bottom:8px;">GREEN ZONE — CURRENT</div>
+      ${_gaugeBar(row.rating_greenzone_current)}
+      <div style="font-size:9px;color:#8090a0;letter-spacing:0.5px;margin:22px 0 8px;">GREEN ZONE — AT OPEN</div>
+      ${_gaugeBar(row.rating_greenzone)}
+      <div style="margin-top:24px;text-align:right;">
+        <button onclick="document.getElementById('momentum-gauge-modal').style.display='none'" style="padding:6px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:#c4d2e0;font-size:12px;cursor:pointer;font-family:var(--font);">Close</button>
+      </div>
+    </div>`;
+  modal.style.display='flex';
 }
 
 function showMomentumForm(row) {
