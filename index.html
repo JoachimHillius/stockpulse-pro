@@ -7638,7 +7638,7 @@ function _momRow(row) {
       : (() => { const cls = Math.abs(entryPL) < 0.05 ? 'pct-zero' : entryPL > 0 ? 'pct-pos' : 'pct-neg'; return `<span class="pct-cell ${cls}">${entryPL >= 0 ? '+' : ''}${entryPL.toFixed(2)}%</span>`; })();
 
   return `<div class="mom-dense-row${alarm ? ' mom-row-alarm' : ''}">
-    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}</span>
+    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}${row.replace_marker ? `<span title="${(row.notes||'No note').replace(/"/g,'&quot;')}" style="color:#ffb020;font-weight:700;font-size:11px;margin-left:3px;cursor:help;">${row.replace_marker}</span>` : ''}</span>
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
     <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
     <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
@@ -7745,6 +7745,7 @@ function showMomentumForm(row) {
         ${fld('SECURITY NAME', 'security', 'text', '', v('security'))}
         ${selFld('CATEGORY', 'category', ['all_market','tech_titans'], v('category') || 'all_market')}
         ${selFld('STATUS', 'status', ['open','closed'], v('status') || 'open')}
+        ${selFld('REPLACED ★', 'replace-marker', ['','*','**','***'], v('replace_marker'))}
         ${fld('RATING — GREENZONE', 'gz', 'number', 'min="0" max="100" step="1"', v('rating_greenzone'))}
         ${fld('RATING — IRIS', 'iris', 'number', 'min="0" max="100" step="1"', v('rating_iris'))}
         ${fld('RATING — XGPT', 'xgpt', 'number', 'min="0" max="100" step="1"', v('rating_xgpt'))}
@@ -7802,6 +7803,7 @@ async function saveMomentumRow(id) {
     security:         g('security') || null,
     category:         g('category'),
     status:           g('status'),
+    replace_marker:   g('replace-marker') || null,
     rating_greenzone: numOrNull(g('gz')),
     rating_iris:      numOrNull(g('iris')),
     rating_xgpt:      numOrNull(g('xgpt')),
@@ -7963,6 +7965,7 @@ async function handleMomentumCsvFiles(files) {
         rating_xgpt:      _parseMomNumber(r.rating_xgpt),
         current_price:    _parseMomNumber(r.current_price),
         notes:            r.notes || null,
+        replace_marker:   r.replace_marker || null,
       });
     }
 
