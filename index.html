@@ -7575,9 +7575,9 @@ function _momColHdr() {
     ${th('1M')}
     ${th('6M')}
     ${th('1Y')}
-    <span style="text-align:center;line-height:1.0;font-size:9px;">Current<br>GZ</span>
     ${th('IRIS','center')}
     ${th('XGPT','center')}
+    ${th('GZ NOW','center')}
     ${th('GZ','center')}
     ${th('OPEN$')}
     ${th('OPEN DATE','left')}
@@ -7649,9 +7649,9 @@ function _momRow(row) {
     ${pctCell(m1)}
     ${pctCell(m6)}
     ${pctCell(y1)}
-    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone, 'GreenZone')}</span>
     <span style="text-align:right;font-size:11px;">${_momFmt(row.open_price, '$', '', 2)}</span>
     <span style="font-size:10px;color:#c4cedb;margin-left:6px;">${row.open_date || '—'}</span>
