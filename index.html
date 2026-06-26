@@ -7520,8 +7520,33 @@ async function loadSwingData() {
   _swingData = data || [];
 }
 
+function _normalizeSector(raw){
+  if(!raw) return null;
+  const s = String(raw).trim(); const k = s.toLowerCase();
+  const MAP = {
+    'technology':'Technology','software':'Technology','it services':'Technology','hardware':'Technology','electronic equipment':'Technology','communications equipment':'Technology',
+    'semiconductors':'Semiconductors',
+    'banking':'Financials','financial services':'Financials','insurance':'Financials','investment banking & brokerage':'Financials','diversified financial services':'Financials','capital markets':'Financials','consumer finance':'Financials','asset management':'Financials',
+    'pharmaceuticals':'Healthcare','biotechnology':'Healthcare','health care':'Healthcare','healthcare':'Healthcare','life sciences tools & services':'Healthcare','medical devices':'Healthcare','health care providers & services':'Healthcare','health care equipment & supplies':'Healthcare','managed health care':'Healthcare',
+    'oil & gas':'Energy','energy':'Energy','oil, gas & consumable fuels':'Energy',
+    'metals & mining':'Materials','chemicals':'Materials','building materials':'Materials','steel':'Materials','paper & forest products':'Materials','construction materials':'Materials','containers & packaging':'Materials','gold':'Materials',
+    'utilities':'Utilities','electric utilities':'Utilities','multi-utilities':'Utilities','water utilities':'Utilities','independent power and renewable electricity producers':'Utilities',
+    'beverages':'Consumer Staples','food products':'Consumer Staples','tobacco':'Consumer Staples','consumer products':'Consumer Staples','household products':'Consumer Staples','personal products':'Consumer Staples','food & staples retailing':'Consumer Staples',
+    'retail':'Consumer Disc.','apparel':'Consumer Disc.','auto':'Consumer Disc.','automobiles':'Consumer Disc.','hotels, restaurants & leisure':'Consumer Disc.','textiles, apparel & luxury goods':'Consumer Disc.','leisure products':'Consumer Disc.','homebuilding':'Consumer Disc.','homebuilders':'Consumer Disc.','household durables':'Consumer Disc.','specialty retail':'Consumer Disc.','internet & direct marketing retail':'Consumer Disc.','distributors':'Consumer Disc.','multiline retail':'Consumer Disc.','consumer discretionary':'Consumer Disc.',
+    'aerospace & defense':'Industrials','machinery':'Industrials','industrial conglomerates':'Industrials','logistics & transportation':'Industrials','road & rail':'Industrials','transportation':'Industrials','construction & engineering':'Industrials','trading companies & distributors':'Industrials','commercial services & supplies':'Industrials','electrical equipment':'Industrials','marine':'Industrials','airlines':'Industrials','air freight & logistics':'Industrials','building products':'Industrials','professional services':'Industrials',
+    'telecommunication':'Telecom','communications':'Telecom','media':'Telecom','diversified telecommunication services':'Telecom','wireless telecommunication services':'Telecom','entertainment':'Telecom','interactive media & services':'Telecom',
+    'real estate':'Real Estate','reit':'Real Estate','real estate management & development':'Real Estate','equity real estate investment trusts (reits)':'Real Estate',
+  };
+  return MAP[k] || s;
+}
+
 async function backfillSwingSectors(){
   const supa = await getSupabaseAsync(); if(!supa) return;
+  // Self-heal: re-normalize any already-stored raw Finnhub labels
+  const fix = (_swingData||[]).filter(r => r.sector && _normalizeSector(r.sector) !== r.sector);
+  for(const r of fix){ const ns=_normalizeSector(r.sector); r.sector=ns;
+    try{ await supa.from('swing_watchlist').update({sector:ns}).eq('id', r.id); }catch(e){} }
+  if(fix.length) renderMomentum();
   // Phase 1 — instant, free: fill from the in-app sector map
   const p1 = (_swingData||[]).filter(r => !r.sector && SECTOR_BY_SYMBOL[r.symbol]);
   for(const r of p1){ r.sector = SECTOR_BY_SYMBOL[r.symbol];
@@ -7534,7 +7559,7 @@ async function backfillSwingSectors(){
     try{
       const res = await fetch('https://finnhub.io/api/v1/stock/profile2?symbol='+encodeURIComponent(r.symbol)+'&token='+fhKey);
       const d = await res.json();
-      const sec = d && d.finnhubIndustry ? d.finnhubIndustry : null;
+      const sec = _normalizeSector(d && d.finnhubIndustry ? d.finnhubIndustry : null);
       if(sec){ r.sector = sec; try{ await supa.from('swing_watchlist').update({sector:sec}).eq('id', r.id); }catch(e){} renderMomentum(); }
     }catch(e){}
     await new Promise(z=>setTimeout(z,1300));
