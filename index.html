@@ -190,6 +190,9 @@ body.light-mode .mom-dense-row:hover{background:rgba(0,0,0,0.04);}
 .mom-row-alarm{animation:momAlarmPulse 1.6s ease-in-out infinite;border-left:2px solid #ff3d5a !important;}
 .mom-live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#ff3d4a;margin-right:5px;vertical-align:middle;box-shadow:0 0 4px rgba(255,61,74,0.7);}
 .mom-live-dot.flashing{animation:momLiveBlink 1s ease-in-out infinite;}
+.mom-live-toggle{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle;cursor:pointer;border:1px solid #5a6a7a;background:transparent;}
+.mom-live-toggle.on{background:#ff3d4a;border-color:#ff3d4a;box-shadow:0 0 4px rgba(255,61,74,0.7);}
+.mom-live-toggle.on.flashing{animation:momLiveBlink 1s ease-in-out infinite;}
 @keyframes momLiveBlink{0%,100%{opacity:1;}50%{opacity:0.2;}}
 .pct-cell{font-size:12px;text-align:right;font-weight:600;white-space:nowrap;}
 .pct-pos{color:var(--green);}
@@ -7716,7 +7719,9 @@ function _momRow(row) {
       : (() => { const cls = Math.abs(entryPL) < 0.05 ? 'pct-zero' : entryPL > 0 ? 'pct-pos' : 'pct-neg'; return `<span class="pct-cell ${cls}">${entryPL >= 0 ? '+' : ''}${entryPL.toFixed(2)}%</span>`; })();
 
   return `<div class="mom-dense-row${alarm ? ' mom-row-alarm' : ''}">
-    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${row.is_held ? `<span class="mom-live-dot${isMarketOpen()?' flashing':''}" title="${isMarketOpen()?'Live · owned position':'Owned position'}"></span>` : ''}${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}${row.replace_marker ? `<span title="${(row.notes||'No note').replace(/"/g,'&quot;')}" style="color:#ffb020;font-weight:700;font-size:11px;margin-left:3px;cursor:help;">${row.replace_marker}</span>` : ''}</span>
+    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${row.status==='open'
+      ? `<span onclick="toggleMomentumLive('${safeId}',event)" class="mom-live-toggle${row.is_held?' on':''}${(row.is_held&&isMarketOpen())?' flashing':''}" title="${row.is_held?'LIVE — click to turn off':'Click to mark LIVE'}"></span>`
+      : ''}${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}${row.replace_marker ? `<span title="${(row.notes||'No note').replace(/"/g,'&quot;')}" style="color:#ffb020;font-weight:700;font-size:11px;margin-left:3px;cursor:help;">${row.replace_marker}</span>` : ''}</span>
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector || ''}">${row.sector || '—'}</span>
     <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
@@ -7866,7 +7871,7 @@ function showMomentumForm(row) {
         ${fld('SECTOR', 'sector', 'text', '', v('sector'))}
         ${selFld('CATEGORY', 'category', ['all_market','tech_titans'], v('category') || 'all_market')}
         ${selFld('STATUS', 'status', ['open','closed'], v('status') || 'open')}
-        ${selFld('HELD (I OWN THIS)', 'is-held', ['no','yes'], (v('is_held')===true||v('is_held')==='true'||v('is_held')==='yes')?'yes':'no')}
+        ${selFld('LIVE', 'is-held', ['no','yes'], (v('is_held')===true||v('is_held')==='true'||v('is_held')==='yes')?'yes':'no')}
         ${selFld('REPLACED ★', 'replace-marker', ['','*','**','***'], v('replace_marker'))}
         ${fld('GZ — AT OPEN', 'gz', 'number', 'min="0" max="100" step="1"', v('rating_greenzone'))}
         ${fld('GZ — CURRENT', 'gz-cur', 'number', 'min="0" max="100" step="1"', v('rating_greenzone_current'))}
@@ -7905,6 +7910,14 @@ function showMomentumForm(row) {
       </div>
     </div>`;
   modal.style.display = 'flex';
+}
+
+async function toggleMomentumLive(id, ev){
+  if(ev) ev.stopPropagation();
+  const row=_swingData.find(r=>String(r.id)===String(id)); if(!row) return;
+  row.is_held=!row.is_held; renderMomentum();
+  const supa=await getSupabaseAsync(); if(!supa) return;
+  try{ await supa.from('swing_watchlist').update({is_held:row.is_held}).eq('id', id); }catch(e){}
 }
 
 async function saveMomentumRow(id) {
