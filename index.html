@@ -7572,25 +7572,14 @@ async function backfillSwingSectors(){
 }
 
 async function syncSwingBaselines(){
-  const supa = await getSupabaseAsync(); if(!supa){ showToast('Baselines','No DB','error'); return; }
-  const syms = [...new Set((_swingData||[]).map(r=>r.symbol))];
-  let done=0, failed=0;
-  showToast('Baselines', 'Syncing '+syms.length+' symbols… (1-2 min)', 'info');
-  for(const sym of syms){
-    try{
-      const data = await fetchYahooHistory(sym);
-      if(data && data.perf){
-        const perf = {...data.perf, recent20:data.recent20, updated:Date.now()};
-        await supa.from('swing_watchlist').update({perf}).eq('symbol', sym);
-        (_swingData||[]).forEach(r=>{ if(r.symbol===sym) r.perf=perf; });
-        done++;
-      } else failed++;
-    }catch(e){ failed++; }
-    if(done % 10 === 0) renderMomentum();
-    await sleep(150);
-  }
-  renderMomentum();
-  showToast('Baselines', '✓ '+done+' synced ('+failed+' failed)', 'info');
+  const supa=await getSupabaseAsync(); if(!supa){ showToast('Baselines','No DB','error'); return; }
+  showToast('Baselines','Syncing history server-side… (~1 min, please wait)','info');
+  try{
+    const {data,error}=await supa.functions.invoke('sync-swing-baselines',{body:{}});
+    if(error){ showToast('Baselines','Sync failed: '+(error.message||error),'error'); return; }
+    await loadSwingData(); renderMomentum();
+    showToast('Baselines','✓ '+(data?.done??0)+' synced ('+(data?.failed??0)+' failed)','info');
+  }catch(e){ showToast('Baselines','Sync error: '+e,'error'); }
 }
 
 async function initMomentum() {
