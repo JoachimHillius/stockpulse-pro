@@ -606,7 +606,8 @@ select option{background:var(--bg2);}
       <button class="fbtn" onclick="setWlFilter('Crypto / Digital Assets',this)">Crypto</button>
       <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="refreshAll('watchlist')" style="margin-left:auto;">↻ Refresh</button>
+    <span style="margin-left:auto;font-size:10px;color:#8090a0;">Updated <span data-refresh-label="watchlist">never</span></span>
+    <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',()=>fetchLiveAll(true))">↻ Refresh</button>
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
   </div>
   <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
@@ -661,7 +662,7 @@ select option{background:var(--bg2);}
   <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px;padding:0 4px;">
     <span data-market-status style="font-size:11px;color:#a0a8c0;"></span>
     <span style="font-size:10px;color:#8090a0;">Updated <span data-refresh-label="options_flow">never</span></span>
-    <button class="btn btn-sm" onclick="refreshOptionsFlow()" title="Reload flow data from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:5px 12px;font-size:11px;">↻ Refresh</button>
+    <button class="btn btn-sm" onclick="runRefresh(this,'options_flow',()=>refreshOptionsFlow())" title="Reload flow data from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:5px 12px;font-size:11px;">↻ Refresh</button>
   </div>
   <div style="position:relative;display:flex;align-items:center;gap:8px;margin-bottom:14px;">
     <input id="of-ticker-search" type="text" placeholder="🔍 Search ticker (NVDA, MSTR, MARA, etc.)…" autocomplete="off" oninput="onOFTickerSearch(event)" onfocus="showOFTickerDropdown()" onblur="setTimeout(hideOFTickerDropdown,200)" style="flex:1;background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:8px 14px;font-size:13px;border-radius:4px;max-width:400px;">
@@ -891,8 +892,8 @@ select option{background:var(--bg2);}
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
-    <span id="mom-last-refresh" style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">—</span>
-    <button id="mom-refresh-btn" class="btn btn-ghost btn-sm" onclick="refreshMomentumNow()">↻ Refresh</button>
+    <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="momentum">never</span></span>
+    <button id="mom-refresh-btn" class="btn btn-ghost btn-sm" onclick="runRefresh(this,'momentum',()=>fetchLiveAll(true))">↻ Refresh</button>
     <button onclick="syncSwingBaselines()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Fetch 1W/1M/6M/1Y history for all positions (stored in DB)">↻ Sync Hist</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
     <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
@@ -1466,8 +1467,38 @@ function getMarketStatus(){
 function isInTradingWindow(){
   return getMarketStatus().state!=='closed';
 }
-const _lastRefresh={carousel:null,options_flow:null,flow_predictor:null,watchlist:null};
-function setRefreshed(key){_lastRefresh[key]=new Date();updateRefreshLabels();}
+const _lastRefresh={carousel:null,options_flow:null,flow_predictor:null,watchlist:null,momentum:null};
+function setRefreshed(key){
+  _lastRefresh[key]=new Date();
+  try{
+    const m={}; Object.keys(_lastRefresh).forEach(k=>{ if(_lastRefresh[k]) m[k]=_lastRefresh[k].getTime(); });
+    localStorage.setItem('sp_lastRefresh', JSON.stringify(m));
+  }catch(e){}
+  updateRefreshLabels();
+}
+// Hydrate persisted refresh times so "Updated …" survives reload on every page
+try{
+  const _rfM=JSON.parse(localStorage.getItem('sp_lastRefresh')||'{}');
+  Object.keys(_rfM).forEach(k=>{ _lastRefresh[k]=new Date(_rfM[k]); });
+}catch(e){}
+// Generic refresh: amber "working" state on the button, await the work, stamp time, restore.
+async function runRefresh(btn,key,fn){
+  if(btn){
+    btn.dataset.orig=btn.innerHTML;
+    btn.dataset.obg=btn.style.background; btn.dataset.ocol=btn.style.color; btn.dataset.obrd=btn.style.borderColor;
+    btn.disabled=true;
+    btn.style.background='#ffb020'; btn.style.color='#000'; btn.style.borderColor='#ffb020'; btn.style.fontWeight='700';
+    btn.innerHTML='⟳ Refreshing…';
+  }
+  try{ await fn(); }
+  catch(e){ console.warn('[runRefresh]',key,e); }
+  setRefreshed(key);
+  if(btn){
+    btn.disabled=false;
+    btn.style.background=btn.dataset.obg||''; btn.style.color=btn.dataset.ocol||''; btn.style.borderColor=btn.dataset.obrd||''; btn.style.fontWeight='';
+    btn.innerHTML=btn.dataset.orig||'↻ Refresh';
+  }
+}
 function fmtRefreshTime(d){
   if(!d)return'never';
   const diffSec=Math.round((new Date()-d)/1000);
@@ -7175,7 +7206,7 @@ function renderFlowPredictor(){
         <div style="display:flex;gap:4px;align-items:center;">
           <span data-market-status style="font-size:11px;color:#a0a8c0;margin-right:10px;"></span>
           <span style="font-size:10px;color:#8090a0;margin-right:6px;">Updated <span data-refresh-label="flow_predictor">never</span></span>
-          <button class="btn btn-sm" onclick="refreshFlowPredictor()" title="Reload from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:6px 10px;margin-right:4px;">↻ Refresh</button>
+          <button class="btn btn-sm" onclick="runRefresh(this,'flow_predictor',()=>refreshFlowPredictor())" title="Reload from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:6px 10px;margin-right:4px;">↻ Refresh</button>
           ${['D','W','M','Y'].map(tf=>`<button class="btn btn-sm" onclick="setPredTimeframe('${tf}')" style="${_predTimeframe===tf?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);">${tf}</button>`).join('')}
         </div>
       </div>
@@ -7607,43 +7638,6 @@ function refreshAll(which) {
   fetchLiveAll(true);
 }
 
-async function refreshMomentumNow(){
-  if(!localStorage.getItem('sp_fh')){ showToast('Momentum','No Finnhub API key — add one in Settings','error'); return; }
-  const btn=document.getElementById('mom-refresh-btn');
-  if(btn){
-    btn.dataset.orig=btn.innerHTML;
-    btn.disabled=true;
-    btn.style.background='#ffb020';
-    btn.style.color='#000';
-    btn.style.borderColor='#ffb020';
-    btn.style.fontWeight='700';
-    btn.innerHTML='⟳ Refreshing…';
-  }
-  try{ await fetchLiveAll(true); }
-  catch(e){ console.warn('[refreshMomentumNow]',e); }
-  localStorage.setItem('sp_mom_last_refresh', String(Date.now()));
-  updateMomLastRefresh();
-  if(btn){
-    btn.disabled=false;
-    btn.style.background='';
-    btn.style.color='';
-    btn.style.borderColor='';
-    btn.style.fontWeight='';
-    btn.innerHTML=btn.dataset.orig||'↻ Refresh';
-  }
-}
-
-function updateMomLastRefresh(){
-  const el=document.getElementById('mom-last-refresh');
-  if(!el) return;
-  const raw=localStorage.getItem('sp_mom_last_refresh');
-  if(!raw){ el.textContent='—'; return; }
-  const d=new Date(Number(raw));
-  const t=d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-  const dt=d.toLocaleDateString([], {month:'short', day:'numeric'});
-  el.textContent='Updated '+dt+' '+t;
-}
-
 function refreshMomentumPrices() {
   if (!localStorage.getItem('sp_fh')) { showToast('Momentum', 'No Finnhub API key — add one in Settings', 'error'); return; }
   fetchLiveAll(true);
@@ -7824,7 +7818,6 @@ function renderMomentum() {
     _momSection('JH', jhRows, '#ffb020', 999),
     _momSection('POSITIONS', closed, '#6080a0', 999),
   ].join('');
-  updateMomLastRefresh();
 }
 
 function _gzSentiment(n){
