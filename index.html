@@ -7693,6 +7693,33 @@ function _momColHdr() {
   </div>`;
 }
 
+function momMoveBucket(row){
+  const p = row.perf || histBaselines[row.symbol]?.perf;
+  if(!p) return null;
+  const m1 = p.m1 != null ? Number(p.m1) : null;
+  const m6 = p.m6 != null ? Number(p.m6) : null;
+  const y1 = p.y1 != null ? Number(p.y1) : null;
+  if(m1 == null && m6 == null) return null;
+  const _m1 = m1 ?? 0, _m6 = m6 ?? 0, _y1 = y1 ?? 0;
+  const BIG_VOL = Math.abs(_m6) >= 80 || Math.abs(_y1) >= 100;   // explosive mover
+  if(_m6 < 0 || _m1 <= -5) return 'red';                          // declining / breaking down
+  if(Math.abs(_m1) < 1.5 && Math.abs(_m6) < 8) return 'red';      // flat — won't move much
+  if(_m1 > 0 && BIG_VOL) return 'gold';                           // rising + explosive
+  return 'green';                                                 // steady uptrend
+}
+
+function momPotentialBadge(row){
+  const b = momMoveBucket(row);
+  if(!b) return '';
+  const map = {
+    gold:  { c:'#ffd000', t:'High potential — big moves, high reward + risk' },
+    green: { c:'#00e5b0', t:'Steady — uptrend, lower expected moves (safer)' },
+    red:   { c:'#ff3d5a', t:'Weak — declining or little expected movement' }
+  };
+  const s = map[b];
+  return `<span title="${s.t}" style="color:${s.c};font-size:12px;line-height:1;margin-right:2px;${b==='gold'?'text-shadow:0 0 5px rgba(255,208,0,0.75);':''}">★</span>`;
+}
+
 function _momRow(row) {
   const sym = row.symbol;
   const q   = getQ(sym);
@@ -7741,7 +7768,7 @@ function _momRow(row) {
       : (() => { const cls = Math.abs(entryPL) < 0.05 ? 'pct-zero' : entryPL > 0 ? 'pct-pos' : 'pct-neg'; return `<span class="pct-cell ${cls}">${entryPL >= 0 ? '+' : ''}${entryPL.toFixed(2)}%</span>`; })();
 
   return `<div class="mom-dense-row${alarm ? ' mom-row-alarm' : ''}">
-    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${row.status==='open'
+    <span class="wl-sym-cell" style="display:flex;align-items:center;gap:3px;flex-wrap:nowrap;">${momPotentialBadge(row)}${row.status==='open'
       ? `<span onclick="toggleMomentumLive('${safeId}',event)" class="mom-live-toggle${row.is_held?' on':''}${(row.is_held&&isMarketOpen())?' flashing':''}" title="${row.is_held?'LIVE — click to turn off':'Click to mark LIVE'}"></span>`
       : ''}${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}${row.replace_marker ? `<span title="${(row.notes||'No note').replace(/"/g,'&quot;')}" style="color:#ffb020;font-weight:700;font-size:11px;margin-left:3px;cursor:help;">${row.replace_marker}</span>` : ''}</span>
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
