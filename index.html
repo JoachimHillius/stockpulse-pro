@@ -891,7 +891,8 @@ select option{background:var(--bg2);}
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
-    <button class="btn btn-ghost btn-sm" onclick="refreshAll('momentum')" style="margin-left:auto;">↻ Refresh</button>
+    <span id="mom-last-refresh" style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">—</span>
+    <button id="mom-refresh-btn" class="btn btn-ghost btn-sm" onclick="refreshMomentumNow()">↻ Refresh</button>
     <button onclick="syncSwingBaselines()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Fetch 1W/1M/6M/1Y history for all positions (stored in DB)">↻ Sync Hist</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
     <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
@@ -7606,6 +7607,43 @@ function refreshAll(which) {
   fetchLiveAll(true);
 }
 
+async function refreshMomentumNow(){
+  if(!localStorage.getItem('sp_fh')){ showToast('Momentum','No Finnhub API key — add one in Settings','error'); return; }
+  const btn=document.getElementById('mom-refresh-btn');
+  if(btn){
+    btn.dataset.orig=btn.innerHTML;
+    btn.disabled=true;
+    btn.style.background='#ffb020';
+    btn.style.color='#000';
+    btn.style.borderColor='#ffb020';
+    btn.style.fontWeight='700';
+    btn.innerHTML='⟳ Refreshing…';
+  }
+  try{ await fetchLiveAll(true); }
+  catch(e){ console.warn('[refreshMomentumNow]',e); }
+  localStorage.setItem('sp_mom_last_refresh', String(Date.now()));
+  updateMomLastRefresh();
+  if(btn){
+    btn.disabled=false;
+    btn.style.background='';
+    btn.style.color='';
+    btn.style.borderColor='';
+    btn.style.fontWeight='';
+    btn.innerHTML=btn.dataset.orig||'↻ Refresh';
+  }
+}
+
+function updateMomLastRefresh(){
+  const el=document.getElementById('mom-last-refresh');
+  if(!el) return;
+  const raw=localStorage.getItem('sp_mom_last_refresh');
+  if(!raw){ el.textContent='—'; return; }
+  const d=new Date(Number(raw));
+  const t=d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const dt=d.toLocaleDateString([], {month:'short', day:'numeric'});
+  el.textContent='Updated '+dt+' '+t;
+}
+
 function refreshMomentumPrices() {
   if (!localStorage.getItem('sp_fh')) { showToast('Momentum', 'No Finnhub API key — add one in Settings', 'error'); return; }
   fetchLiveAll(true);
@@ -7786,6 +7824,7 @@ function renderMomentum() {
     _momSection('JH', jhRows, '#ffb020', 999),
     _momSection('POSITIONS', closed, '#6080a0', 999),
   ].join('');
+  updateMomLastRefresh();
 }
 
 function _gzSentiment(n){
