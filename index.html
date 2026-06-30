@@ -433,6 +433,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
+    <button class="nav-btn" onclick="goPage('scanners',this)">Scanners</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
   </nav>
@@ -910,6 +911,26 @@ select option{background:var(--bg2);}
   </div>
   <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
     <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading...</div>
+  </div>
+</div>
+
+<!-- ============ PAGE: SCANNERS ============ -->
+<div id="page-scanners" class="page">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+    <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">SCANNERS</span>
+    <span id="sc-status" style="font-size:10px;color:#6080a0;"></span>
+    <!-- segmented sub-view control -->
+    <div style="display:flex;border:1px solid var(--border2);border-radius:5px;overflow:hidden;margin-left:10px;">
+      <button id="sc-tab-xgpt" onclick="setScannerView('xgpt_iris')"
+        style="padding:5px 14px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:#00d4ff22;color:#00d4ff;font-weight:700;">XGPT / Iris</button>
+      <button id="sc-tab-mom" onclick="setScannerView('momentum')"
+        style="padding:5px 14px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:transparent;color:#8090a0;">Momentum</button>
+    </div>
+    <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="scanners">never</span></span>
+    <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'scanners',()=>loadScannerData())">↻ Refresh</button>
+  </div>
+  <div id="sc-body" style="overflow-x:auto;">
+    <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading…</div>
   </div>
 </div>
 
@@ -1475,7 +1496,7 @@ function getMarketStatus(){
 function isInTradingWindow(){
   return getMarketStatus().state!=='closed';
 }
-const _lastRefresh={carousel:null,options_flow:null,flow_predictor:null,watchlist:null,momentum:null};
+const _lastRefresh={carousel:null,options_flow:null,flow_predictor:null,watchlist:null,momentum:null,scanners:null};
 function setRefreshed(key){
   _lastRefresh[key]=new Date();
   try{
@@ -4417,6 +4438,9 @@ function goPage(name,btn){
   }
   if(name==='momentum'){
     setTimeout(initMomentum,50);
+  }
+  if(name==='scanners'){
+    setTimeout(initScanners,50);
   }
   if(name==='settings'){
     setTimeout(refreshPriceHistoryStatus,50);
@@ -8234,6 +8258,270 @@ async function handleMomentumCsvFiles(files) {
 }
 
 // ============= END STEP 70 =============
+
+// ============================================================
+// SCANNERS TAB
+// ============================================================
+let _scannerData  = [];        // all rows from scanner_watchlist
+let _scannerView  = 'xgpt_iris'; // active sub-view list_name
+
+// ── CSS grid for the scanner table (17 columns) ──────────────
+// SYM 108 | NAME 118 | SECT 80 | PRICE 70 | QTY 50 | NET$ 68 |
+// 1H 46 | 1D 46 | 1W 50 | 1M 50 | 6M 50 | 1Y 50 |
+// IRIS 36 | XGPT 36 | GZ 36 | SEEN 44 | FIRST SEEN 80 | ACTIONS 60
+const SC_GRID = '108px 118px 80px 70px 50px 68px 46px 46px 50px 50px 50px 50px 36px 36px 36px 44px 80px 60px';
+
+async function loadScannerData() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  const PAGE = 1000;
+  let from = 0, rows = [];
+  while (true) {
+    const { data, error } = await supa
+      .from('scanner_watchlist')
+      .select('*')
+      .range(from, from + PAGE - 1);
+    if (error) { console.warn('[Scanners] load error', error.message); break; }
+    if (!data || !data.length) break;
+    rows = rows.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+    if (from > 100000) break;
+  }
+  _scannerData = rows;
+  const el = document.getElementById('sc-status');
+  if (el) el.textContent = `${rows.length} rows loaded`;
+}
+
+function setScannerView(view) {
+  _scannerView = view;
+  const xBtn = document.getElementById('sc-tab-xgpt');
+  const mBtn = document.getElementById('sc-tab-mom');
+  if (xBtn) {
+    const on = view === 'xgpt_iris';
+    xBtn.style.background = on ? '#00d4ff22' : 'transparent';
+    xBtn.style.color      = on ? '#00d4ff'   : '#8090a0';
+    xBtn.style.fontWeight = on ? '700' : '';
+  }
+  if (mBtn) {
+    const on = view === 'momentum';
+    mBtn.style.background = on ? '#ffb02022' : 'transparent';
+    mBtn.style.color      = on ? '#ffb020'   : '#8090a0';
+    mBtn.style.fontWeight = on ? '700' : '';
+  }
+  renderScanners();
+}
+
+function _scColHdr() {
+  const th = (label, align) =>
+    `<span style="text-align:${align||'right'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--text);">${label}</span>`;
+  return `<div style="display:grid;grid-template-columns:${SC_GRID};gap:2px;padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--border2);">
+    ${th('SYMBOL','left')}
+    ${th('SECURITY','left')}
+    ${th('SECTOR','left')}
+    ${th('PRICE')}
+    ${th('QTY')}
+    ${th('NET$')}
+    ${th('1H')}
+    ${th('1D')}
+    ${th('1W')}
+    ${th('1M')}
+    ${th('6M')}
+    ${th('1Y')}
+    ${th('IRIS','center')}
+    ${th('XGPT','center')}
+    ${th('GZ','center')}
+    ${th('SEEN')}
+    ${th('FIRST SEEN','left')}
+    <span></span>
+  </div>`;
+}
+
+function _scPctCell(val) {
+  if (val == null || val === '') return `<span style="text-align:right;color:#505060;font-size:10px;">—</span>`;
+  const n = Number(val);
+  const col = n >= 0 ? '#00e5b0' : '#ff3d5a';
+  return `<span style="text-align:right;font-size:10px;font-weight:600;color:${col};">${n >= 0 ? '+' : ''}${n.toFixed(1)}%</span>`;
+}
+
+function _scRow(row) {
+  const sym     = row.symbol || '';
+  const safeId  = String(row.id).replace(/'/g, "\\'");
+  const q       = getQ(sym);
+  const perf    = row.perf || histBaselines[sym]?.perf;
+  const price   = q.p ?? row.current_price ?? null;
+
+  // Seen tooltip breakdown
+  const seenTip = `XGPT ${row.xgpt_count??0} / Iris ${row.iris_count??0} / Mom ${row.momentum_count??0}`;
+
+  // NEW badge + clear action
+  const newBadge = row.is_new
+    ? `<span style="font-size:8px;font-weight:700;background:#ff3d5a;color:#fff;border-radius:3px;padding:1px 4px;margin-right:3px;">NEW</span>`
+    : '';
+  const clearNew = row.is_new
+    ? `<button onclick="scClearNew('${safeId}')" title="Clear new flag" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:10px;padding:1px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">✕</button>`
+    : '';
+
+  // Review highlight + toggle (momentum sub-view)
+  const reviewStyle = (row.needs_review && _scannerView === 'momentum')
+    ? 'background:rgba(255,176,32,0.08);border-left:2px solid #ffb020 !important;'
+    : '';
+  const reviewBtn = (row.needs_review && _scannerView === 'momentum')
+    ? `<button onclick="scClearReview('${safeId}')" title="Mark reviewed" style="background:none;border:1px solid #ffb020;border-radius:3px;cursor:pointer;color:#ffb020;font-size:9px;padding:1px 4px;" onmouseenter="this.style.background='#ffb02022'" onmouseleave="this.style.background='none'">Review</button>`
+    : '';
+
+  // net_value: prefer DB value; fallback price * qty
+  const netVal = row.net_value ?? (price != null && row.qty ? price * row.qty : null);
+
+  return `<div style="display:grid;grid-template-columns:${SC_GRID};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;${reviewStyle}"
+    onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background='${row.needs_review && _scannerView==='momentum' ? 'rgba(255,176,32,0.08)' : ''}'">
+    <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">
+      ${newBadge}<span>${sym}</span>
+    </span>
+    <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
+    <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
+    <span style="text-align:right;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">${fmtPrice(sym, price)}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;">${row.qty != null ? row.qty : '—'}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;">${netVal != null ? '$' + Number(netVal).toLocaleString(undefined,{maximumFractionDigits:0}) : '—'}</span>
+    ${_scPctCell(perf?.h1)}
+    ${_scPctCell(perf?.d1 ?? q.dp)}
+    ${_scPctCell(perf?.w1)}
+    ${_scPctCell(perf?.m1)}
+    ${_scPctCell(perf?.m6)}
+    ${_scPctCell(perf?.y1)}
+    <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;" title="${seenTip}">${row.total_count??'—'}</span>
+    <span style="font-size:10px;color:#c4cedb;">${row.first_seen_date||'—'}</span>
+    <span style="text-align:right;white-space:nowrap;">
+      ${clearNew}${reviewBtn}
+      <button onclick="showScannerForm(_scannerData.find(r=>String(r.id)==='${safeId}'))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+    </span>
+  </div>`;
+}
+
+function renderScanners() {
+  const body = document.getElementById('sc-body');
+  if (!body) return;
+  const rows = [..._scannerData]
+    .filter(r => r.list_name === _scannerView)
+    .sort((a, b) => {
+      const tc = (b.total_count ?? 0) - (a.total_count ?? 0);
+      if (tc !== 0) return tc;
+      return (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
+    });
+  if (!rows.length) {
+    body.innerHTML = `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows for this view</div>`;
+    return;
+  }
+  body.innerHTML = `<div style="min-width:1100px;">${_scColHdr()}${rows.map(_scRow).join('')}</div>`;
+}
+
+async function initScanners() {
+  renderScanners(); // show loading state
+  await loadScannerData();
+  renderScanners();
+  // Pull live prices for scanner symbols
+  if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
+}
+
+// ── Per-row actions ──────────────────────────────────────────
+
+async function scClearNew(id) {
+  const row = _scannerData.find(r => String(r.id) === String(id));
+  if (!row) return;
+  row.is_new = false;
+  renderScanners();
+  const supa = await getSupabaseAsync(); if (!supa) return;
+  try { await supa.from('scanner_watchlist').update({ is_new: false }).eq('id', id); } catch(e) {}
+}
+
+async function scClearReview(id) {
+  const row = _scannerData.find(r => String(r.id) === String(id));
+  if (!row) return;
+  row.needs_review = false;
+  renderScanners();
+  const supa = await getSupabaseAsync(); if (!supa) return;
+  try { await supa.from('scanner_watchlist').update({ needs_review: false }).eq('id', id); } catch(e) {}
+}
+
+// ── Edit / Move modal ────────────────────────────────────────
+
+function showScannerForm(row) {
+  if (!row) return;
+  let modal = document.getElementById('scanner-form-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'scanner-form-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(8,30,45,0.55);padding:20px;';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.body.appendChild(modal);
+  }
+  const v = k => row[k] ?? '';
+  const fld = (label, id, type, extra, val) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
+      <input id="sc-${id}" type="${type}" ${extra} value="${val ?? ''}"
+        style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
+    </div>`;
+  const selFld = (label, id, opts, current) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
+      <select id="sc-${id}" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
+        ${opts.map(([val, label]) => `<option value="${val}" ${current === val ? 'selected' : ''}>${label}</option>`).join('')}
+      </select>
+    </div>`;
+  const safeId = String(row.id).replace(/'/g, "\\'");
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:22px 24px;width:100%;max-width:460px;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+      <div style="font-size:12px;font-weight:700;color:#c0c8d0;margin-bottom:16px;letter-spacing:0.8px;">✎ EDIT — ${row.symbol}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+        ${selFld('MOVE TO LIST', 'list-name', [['xgpt_iris','XGPT / Iris'],['momentum','Momentum']], v('list_name'))}
+        ${fld('QTY (SHARES)', 'qty', 'number', 'step="any"', v('qty'))}
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
+        <textarea id="sc-notes" rows="2"
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;resize:none;font-family:var(--font);">${v('notes')}</textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="saveScannerRow('${safeId}')"
+          style="flex:1;padding:8px;background:#00d4ff22;border:1px solid #00d4ff;border-radius:5px;color:#00d4ff;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">SAVE</button>
+        <button onclick="document.getElementById('scanner-form-modal').style.display='none'"
+          style="padding:8px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:#8090a0;font-size:12px;cursor:pointer;font-family:var(--font);">Cancel</button>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
+}
+
+async function saveScannerRow(id) {
+  const g = suffix => { const el = document.getElementById('sc-' + suffix); return el ? el.value.trim() : ''; };
+  const newListName = g('list-name');
+  const newQty      = g('qty') === '' ? null : Number(g('qty'));
+  const newNotes    = g('notes') || null;
+
+  const row = _scannerData.find(r => String(r.id) === String(id));
+  if (!row) return;
+
+  // Optimistic update
+  row.list_name = newListName;
+  row.qty       = newQty;
+  row.notes     = newNotes;
+  // Recalculate net_value if we have a price
+  const q = getQ(row.symbol);
+  if (q.p != null && newQty != null) row.net_value = q.p * newQty;
+
+  document.getElementById('scanner-form-modal').style.display = 'none';
+  renderScanners();
+  showToast(row.symbol, 'Saved', 'info');
+
+  const supa = await getSupabaseAsync(); if (!supa) return;
+  const updates = { list_name: newListName, qty: newQty, notes: newNotes };
+  if (row.net_value != null) updates.net_value = row.net_value;
+  const { error } = await supa.from('scanner_watchlist').update(updates).eq('id', id);
+  if (error) showToast(row.symbol, 'Save failed: ' + error.message, 'error');
+}
 </script>
 
 <!-- Hover popup for Gainers/Losers -->
