@@ -436,7 +436,6 @@ select option{background:var(--bg2);}
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
-    <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom:2px solid transparent;">⊞ Map</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -895,6 +894,7 @@ select option{background:var(--bg2);}
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">MOMENTUM WATCHLIST</span>
     <span id="mom-op-status" style="font-size:10px;color:#6080a0;"></span>
     <button id="mom-nuggets-btn" onclick="toggleMomNuggets()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Show only gold-star, high-conviction names (Gold star + GreenZone ≥ 60)">★ Nuggets</button>
+    <button onclick="showMarketMap()" style="padding:5px 12px;background:transparent;border:1px solid rgba(0,212,255,0.4);border-radius:4px;font-family:var(--font);font-size:11px;color:#00d4ff;cursor:pointer;" title="Market Map — sector ETF heat map">⊞ Market Map</button>
     <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="momentum">never</span></span>
     <button id="mom-refresh-btn" class="btn btn-ghost btn-sm" onclick="runRefresh(this,'momentum',()=>fetchLiveAll(true))">↻ Refresh</button>
     <span id="mom-sync-hist-ts" style="font-size:10px;color:#6a7a8a;white-space:nowrap;">Hist <span data-refresh-label="momentum_hist">never</span></span>
