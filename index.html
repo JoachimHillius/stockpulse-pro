@@ -910,39 +910,6 @@ select option{background:var(--bg2);}
     <span><span style="color:#ff3d5a;">★</span><span style="color:#00e5b0;">★</span> Strong name pulling back · potential dip</span>
     <span><span style="color:#ff3d5a;">★</span> Genuinely weak · declining or flat</span>
   </div>
-  <!-- ── Momentum filter / sort control bar ───────────────── -->
-  <div id="mom-filter-bar" style="display:flex;align-items:center;gap:7px;margin-bottom:12px;flex-wrap:wrap;padding:7px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
-    <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.8px;">SORT</span>
-    <select id="mom-sort-sel" onchange="setMomSort(this.value)"
-      style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:var(--font);cursor:pointer;">
-      <option value="default">Default</option>
-      <option value="sym_az">Symbol A→Z</option>
-      <option value="sym_za">Symbol Z→A</option>
-      <option value="gz_hi">GZ High→Low</option>
-      <option value="gz_lo">GZ Low→High</option>
-      <option value="daypl_hi">Day P/L High→Low</option>
-      <option value="d1_hi">1D% High→Low</option>
-    </select>
-    <span style="border-left:1px solid var(--border2);height:14px;display:inline-block;"></span>
-    <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.8px;">POTENTIAL</span>
-    <button id="mom-pot-all"   onclick="clearMomPotential()"           style="padding:2px 8px;background:rgba(0,212,255,0.15);border:1px solid #00d4ff55;border-radius:4px;color:#00d4ff;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">All</button>
-    <button id="mom-pot-gold"  onclick="toggleMomPotential('gold')"    style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#ffd000;">★</span> High vol</button>
-    <button id="mom-pot-dip"   onclick="toggleMomPotential('dip')"     style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#ff3d5a;">★</span><span style="color:#00e5b0;">★</span> Pullback</button>
-    <button id="mom-pot-green" onclick="toggleMomPotential('green')"   style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#00e5b0;">★</span> Uptrend</button>
-    <button id="mom-pot-red"   onclick="toggleMomPotential('red')"     style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#ff3d5a;">★</span> Weak</button>
-    <span style="border-left:1px solid var(--border2);height:14px;display:inline-block;"></span>
-    <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.8px;">SECTOR</span>
-    <select id="mom-sector-sel" onchange="setMomSector(this.value)"
-      style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:var(--font);cursor:pointer;">
-      <option value="all">All Sectors</option>
-    </select>
-    <span style="border-left:1px solid var(--border2);height:14px;display:inline-block;"></span>
-    <input id="mom-search-input" type="text" placeholder="Search symbol / name…" oninput="setMomSearch()"
-      style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 8px;font-size:10px;font-family:var(--font);width:160px;outline:none;">
-    <button onclick="clearMomFilters()" title="Clear all filters"
-      style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#6080a0;font-size:10px;cursor:pointer;font-family:var(--font);">✕ Clear</button>
-  </div>
-
   <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
     <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading...</div>
   </div>
@@ -7957,132 +7924,58 @@ function _momRow(row) {
   </div>`;
 }
 
-function _momSection(title, rows, borderColor, maxRows) {
-  const shown    = rows.slice(0, maxRows);
-  const overflow = rows.length > maxRows ? rows.length - maxRows : 0;
-  const overflowNote = overflow > 0
-    ? `<div style="font-size:10px;color:#6080a0;padding:5px 10px;text-align:right;">+ ${overflow} more — showing top ${maxRows} by GreenZone rating</div>`
-    : '';
-  const emptyRow = shown.length === 0
-    ? `<div style="padding:14px;text-align:center;color:#505060;font-size:11px;">No positions</div>`
-    : '';
-  return `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden;">
-    <div style="padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);">
-      <span style="font-size:11px;font-weight:700;color:${borderColor};letter-spacing:1px;">${title}</span>
-      <span style="font-size:10px;color:#6080a0;">${rows.length} position${rows.length !== 1 ? 's' : ''}</span>
-    </div>
-    <div style="overflow-x:auto;">
-      <div style="min-width:1340px;">
-        ${_momColHdr()}
-        ${shown.map(_momRow).join('') || emptyRow}
-      </div>
-    </div>
-    ${overflowNote}
-  </div>`;
-}
+// ── Per-block sort/filter state ──────────────────────────────────────
+function _mkCtl() { return { sort: 'default', potential: new Set(), sector: 'all', search: '' }; }
+const _momCtl = {
+  all_market:  _mkCtl(),
+  tech_titans: _mkCtl(),
+  jh:          _mkCtl(),
+  positions:   _mkCtl(),
+};
 
-let _momNuggetsOnly = false;
-const MOM_NUGGET_GZ_MIN = 60;   // GreenZone threshold for a "nugget"
-function toggleMomNuggets(){
-  _momNuggetsOnly = !_momNuggetsOnly;
-  const b = document.getElementById('mom-nuggets-btn');
-  if(b){
-    b.style.background  = _momNuggetsOnly ? '#ffd000' : 'transparent';
-    b.style.color       = _momNuggetsOnly ? '#000' : '#8090a0';
-    b.style.borderColor = _momNuggetsOnly ? '#ffd000' : 'var(--border2)';
-    b.style.fontWeight  = _momNuggetsOnly ? '700' : '';
-  }
-  renderMomentum();
-}
+const _MOM_BLOCK_DEFS = [
+  { id: 'all_market',  title: 'ALL MARKETS — OPEN', color: '#00e5b0',
+    baseRows: () => [..._swingData.filter(r => r.category === 'all_market' && r.status === 'open')]
+      .sort((a, b) => (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1)),
+    maxRows: () => _momNuggetsOnly ? 999 : 10 },
+  { id: 'tech_titans', title: 'TECH TITANS — OPEN', color: '#00d4ff',
+    baseRows: () => [..._swingData.filter(r => r.category === 'tech_titans' && r.status === 'open')]
+      .sort((a, b) => (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1)),
+    maxRows: () => _momNuggetsOnly ? 999 : 10 },
+  { id: 'jh',         title: 'JH',        color: '#ffb020',
+    baseRows: () => [..._swingData.filter(r => r.category === 'jh')]
+      .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || '')),
+    maxRows: () => 999 },
+  { id: 'positions',  title: 'POSITIONS', color: '#6080a0',
+    baseRows: () => [..._swingData.filter(r => r.status === 'closed')]
+      .sort((a, b) => (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1)),
+    maxRows: () => 999 },
+];
 
-// ── Sort + filter state ───────────────────────────────────────
-let _momSort             = 'default';
-let _momFilterPotential  = new Set();   // empty = show all; values: 'gold'|'dip'|'green'|'red'
-let _momFilterSector     = 'all';
-let _momSearch           = '';
-
-function setMomSort(val) { _momSort = val; renderMomentum(); }
-function setMomSector(val) { _momFilterSector = val; renderMomentum(); }
-function setMomSearch() {
-  const el = document.getElementById('mom-search-input');
-  _momSearch = el ? el.value.trim().toLowerCase() : '';
-  renderMomentum();
-}
-
-function toggleMomPotential(bucket) {
-  if (_momFilterPotential.has(bucket)) _momFilterPotential.delete(bucket);
-  else _momFilterPotential.add(bucket);
-  _updateMomPotBtns();
-  renderMomentum();
-}
-function clearMomPotential() {
-  _momFilterPotential.clear();
-  _updateMomPotBtns();
-  renderMomentum();
-}
-function clearMomFilters() {
-  _momSort = 'default';
-  _momFilterPotential.clear();
-  _momFilterSector = 'all';
-  _momSearch = '';
-  const sortSel   = document.getElementById('mom-sort-sel');     if (sortSel)   sortSel.value = 'default';
-  const secSel    = document.getElementById('mom-sector-sel');   if (secSel)    secSel.value  = 'all';
-  const searchEl  = document.getElementById('mom-search-input'); if (searchEl)  searchEl.value = '';
-  _updateMomPotBtns();
-  renderMomentum();
-}
-
-function _updateMomPotBtns() {
-  const anyActive = _momFilterPotential.size > 0;
-  const allBtn = document.getElementById('mom-pot-all');
-  if (allBtn) {
-    allBtn.style.background  = !anyActive ? 'rgba(0,212,255,0.15)' : 'transparent';
-    allBtn.style.color       = !anyActive ? '#00d4ff'              : '#8090a0';
-    allBtn.style.borderColor = !anyActive ? '#00d4ff55'            : 'var(--border2)';
-    allBtn.style.fontWeight  = !anyActive ? '700'                  : '';
-  }
-  const cfg = {
-    gold:  { id: 'mom-pot-gold',  ac: '#ffd000' },
-    dip:   { id: 'mom-pot-dip',   ac: '#ff3d5a' },
-    green: { id: 'mom-pot-green', ac: '#00e5b0' },
-    red:   { id: 'mom-pot-red',   ac: '#ff3d5a' },
-  };
-  Object.entries(cfg).forEach(([bucket, { id, ac }]) => {
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    const on = _momFilterPotential.has(bucket);
-    btn.style.background  = on ? ac + '22' : 'transparent';
-    btn.style.color       = on ? ac        : '#8090a0';
-    btn.style.borderColor = on ? ac        : 'var(--border2)';
-    btn.style.fontWeight  = on ? '700'     : '';
-  });
-}
-
-function _applyMomFiltersSort(arr) {
+function _applyBlkFiltersSort(bid, arr) {
+  const ctl = _momCtl[bid];
+  if (!ctl) return arr;
   let out = arr;
-  // Text search
-  if (_momSearch) {
+  if (ctl.search) {
+    const q = ctl.search.toLowerCase();
     out = out.filter(r =>
-      (r.symbol   || '').toLowerCase().includes(_momSearch) ||
-      (r.security || '').toLowerCase().includes(_momSearch)
+      (r.symbol   || '').toLowerCase().includes(q) ||
+      (r.security || '').toLowerCase().includes(q)
     );
   }
-  // Sector
-  if (_momFilterSector !== 'all') {
-    out = out.filter(r => (r.sector || '') === _momFilterSector);
+  if (ctl.sector !== 'all') {
+    out = out.filter(r => (r.sector || '') === ctl.sector);
   }
-  // Potential star category (multi-select)
-  if (_momFilterPotential.size > 0) {
-    out = out.filter(r => _momFilterPotential.has(momMoveBucket(r)));
+  if (ctl.potential.size > 0) {
+    out = out.filter(r => ctl.potential.has(momMoveBucket(r)));
   }
-  // Sort (applied AFTER default GZ pre-sort so we override it cleanly)
-  if (_momSort !== 'default') {
+  if (ctl.sort !== 'default') {
     out = [...out].sort((a, b) => {
-      if (_momSort === 'sym_az') return (a.symbol||'').localeCompare(b.symbol||'');
-      if (_momSort === 'sym_za') return (b.symbol||'').localeCompare(a.symbol||'');
-      if (_momSort === 'gz_hi')  return (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1);
-      if (_momSort === 'gz_lo')  return (a.rating_greenzone ?? -1) - (b.rating_greenzone ?? -1);
-      if (_momSort === 'daypl_hi' || _momSort === 'd1_hi') {
+      if (ctl.sort === 'sym_az') return (a.symbol || '').localeCompare(b.symbol || '');
+      if (ctl.sort === 'sym_za') return (b.symbol || '').localeCompare(a.symbol || '');
+      if (ctl.sort === 'gz_hi')  return (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1);
+      if (ctl.sort === 'gz_lo')  return (a.rating_greenzone ?? -1) - (b.rating_greenzone ?? -1);
+      if (ctl.sort === 'daypl_hi' || ctl.sort === 'd1_hi') {
         const getD1 = r => {
           const perf = r.perf || histBaselines[r.symbol]?.perf;
           return perf?.d1 ?? getQ(r.symbol).dp ?? null;
@@ -8095,39 +7988,140 @@ function _applyMomFiltersSort(arr) {
   return out;
 }
 
+function _momBlkSetSort(bid, val) {
+  if (_momCtl[bid]) _momCtl[bid].sort = val;
+  _rerenderMomBlock(bid);
+}
+function _momBlkSetSector(bid, val) {
+  if (_momCtl[bid]) _momCtl[bid].sector = val;
+  _rerenderMomBlock(bid);
+}
+function _momBlkSetSearch(bid) {
+  const el = document.getElementById('mom-blk-' + bid + '-search');
+  if (_momCtl[bid]) _momCtl[bid].search = el ? el.value.trim().toLowerCase() : '';
+  _rerenderMomBlock(bid);
+  setTimeout(() => {
+    const newEl = document.getElementById('mom-blk-' + bid + '-search');
+    if (newEl) { const v = newEl.value; newEl.focus(); newEl.setSelectionRange(v.length, v.length); }
+  }, 0);
+}
+function _momBlkTogglePotential(bid, bucket) {
+  const ctl = _momCtl[bid];
+  if (!ctl) return;
+  if (ctl.potential.has(bucket)) ctl.potential.delete(bucket);
+  else ctl.potential.add(bucket);
+  _rerenderMomBlock(bid);
+}
+function _momBlkClearAll(bid) {
+  if (_momCtl[bid]) {
+    _momCtl[bid].sort      = 'default';
+    _momCtl[bid].potential = new Set();
+    _momCtl[bid].sector    = 'all';
+    _momCtl[bid].search    = '';
+  }
+  _rerenderMomBlock(bid);
+}
+
+function _rerenderMomBlock(blockId) {
+  const el = document.getElementById('mom-blk-' + blockId);
+  if (!el) { renderMomentum(); return; }
+  const def = _MOM_BLOCK_DEFS.find(d => d.id === blockId);
+  if (!def) return;
+  const _nugget = r => momMoveBucket(r) === 'gold' &&
+    ((r.rating_greenzone_current ?? r.rating_greenzone ?? 0) >= MOM_NUGGET_GZ_MIN);
+  const baseRows = _momNuggetsOnly ? def.baseRows().filter(_nugget) : def.baseRows();
+  el.outerHTML = _momSection(def.title, baseRows, def.color, def.maxRows(), def.id);
+}
+
+function _momSection(title, baseRows, borderColor, maxRows, blockId) {
+  const ctl   = _momCtl[blockId] || _mkCtl();
+  const rows  = _applyBlkFiltersSort(blockId, baseRows);
+  const shown = rows.slice(0, maxRows);
+  const overflow = rows.length > maxRows ? rows.length - maxRows : 0;
+
+  const hasFilter = ctl.search || ctl.sector !== 'all' || ctl.potential.size > 0 || ctl.sort !== 'default';
+  const countLabel = hasFilter
+    ? `${rows.length} of ${baseRows.length} position${baseRows.length !== 1 ? 's' : ''}`
+    : `${baseRows.length} position${baseRows.length !== 1 ? 's' : ''}`;
+
+  const overflowNote = overflow > 0
+    ? `<div style="font-size:10px;color:#6080a0;padding:5px 10px;text-align:right;">+ ${overflow} more — showing top ${maxRows} by GreenZone rating</div>`
+    : '';
+  const emptyRow = shown.length === 0
+    ? `<div style="padding:14px;text-align:center;color:#505060;font-size:11px;">No positions</div>`
+    : '';
+
+  const sectors = [...new Set(baseRows.map(r => r.sector).filter(Boolean))].sort();
+  const sectorOpts = `<option value="all">All</option>` +
+    sectors.map(s => `<option value="${s}" ${s === ctl.sector ? 'selected' : ''}>${s}</option>`).join('');
+
+  const potCfg = [
+    { key: 'gold',  label: '★ High vol', ac: '#ffd000' },
+    { key: 'dip',   label: '★ Pullback',  ac: '#ff3d5a' },
+    { key: 'green', label: '★ Uptrend',   ac: '#00e5b0' },
+    { key: 'red',   label: '★ Weak',      ac: '#ff8040' },
+  ];
+  const potBtns = potCfg.map(({ key, label, ac }) => {
+    const on = ctl.potential.has(key);
+    return `<button onclick="_momBlkTogglePotential('${blockId}','${key}')" style="padding:2px 6px;background:${on ? ac + '22' : 'transparent'};border:1px solid ${on ? ac : 'var(--border2)'};border-radius:4px;color:${on ? ac : '#8090a0'};font-size:9px;font-weight:${on ? '700' : '400'};cursor:pointer;font-family:var(--font);">${label}</button>`;
+  }).join('');
+
+  const ctlRow = `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.12);">
+      <select onchange="_momBlkSetSort('${blockId}',this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 5px;font-size:9px;font-family:var(--font);cursor:pointer;">
+        <option value="default" ${ctl.sort==='default'?'selected':''}>Sort: Default</option>
+        <option value="sym_az"  ${ctl.sort==='sym_az'?'selected':''}>A→Z</option>
+        <option value="sym_za"  ${ctl.sort==='sym_za'?'selected':''}>Z→A</option>
+        <option value="gz_hi"   ${ctl.sort==='gz_hi'?'selected':''}>GZ High→Low</option>
+        <option value="gz_lo"   ${ctl.sort==='gz_lo'?'selected':''}>GZ Low→High</option>
+        <option value="d1_hi"   ${ctl.sort==='d1_hi'?'selected':''}>1D% High→Low</option>
+      </select>
+      <span style="border-left:1px solid var(--border2);height:12px;display:inline-block;"></span>
+      ${potBtns}
+      <span style="border-left:1px solid var(--border2);height:12px;display:inline-block;"></span>
+      <select onchange="_momBlkSetSector('${blockId}',this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 5px;font-size:9px;font-family:var(--font);cursor:pointer;max-width:110px;">${sectorOpts}</select>
+      <input id="mom-blk-${blockId}-search" type="text" value="${ctl.search.replace(/"/g,'&quot;')}" placeholder="Search…" oninput="_momBlkSetSearch('${blockId}')" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 7px;font-size:9px;font-family:var(--font);width:120px;outline:none;">
+      ${hasFilter ? `<button onclick="_momBlkClearAll('${blockId}')" style="padding:2px 6px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#6080a0;font-size:9px;cursor:pointer;font-family:var(--font);">✕ Clear</button>` : ''}
+    </div>`;
+
+  return `<div id="mom-blk-${blockId}" style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden;">
+    <div style="padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);">
+      <span style="font-size:11px;font-weight:700;color:${borderColor};letter-spacing:1px;">${title}</span>
+      <span style="font-size:10px;color:#6080a0;">${countLabel}</span>
+    </div>
+    ${ctlRow}
+    <div style="overflow-x:auto;">
+      <div style="min-width:1340px;">
+        ${_momColHdr()}
+        ${shown.map(_momRow).join('') || emptyRow}
+      </div>
+    </div>
+    ${overflowNote}
+  </div>`;
+}
+
+let _momNuggetsOnly = false;
+const MOM_NUGGET_GZ_MIN = 60;
+function toggleMomNuggets(){
+  _momNuggetsOnly = !_momNuggetsOnly;
+  const b = document.getElementById('mom-nuggets-btn');
+  if(b){
+    b.style.background  = _momNuggetsOnly ? '#ffd000' : 'transparent';
+    b.style.color       = _momNuggetsOnly ? '#000' : '#8090a0';
+    b.style.borderColor = _momNuggetsOnly ? '#ffd000' : 'var(--border2)';
+    b.style.fontWeight  = _momNuggetsOnly ? '700' : '';
+  }
+  renderMomentum();
+}
+
 function renderMomentum() {
   const body = document.getElementById('mom-body');
   if (!body) return;
-  // Always render all three sections — _momSection handles the empty-rows state internally.
-  // Do NOT early-return on empty _swingData; the framed containers must always be visible.
-  const sortByGZ = arr => [...arr].sort((a, b) => {
-    const ga = a.rating_greenzone ?? -1, gb = b.rating_greenzone ?? -1;
-    return gb - ga;
-  });
-
-  // Rebuild sector dropdown (preserve selected value)
-  const secSel = document.getElementById('mom-sector-sel');
-  if (secSel) {
-    const sectors = [...new Set((_swingData||[]).map(r => r.sector).filter(Boolean))].sort();
-    secSel.innerHTML = `<option value="all">All Sectors</option>` +
-      sectors.map(s => `<option value="${s}" ${s === _momFilterSector ? 'selected' : ''}>${s}</option>`).join('');
-  }
-
-  const allOpen = sortByGZ(_swingData.filter(r => r.category === 'all_market' && r.status === 'open'));
-  const ttOpen  = sortByGZ(_swingData.filter(r => r.category === 'tech_titans' && r.status === 'open'));
-  const jhRows  = [..._swingData.filter(r => r.category === 'jh')].sort((a, b) => (a.symbol||'').localeCompare(b.symbol||''));
-  const closed  = sortByGZ(_swingData.filter(r => r.status === 'closed'));
-
   const _nugget = r => momMoveBucket(r) === 'gold' &&
     ((r.rating_greenzone_current ?? r.rating_greenzone ?? 0) >= MOM_NUGGET_GZ_MIN);
-  const _nf = arr => _applyMomFiltersSort(_momNuggetsOnly ? arr.filter(_nugget) : arr);
-
-  body.innerHTML = [
-    _momSection('ALL MARKETS — OPEN', _nf(allOpen), '#00e5b0', _momNuggetsOnly ? 999 : 10),
-    _momSection('TECH TITANS — OPEN', _nf(ttOpen), '#00d4ff', _momNuggetsOnly ? 999 : 10),
-    _momSection('JH', _nf(jhRows), '#ffb020', 999),
-    _momSection('POSITIONS', _nf(closed), '#6080a0', 999),
-  ].join('');
+  const nf = rows => _momNuggetsOnly ? rows.filter(_nugget) : rows;
+  body.innerHTML = _MOM_BLOCK_DEFS.map(def =>
+    _momSection(def.title, nf(def.baseRows()), def.color, def.maxRows(), def.id)
+  ).join('');
 }
 
 function _gzSentiment(n){
