@@ -436,6 +436,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
+    <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -609,6 +610,7 @@ select option{background:var(--bg2);}
     </div>
     <span style="margin-left:auto;font-size:10px;color:#8090a0;">Updated <span data-refresh-label="watchlist">never</span></span>
     <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',()=>fetchLiveAll(true))">↻ Refresh</button>
+    <button class="btn btn-sm" onclick="showMarketMap()" style="padding:5px 12px;background:transparent;border:1px solid rgba(0,212,255,0.4);border-radius:4px;font-family:var(--font);font-size:11px;color:#00d4ff;cursor:pointer;" title="Market Map">⊞ Map</button>
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
   </div>
   <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
@@ -932,6 +934,7 @@ select option{background:var(--bg2);}
     <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'scanners',()=>loadScannerData())">↻ Refresh</button>
     <button class="btn btn-sm" onclick="showScannerAddForm()"
       style="background:#00d4ff18;border:1px solid #00d4ff55;color:#00d4ff;font-size:11px;padding:5px 12px;border-radius:5px;cursor:pointer;font-family:var(--font);font-weight:700;letter-spacing:0.3px;">+ Add Ticker</button>
+    <button class="btn btn-sm" onclick="showMarketMap()" style="padding:5px 12px;background:transparent;border:1px solid rgba(0,212,255,0.4);border-radius:4px;font-family:var(--font);font-size:11px;color:#00d4ff;cursor:pointer;" title="Market Map">⊞ Map</button>
   </div>
   <div id="sc-body" style="overflow-x:auto;">
     <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading…</div>
@@ -2808,7 +2811,9 @@ function renderWatchlist() {
   const customTickers = (_userWatchlist || []).map(r => r.symbol);
   _wlSectorsCache = {};
   let html = '';
-  Object.entries(sectorsToRender).forEach(([sector, tickers]) => {
+  let sectorEntries = Object.entries(sectorsToRender);
+  if (currentWlFilter === 'all') sectorEntries = _sortSectorsByPerf(sectorEntries);
+  sectorEntries.forEach(([sector, tickers]) => {
     if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
     const secId = sector.replace(/[^a-z0-9]/gi, '_');
     _wlSectorsCache[secId] = { sector, tickers };
@@ -7309,6 +7314,7 @@ function renderFlowPredictor(){
           <span data-market-status style="font-size:11px;color:#a0a8c0;margin-right:10px;"></span>
           <span style="font-size:10px;color:#8090a0;margin-right:6px;">Updated <span data-refresh-label="flow_predictor">never</span></span>
           <button class="btn btn-sm" onclick="runRefresh(this,'flow_predictor',()=>refreshFlowPredictor())" title="Reload from database" style="background:var(--bg3);color:#c0c8d0;border:1px solid var(--border);padding:6px 10px;margin-right:4px;">↻ Refresh</button>
+          <button class="btn btn-sm" onclick="showMarketMap()" style="background:transparent;color:#00d4ff;border:1px solid rgba(0,212,255,0.4);padding:6px 10px;margin-right:4px;">⊞ Map</button>
           ${['D','W','M','Y'].map(tf=>`<button class="btn btn-sm" onclick="setPredTimeframe('${tf}')" style="${_predTimeframe===tf?'background:var(--cyan);color:#000;':'background:var(--bg3);color:#c0c8d0;'}border:1px solid var(--border);">${tf}</button>`).join('')}
         </div>
       </div>
@@ -7381,10 +7387,17 @@ function renderFlowPredictor(){
                 `<tr><td colspan="${colCount}" style="padding:30px;text-align:center;color:#8090a0;">
                   ${_p1FlowData === null ? 'Loading Phase 1 data…' : _p1FlowData.length === 0 ? 'No flow data — upload OMEN or SmartMoney CSVs in the Options Flow tab (re-upload existing files to add OI + spread_side columns).' : 'No symbols meet the activity floor (≥' + P1_ACTIVITY_FLOOR + ' contracts) for today.'}
                 </td></tr>` :
-                `${p1Section('DAY TRADE', classified.DAY_TRADE||[], '#1a2040', '#7fb0e8', 'DAY_TRADE')}
-                ${p1Section('SWING', classified.SWING||[], '#201a08', '#d4b070', 'SWING')}
-                ${p1Section('LONG', classified.LONG||[], '#0a2018', '#7fd0a8', 'LONG')}
-                ${(classified.FADING||[]).length ? p1Section('FADING', classified.FADING, '#201018', '#d97f8a', 'FADING') : ''}`
+                (()=>{
+                  const _sSort = rows => [...rows].sort((a,b)=>{
+                    const pa=_sectorPerf1d(a.sectorEtf); const pb=_sectorPerf1d(b.sectorEtf);
+                    if(pa==null&&pb==null)return 0; if(pa==null)return 1; if(pb==null)return -1;
+                    return pb-pa;
+                  });
+                  return `${p1Section('DAY TRADE',_sSort(classified.DAY_TRADE||[]),'#1a2040','#7fb0e8','DAY_TRADE')}
+                ${p1Section('SWING',_sSort(classified.SWING||[]),'#201a08','#d4b070','SWING')}
+                ${p1Section('LONG',_sSort(classified.LONG||[]),'#0a2018','#7fd0a8','LONG')}
+                ${(classified.FADING||[]).length?p1Section('FADING',_sSort(classified.FADING),'#201018','#d97f8a','FADING'):''}`;
+                })()
               }
             `}
           </tbody>
@@ -7529,6 +7542,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     loadAnthropicKeyFromSupabase();
     renderBriefTopFlow();  // Re-fire the Top Flow card now that DB is ready
     loadHeaderVixFromDb();
+    loadMmEtf1d();
     loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); });
   };
   s.onerror=function(){
@@ -8668,6 +8682,9 @@ function setScannerDateFilter(val) {
 
 function _scDefaultSort(arr) {
   return [...arr].sort((a, b) => {
+    const pa = _sectorPerf1d(MM_ETF_FOR_SECTOR[a.sector || ''] || null);
+    const pb = _sectorPerf1d(MM_ETF_FOR_SECTOR[b.sector || ''] || null);
+    if (pa != null && pb != null && Math.abs(pb - pa) > 0.01) return pb - pa;
     const aA = a.last_alert_date || null, bA = b.last_alert_date || null;
     if (aA && bA) { const c = bA.localeCompare(aA); if (c !== 0) return c; }
     else if (aA) return -1;
@@ -9203,9 +9220,74 @@ const MM_ETF_FOR_SECTOR = {
   'Utilities':     'XLU',
 };
 
-let _mmData   = null;   // { [sym]: { rows: [{trading_date,open,high,low,close}] } }
-let _mmSort   = 'from52hi'; // current sort column
-let _mmSortDir = 1;         // 1=asc, -1=desc
+let _mmData   = null;
+let _mmSort   = 'ret1d'; // current sort column
+let _mmSortDir = -1;      // -1=desc (best performing sector on top)
+
+let _mmEtf1d = {};
+
+function _mmEtf1dFromData() {
+  if (!_mmData) return;
+  for (const { sym } of MM_SECTORS) {
+    const rows = _mmData[sym] || [];
+    if (rows.length >= 2) {
+      const c0 = parseFloat(rows.at(-1).close);
+      const c1 = parseFloat(rows.at(-2).close);
+      _mmEtf1d[sym] = +((c0 / c1 - 1) * 100).toFixed(2);
+    }
+  }
+}
+
+async function loadMmEtf1d() {
+  if (Object.keys(_mmEtf1d).length > 0) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  for (const { sym } of MM_SECTORS) {
+    try {
+      const { data } = await supa
+        .from('price_history')
+        .select('close')
+        .eq('symbol', sym)
+        .order('trading_date', { ascending: false })
+        .limit(2);
+      if (data && data.length >= 2) {
+        const c0 = parseFloat(data[0].close);
+        const c1 = parseFloat(data[1].close);
+        _mmEtf1d[sym] = +((c0 / c1 - 1) * 100).toFixed(2);
+      } else {
+        _mmEtf1d[sym] = null;
+      }
+    } catch(e) { _mmEtf1d[sym] = null; }
+  }
+  if (document.getElementById('page-watchlist')?.classList.contains('active-page') ||
+      document.getElementById('watchlist-body')) {
+    if (typeof renderWatchlist === 'function') renderWatchlist();
+  }
+}
+
+function _sectorPerf1d(etfSym) {
+  if (!etfSym) return null;
+  if (_mmData && _mmData[etfSym]) {
+    const rows = _mmData[etfSym];
+    if (rows.length >= 2) {
+      const c0 = parseFloat(rows.at(-1).close);
+      const c1 = parseFloat(rows.at(-2).close);
+      return (c0 / c1 - 1) * 100;
+    }
+  }
+  return _mmEtf1d[etfSym] ?? null;
+}
+
+function _sortSectorsByPerf(entries) {
+  return [...entries].sort(([secA], [secB]) => {
+    const pa = _sectorPerf1d(MM_ETF_FOR_SECTOR[secA]);
+    const pb = _sectorPerf1d(MM_ETF_FOR_SECTOR[secB]);
+    if (pa == null && pb == null) return 0;
+    if (pa == null) return 1;
+    if (pb == null) return -1;
+    return pb - pa;
+  });
+}
 
 function _mmRsi(closes) {
   // RSI(14) from an array of closes (oldest first)
@@ -9249,6 +9331,7 @@ function _mmCalc(rows) {
     lastDate,
     from52hi: h52 > 0 ? +((last / h52 - 1) * 100).toFixed(2) : null,
     from52lo: l52 > 0 ? +((last / l52 - 1) * 100).toFixed(2) : null,
+    ret1d: closes.length >= 2 ? +((closes.at(-1) / closes.at(-2) - 1) * 100).toFixed(2) : null,
     ret1m:  ret(21),
     ret3m:  ret(63),
     ret6m:  ret(126),
@@ -9311,8 +9394,9 @@ function _mmRowHighlight(calc) {
 function _mmSortData(rows) {
   const key = _mmSort;
   return [...rows].sort((a, b) => {
-    const av = a.calc[key] ?? (key === 'from52hi' ? 9999 : -9999);
-    const bv = b.calc[key] ?? (key === 'from52hi' ? 9999 : -9999);
+    const nullVal = _mmSortDir === -1 ? -9999 : 9999;
+    const av = a.calc[key] ?? nullVal;
+    const bv = b.calc[key] ?? nullVal;
     return (av - bv) * _mmSortDir;
   });
 }
@@ -9359,7 +9443,7 @@ function _mmRender() {
 
   const thStyle = 'font-size:9px;font-weight:700;letter-spacing:0.6px;color:#6080a0;padding:5px 8px;text-align:right;white-space:nowrap;';
   const thL     = 'font-size:9px;font-weight:700;letter-spacing:0.6px;color:#6080a0;padding:5px 8px;text-align:left;';
-  const thead = `<div style="display:grid;grid-template-columns:90px 70px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid var(--border2);margin-bottom:2px;">
+  const thead = `<div style="display:grid;grid-template-columns:90px 70px 55px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid var(--border2);margin-bottom:2px;">
     <span style="${thL}">SECTOR ETF</span>
     <span style="${thStyle}">${_mmThBtn('last','LAST')}</span>
     <span style="${thStyle}">${_mmThBtn('from52hi','% 52H')}</span>
@@ -9368,21 +9452,23 @@ function _mmRender() {
     <span style="${thStyle}">${_mmThBtn('ret3m','3M%')}</span>
     <span style="${thStyle}">${_mmThBtn('ret6m','6M%')}</span>
     <span style="${thStyle}">${_mmThBtn('rsi14','RSI')}</span>
+    <span style="${thStyle}">${_mmThBtn('ret1d','1D%')}</span>
   </div>`;
 
   const tdStyle = 'padding:5px 8px;text-align:right;font-size:11px;';
   const tdL     = 'padding:5px 8px;text-align:left;font-size:11px;';
   const tbodyHtml = sorted.map(({ sym, label, calc }) => {
     const hl = _mmRowHighlight(calc);
-    return `<div style="display:grid;grid-template-columns:90px 70px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid rgba(128,144,160,0.1);${hl}">
+    return `<div style="display:grid;grid-template-columns:90px 70px 55px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid rgba(128,144,160,0.1);${hl}">
       <span style="${tdL}font-weight:700;color:var(--text);"><span style="color:var(--cyan);font-size:10px;">${sym}</span><br><span style="font-size:9px;color:#8090a0;">${label}</span></span>
       <span style="${tdStyle}color:#c4d2e0;">${calc.last != null ? '$' + calc.last.toFixed(2) : '—'}</span>
-      <span style="${tdStyle}">${_mmPct(calc.from52hi, false)}</span>
+      <span style="${tdStyle};color:${calc.from52hi == null ? '#505060' : (calc.from52hi <= -15 || (calc.rsi14 != null && calc.rsi14 < 40)) ? '#00d4ff' : (calc.from52hi >= -3 && calc.ret3m != null && calc.ret3m > 15) ? '#ffb020' : '#8090a0'};">${calc.from52hi != null ? (calc.from52hi >= 0 ? '+' : '') + calc.from52hi.toFixed(2) + '%' : '—'}</span>
       <span style="${tdStyle}">${_mmPct(calc.from52lo, true)}</span>
       <span style="${tdStyle}">${_mmPct(calc.ret1m, true)}</span>
       <span style="${tdStyle}">${_mmPct(calc.ret3m, true)}</span>
       <span style="${tdStyle}">${_mmPct(calc.ret6m, true)}</span>
       <span style="${tdStyle};color:${_mmRsiColor(calc.rsi14)};">${calc.rsi14 != null ? calc.rsi14 : '—'}</span>
+      <span style="${tdStyle}color:${calc.ret1d == null ? '#505060' : calc.ret1d >= 0 ? '#00e5b0' : '#ff3d5a'};">${calc.ret1d != null ? (calc.ret1d >= 0 ? '+' : '') + calc.ret1d.toFixed(2) + '%' : '—'}</span>
     </div>`;
   }).join('');
 
@@ -9412,6 +9498,20 @@ function _mmRender() {
       }).join('');
 
   el.innerHTML = `
+    <details style="margin-bottom:14px;background:rgba(0,0,0,0.15);border-radius:5px;padding:6px 10px;">
+      <summary style="font-size:10px;font-weight:700;color:#6080a0;cursor:pointer;letter-spacing:0.5px;list-style:none;display:flex;align-items:center;gap:6px;">
+        <span>▸</span> HOW TO READ
+      </summary>
+      <div style="font-size:10px;color:#8090a0;margin-top:8px;line-height:1.7;">
+        • Sorted by today's move (1D%) — best-performing sector on top.<br>
+        • % 52H = distance below 52-week high. Big negative = beaten down / compressed.<br>
+        • % 52L = distance above 52-week low. Big positive = already run up a lot.<br>
+        • 1M / 3M / 6M = return over that period. Shows if a sector is turning or still falling.<br>
+        • RSI = momentum, 0–100. Under 30 = oversold, over 70 = overbought, ~50 = neutral.<br>
+        • <span style="color:#00d4ff;">Cyan row</span> = compressed, watch for reversal. <span style="color:#ffb020;">Amber row</span> = extended, late to chase.<br>
+        • Click any column header to re-sort. ↻ refresh recalculates on latest data.
+      </div>
+    </details>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">${ctxHtml}</div>
 
     <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#6080a0;margin-bottom:8px;">SECTOR ETF BOARD</div>
@@ -9432,6 +9532,20 @@ function _mmRender() {
   `;
 }
 
+async function _mmRefresh() {
+  _mmData = null;
+  _mmEtf1d = {};
+  const inner = document.getElementById('mm-inner');
+  if (inner) inner.innerHTML = '<div style="text-align:center;padding:40px;color:#6080a0;font-size:12px;">Refreshing…</div>';
+  try {
+    _mmData = await _mmLoadData();
+    _mmEtf1dFromData();
+    _mmRender();
+  } catch (e) {
+    if (inner) inner.innerHTML = `<div style="padding:30px;text-align:center;color:#ff3d5a;font-size:12px;">Failed: ${e.message}</div>`;
+  }
+}
+
 async function showMarketMap() {
   let modal = document.getElementById('market-map-modal');
   if (!modal) {
@@ -9446,7 +9560,8 @@ async function showMarketMap() {
     <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;width:100%;max-width:660px;box-shadow:0 12px 40px rgba(0,0,0,0.5);">
       <div style="display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);">
         <span style="font-size:13px;font-weight:700;color:var(--text);letter-spacing:0.5px;">⊞ MARKET MAP</span>
-        <button onclick="document.getElementById('market-map-modal').style.display='none'" style="margin-left:auto;background:none;border:none;cursor:pointer;color:#6080a0;font-size:18px;line-height:1;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">✕</button>
+        <button onclick="_mmRefresh()" style="margin-left:auto;background:none;border:1px solid var(--border2);border-radius:4px;cursor:pointer;color:#8090a0;font-size:11px;padding:3px 10px;font-family:var(--font);" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#8090a0'" title="Reload from price_history">↻ Refresh</button>
+        <button onclick="document.getElementById('market-map-modal').style.display='none'" style="margin-left:8px;background:none;border:none;cursor:pointer;color:#6080a0;font-size:18px;line-height:1;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">✕</button>
       </div>
       <div id="mm-inner" style="padding:18px;min-height:200px;"><div style="text-align:center;padding:40px;color:#6080a0;font-size:12px;">Loading price history…</div></div>
     </div>`;
@@ -9457,6 +9572,7 @@ async function showMarketMap() {
 
   try {
     _mmData = await _mmLoadData();
+    _mmEtf1dFromData();
     _mmRender();
   } catch (e) {
     const inner = document.getElementById('mm-inner');
