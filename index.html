@@ -2642,112 +2642,178 @@ function toggleWlRow(sym,event){
   }
 }
 
-function renderWatchlist(){
-  const search=(document.getElementById('wl-search')?.value||'').toUpperCase();
-  const body=document.getElementById('watchlist-body');
-  if(!body)return;
-  // Helpers
-  const pctCell=(val,na)=>{
-    if(val==null)return`<span class="pct-cell pct-na">—</span>`;
-    const cls=Math.abs(val)<0.05?'pct-zero':val>0?'pct-pos':'pct-neg';
-    return`<span class="pct-cell ${cls}">${val>=0?'+':''}${val.toFixed(2)}%</span>`;
-  };
-  const bbCell=(val)=>{
-    if(val==null)return`<span class="pct-cell pct-na">—</span>`;
-    const cls=val>=60?'pct-pos':val<=40?'pct-neg':'pct-zero';
-    return`<span class="pct-cell ${cls}" style="font-weight:700;">${val}%</span>`;
-  };
-  const sectorsToRender={...WATCHLIST};
-  const userBySector={};
-  (_userWatchlist||[]).forEach(row=>{
-    const sec=row.sector||'Custom';
-    if(!userBySector[sec])userBySector[sec]=[];
+// ── Watchlist helpers ─────────────────────────────────────────────────
+function _wlPctCell(val) {
+  if (val == null) return `<span class="pct-cell pct-na">—</span>`;
+  const cls = Math.abs(val) < 0.05 ? 'pct-zero' : val > 0 ? 'pct-pos' : 'pct-neg';
+  return `<span class="pct-cell ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
+}
+function _wlBbCell(val) {
+  if (val == null) return `<span class="pct-cell pct-na">—</span>`;
+  const cls = val >= 60 ? 'pct-pos' : val <= 40 ? 'pct-neg' : 'pct-zero';
+  return `<span class="pct-cell ${cls}" style="font-weight:700;">${val}%</span>`;
+}
+
+// ── Per-group sort state ───────────────────────────────────────────────
+const _wlCtl = {};        // { [secId]: { sort: 'default' } }
+let _wlSectorsCache = {}; // { [secId]: { sector, tickers } } populated by renderWatchlist
+
+function _wlSortTickers(secId, tickers) {
+  const sort = (_wlCtl[secId] || { sort: 'default' }).sort;
+  if (sort === 'default') return tickers;
+  return [...tickers].sort((a, b) => {
+    if (sort === 'sym_az') return a.localeCompare(b);
+    if (sort === 'sym_za') return b.localeCompare(a);
+    if (sort === 'net_hi') return (getQ(b).d ?? -9999) - (getQ(a).d ?? -9999);
+    if (sort === 'd1_hi') {
+      const va = histBaselines[a]?.perf?.d1 ?? getQ(a).dp ?? null;
+      const vb = histBaselines[b]?.perf?.d1 ?? getQ(b).dp ?? null;
+      return (vb ?? -9999) - (va ?? -9999);
+    }
+    if (sort === 'w1_hi') {
+      return (histBaselines[b]?.perf?.w1 ?? -9999) - (histBaselines[a]?.perf?.w1 ?? -9999);
+    }
+    if (sort === 'bull_hi') {
+      const va = getFlowAnalytics(a, flowBullBearWindow)?.bullPct ?? null;
+      const vb = getFlowAnalytics(b, flowBullBearWindow)?.bullPct ?? null;
+      return (vb ?? -9999) - (va ?? -9999);
+    }
+    return 0;
+  });
+}
+
+function _wlBlkSetSort(secId, val) {
+  if (!_wlCtl[secId]) _wlCtl[secId] = { sort: 'default' };
+  _wlCtl[secId].sort = val;
+  _rerenderWlGroup(secId);
+}
+
+function _rerenderWlGroup(secId) {
+  const el = document.getElementById('wl-grp-' + secId);
+  if (!el) { renderWatchlist(); return; }
+  const cached = _wlSectorsCache[secId];
+  if (!cached) { renderWatchlist(); return; }
+  const search = (document.getElementById('wl-search')?.value || '').toUpperCase();
+  const customTickers = (_userWatchlist || []).map(r => r.symbol);
+  el.outerHTML = _wlBuildGroup(cached.sector, cached.tickers, search, customTickers);
+}
+
+function _wlBuildGroup(sector, tickers, search, customTickers) {
+  const matched = tickers.filter(s => {
+    if (!search) return true;
+    return s.includes(search) || (COMPANY_NAMES[s] || '').toUpperCase().includes(search);
+  });
+  if (!matched.length) return '';
+  const secId = sector.replace(/[^a-z0-9]/gi, '_');
+  if (!_wlCtl[secId]) _wlCtl[secId] = { sort: 'default' };
+  const ctl = _wlCtl[secId];
+  const sorted = _wlSortTickers(secId, matched);
+  const isCollapsed = collapsedSectors.has(sector);
+
+  const sortOpts = [
+    ['default', 'Sort: Default'],
+    ['sym_az',  'Symbol A→Z'],
+    ['sym_za',  'Symbol Z→A'],
+    ['net_hi',  'Day Net$ High→Low'],
+    ['d1_hi',   '1D% High→Low'],
+    ['w1_hi',   '1W% High→Low'],
+    ['bull_hi', 'AvgBull High→Low'],
+  ].map(([val, label]) =>
+    `<option value="${val}" ${ctl.sort === val ? 'selected' : ''}>${label}</option>`
+  ).join('');
+
+  const sectorHdr = `<div class="wl-sector-hd-dense" onclick="toggleSector('${sector.replace(/'/g, "\\'")}')">
+    <span class="wl-chevron${isCollapsed ? ' closed' : ''}" id="wl-chev-${secId}">▾</span>
+    <span>${sector}</span>
+    <span style="color:#e0e0e0;margin-left:8px;font-size:9px;">${matched.length} stocks</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:5px;" onclick="event.stopPropagation()">
+      <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.6px;">SORT</span>
+      <select onchange="_wlBlkSetSort('${secId}',this.value)" style="width:auto;max-width:190px;flex-shrink:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${sortOpts}</select>
+    </span>
+  </div>`;
+
+  const rows = sorted.map(sym => {
+    const q = getQ(sym);
+    const p = histBaselines[sym]?.perf;
+    const fa = getFlowAnalytics(sym, flowBullBearWindow);
+    const netClr = q.d >= 0 ? 'pct-pos' : 'pct-neg';
+    const m5 = getPriceChangePct(sym, 5);
+    const h1 = getPriceChangePct(sym, 60);
+    const d1 = p?.d1 ?? q.dp;
+    const w1 = p?.w1 ?? null;
+    const m1 = p?.m1 ?? null;
+    const m6 = p?.m6 ?? null;
+    const y1 = p?.y1 ?? null;
+    const bullPct = fa?.bullPct ?? null;
+    const bearPct = fa?.bearPct ?? null;
+    const dots = [];
+    const earnData = earningsCache[sym];
+    if (earnData?.length) {
+      const lastPeriod = earnData.at(-1)?.period;
+      if (lastPeriod) {
+        const lastDate = new Date(lastPeriod);
+        const nextEst = new Date(lastDate.getTime() + 90 * 86400000);
+        const daysToEarn = Math.round((nextEst - Date.now()) / 86400000);
+        if (daysToEarn >= 0 && daysToEarn <= 30)
+          dots.push('<span class="wl-dot dot-earn" title="Earnings ~' + daysToEarn + 'd away"></span>');
+      }
+    }
+    const chain = optionsCache[sym];
+    if (chain?.pcRatio != null && (chain.pcRatio < 0.5 || chain.pcRatio > 1.5))
+      dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C ' + chain.pcRatio + '"></span>');
+    return `<div class="wl-dense-row" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
+      <span class="wl-sym-cell">${sym}</span>
+      <span class="wl-name-cell">${COMPANY_NAMES[sym] || sector}${customTickers.includes(sym) ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:6px;" title="Remove from watchlist">×</button>` : ''}</span>
+      <span class="wl-price-cell">${fmtPrice(sym, q.p)}</span>
+      <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
+      ${_wlPctCell(m5)}
+      ${_wlPctCell(h1)}
+      ${_wlPctCell(d1)}
+      ${_wlPctCell(w1)}
+      ${_wlPctCell(m1)}
+      ${_wlPctCell(m6)}
+      ${_wlPctCell(y1)}
+      ${_wlBbCell(bullPct)}
+      ${_wlBbCell(bearPct)}
+      <div class="wl-dot-wrap">${dots.join('')}</div>
+    </div>`;
+  }).join('');
+
+  return `<div id="wl-grp-${secId}">${sectorHdr}<div class="wl-sector-rows${isCollapsed ? ' collapsed' : ''}" id="wl-sec-rows-${secId}">${rows}</div></div>`;
+}
+
+function renderWatchlist() {
+  const search = (document.getElementById('wl-search')?.value || '').toUpperCase();
+  const body = document.getElementById('watchlist-body');
+  if (!body) return;
+
+  const sectorsToRender = { ...WATCHLIST };
+  const userBySector = {};
+  (_userWatchlist || []).forEach(row => {
+    const sec = row.sector || 'Custom';
+    if (!userBySector[sec]) userBySector[sec] = [];
     userBySector[sec].push(row.symbol);
   });
-  Object.entries(userBySector).forEach(([sec,syms])=>{
-    if(sectorsToRender[sec]){
-      const existing=new Set(sectorsToRender[sec]);
-      const newSyms=syms.filter(s=>!existing.has(s));
-      sectorsToRender[sec]=[...sectorsToRender[sec],...newSyms];
-    }else{
-      sectorsToRender[sec]=syms;
+  Object.entries(userBySector).forEach(([sec, syms]) => {
+    if (sectorsToRender[sec]) {
+      const existing = new Set(sectorsToRender[sec]);
+      const newSyms = syms.filter(s => !existing.has(s));
+      sectorsToRender[sec] = [...sectorsToRender[sec], ...newSyms];
+    } else {
+      sectorsToRender[sec] = syms;
     }
   });
-  const customTickers=(_userWatchlist||[]).map(r=>r.symbol);
-  let html='';
-  Object.entries(sectorsToRender).forEach(([sector,tickers])=>{
-    if(currentWlFilter!=='all'&&sector!==currentWlFilter)return;
-    const matched=tickers.filter(s=>{
-      if(!search)return true;
-      return s.includes(search)||(COMPANY_NAMES[s]||'').toUpperCase().includes(search);
-    });
-    if(!matched.length)return;
-    const secId=sector.replace(/[^a-z0-9]/gi,'_');
-    const isCollapsed=collapsedSectors.has(sector);
-    // Sector header (clickable)
-    const sectorHdr=`<div class="wl-sector-hd-dense" onclick="toggleSector('${sector.replace(/'/g,"\\'")}')">
-      <span class="wl-chevron${isCollapsed?' closed':''}" id="wl-chev-${secId}">▾</span>
-      <span>${sector}</span>
-      <span style="color:#e0e0e0;margin-left:auto;font-size:9px;">${matched.length} stocks</span>
-    </div>`;
-    // Stock rows
-    const rows=matched.map(sym=>{
-      const q=getQ(sym);
-      const p=histBaselines[sym]?.perf;
-      const fa=getFlowAnalytics(sym,flowBullBearWindow);
-      // Price & net change
-      const priceClr=q.dp>=0?'up':'dn';
-      const netClr=q.d>=0?'pct-pos':'pct-neg';
-      // Intraday tracking
-      const m5=getPriceChangePct(sym,5);
-      const h1=getPriceChangePct(sym,60);
-      // Performance (Yahoo or mock)
-      const d1=p?.d1??q.dp;
-      const w1=p?.w1??null;
-      const m1=p?.m1??null;
-      const m6=p?.m6??null;
-      const y1=p?.y1??null;
-      // Flow analytics (windowed)
-      const bullPct=fa?.bullPct??null;
-      const bearPct=fa?.bearPct??null;
-      // Dot indicators
-      const dots=[];
-      // Earnings proximity: check earningsCache for upcoming quarter
-      const earnData=earningsCache[sym];
-      if(earnData?.length){
-        const lastPeriod=earnData.at(-1)?.period;
-        if(lastPeriod){
-          // Approximate next earnings ~90 days from last period
-          const lastDate=new Date(lastPeriod);
-          const nextEst=new Date(lastDate.getTime()+90*86400000);
-          const daysToEarn=Math.round((nextEst-Date.now())/86400000);
-          if(daysToEarn>=0&&daysToEarn<=30)dots.push('<span class="wl-dot dot-earn" title="Earnings ~'+daysToEarn+'d away"></span>');
-        }
-      }
-      // Unusual options: P/C ratio extreme
-      const chain=optionsCache[sym];
-      if(chain?.pcRatio!=null&&(chain.pcRatio<0.5||chain.pcRatio>1.5))
-        dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C '+chain.pcRatio+'"></span>');
-      return`<div class="wl-dense-row" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
-        <span class="wl-sym-cell">${sym}</span>
-        <span class="wl-name-cell">${COMPANY_NAMES[sym]||sector}${customTickers.includes(sym)?`<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:6px;" title="Remove from watchlist">×</button>`:''}</span>
-        <span class="wl-price-cell">${fmtPrice(sym,q.p)}</span>
-        <span class="pct-cell ${netClr}" style="text-align:right;">${q.d==null?'—':(q.d>=0?'+':'')+q.d.toFixed(2)}</span>
-        ${pctCell(m5)}
-        ${pctCell(h1)}
-        ${pctCell(d1)}
-        ${pctCell(w1)}
-        ${pctCell(m1)}
-        ${pctCell(m6)}
-        ${pctCell(y1)}
-        ${bbCell(bullPct)}
-        ${bbCell(bearPct)}
-        <div class="wl-dot-wrap">${dots.join('')}</div>
-      </div>`;
-    }).join('');
-    html+=sectorHdr+`<div class="wl-sector-rows${isCollapsed?' collapsed':''}" id="wl-sec-rows-${secId}">${rows}</div>`;
+
+  const customTickers = (_userWatchlist || []).map(r => r.symbol);
+  _wlSectorsCache = {};
+  let html = '';
+  Object.entries(sectorsToRender).forEach(([sector, tickers]) => {
+    if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
+    const secId = sector.replace(/[^a-z0-9]/gi, '_');
+    _wlSectorsCache[secId] = { sector, tickers };
+    html += _wlBuildGroup(sector, tickers, search, customTickers);
   });
-  body.innerHTML=html||'<div class="empty">No tickers match your filter</div>';
+  body.innerHTML = html || '<div class="empty">No tickers match your filter</div>';
 }
 function refreshWatchlist(){if(finnhubKey)fetchLiveAll();else renderWatchlist();}
 function toggleAddStockPopup(){
@@ -8431,6 +8497,9 @@ let _scannerView       = 'xgpt_iris'; // active sub-view list_name
 let _scFilterScanner   = 'all';     // 'all' | 'xgpt' | 'iris'
 let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
 
+// ── Per-block sort state (keyed by view id or 'positions') ────
+const _scCtl = { xgpt_iris: { sort: 'default' }, momentum: { sort: 'default' }, positions: { sort: 'default' } };
+
 // ── CSS grid for the scanner table (18 columns) ──────────────
 // SYM 108 | NAME 118 | SECT 80 | PRICE 70 | QTY 50 | NET$ 68 |
 // 1H 46 | 1D 46 | 1W 50 | 1M 50 | 6M 50 | 1Y 50 |
@@ -8596,56 +8665,126 @@ function setScannerDateFilter(val) {
   renderScanners();
 }
 
-function renderScanners() {
-  const body = document.getElementById('sc-body');
-  if (!body) return;
+function _scDefaultSort(arr) {
+  return [...arr].sort((a, b) => {
+    const aA = a.last_alert_date || null, bA = b.last_alert_date || null;
+    if (aA && bA) { const c = bA.localeCompare(aA); if (c !== 0) return c; }
+    else if (aA) return -1;
+    else if (bA) return 1;
+    const cF = (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
+    if (cF !== 0) return cF;
+    return (b.created_at || '').localeCompare(a.created_at || '');
+  });
+}
 
-  // ── Filter helpers ────────────────────────────────────────
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  function withinDays(dateStr, days) {
-    if (!dateStr) return false;
-    const d = new Date(dateStr);
-    return (today - d) / 86400000 <= days;
+function _scApplySort(blockId, arr) {
+  const sort = (_scCtl[blockId] || { sort: 'default' }).sort;
+  if (sort === 'default') return arr;
+  return [...arr].sort((a, b) => {
+    if (sort === 'sym_az') return (a.symbol || '').localeCompare(b.symbol || '');
+    if (sort === 'sym_za') return (b.symbol || '').localeCompare(a.symbol || '');
+    if (sort === 'price_hi') {
+      const pa = getQ(a.symbol).p ?? a.current_price ?? null;
+      const pb = getQ(b.symbol).p ?? b.current_price ?? null;
+      return (pb ?? -9999) - (pa ?? -9999);
+    }
+    if (sort === 'd1_hi') {
+      const da = (a.perf || histBaselines[a.symbol]?.perf)?.d1 ?? getQ(a.symbol).dp ?? null;
+      const db = (b.perf || histBaselines[b.symbol]?.perf)?.d1 ?? getQ(b.symbol).dp ?? null;
+      return (db ?? -9999) - (da ?? -9999);
+    }
+    if (sort === 'seen_hi') return (b.total_count ?? 0) - (a.total_count ?? 0);
+    if (sort === 'first_seen_new') return (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
+    return 0;
+  });
+}
+
+function _scBlkSetSort(blockId, val) {
+  if (_scCtl[blockId]) _scCtl[blockId].sort = val;
+  if (blockId === 'positions') {
+    const el = document.getElementById('sc-blk-positions');
+    if (el) { el.outerHTML = _scBuildPosBlock(); return; }
+  } else {
+    const el = document.getElementById('sc-blk-main');
+    if (el) { el.outerHTML = _scBuildMainBlock(_scGetFilteredRows()); return; }
   }
+  renderScanners();
+}
 
+function _scGetFilteredRows() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   let rows = [..._scannerData].filter(r => r.list_name === _scannerView);
-
-  // Scanner filter (XGPT/Iris view only)
   if (_scannerView === 'xgpt_iris' && _scFilterScanner !== 'all') {
     if (_scFilterScanner === 'xgpt') rows = rows.filter(r => (r.xgpt_count ?? 0) > 0);
     if (_scFilterScanner === 'iris') rows = rows.filter(r => (r.iris_count  ?? 0) > 0);
   }
-
-  // Date filter (first_seen_date)
   if (_scFilterDate !== 'all') {
     const days = _scFilterDate === 'today' ? 0 : _scFilterDate === '7d' ? 7 : 30;
     rows = rows.filter(r => {
       if (!r.first_seen_date) return false;
       const d = new Date(r.first_seen_date);
-      if (_scFilterDate === 'today') {
-        d.setHours(0, 0, 0, 0);
-        return d.getTime() === today.getTime();
-      }
-      return withinDays(r.first_seen_date, days);
+      if (_scFilterDate === 'today') { d.setHours(0,0,0,0); return d.getTime() === today.getTime(); }
+      return (today - d) / 86400000 <= days;
     });
   }
+  return _scDefaultSort(rows);
+}
 
-  // ── Sort: last_alert_date DESC (nulls last), first_seen_date DESC, created_at DESC ──
-  rows.sort((a, b) => {
-    const aAlert = a.last_alert_date || null;
-    const bAlert = b.last_alert_date || null;
-    if (aAlert && bAlert) {
-      const cmp = bAlert.localeCompare(aAlert);
-      if (cmp !== 0) return cmp;
-    } else if (aAlert) return -1;
-    else if (bAlert) return 1;
-    const cmpFs = (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
-    if (cmpFs !== 0) return cmpFs;
-    return (b.created_at || '').localeCompare(a.created_at || '');
-  });
+function _scSortDropdown(blockId) {
+  const sort = (_scCtl[blockId] || { sort: 'default' }).sort;
+  const opts = [
+    ['default',        'Sort: Default'],
+    ['sym_az',         'Symbol A→Z'],
+    ['sym_za',         'Symbol Z→A'],
+    ['price_hi',       'Price High→Low'],
+    ['d1_hi',          '1D% High→Low'],
+    ['seen_hi',        'Seen# High→Low'],
+    ['first_seen_new', 'First Seen Newest'],
+  ].map(([val, label]) =>
+    `<option value="${val}" ${sort === val ? 'selected' : ''}>${label}</option>`
+  ).join('');
+  return `<span style="display:flex;align-items:center;gap:5px;" onclick="event.stopPropagation()">
+    <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.6px;">SORT</span>
+    <select onchange="_scBlkSetSort('${blockId}',this.value)" style="width:auto;max-width:190px;flex-shrink:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${opts}</select>
+  </span>`;
+}
 
-  // ── Filter bar ────────────────────────────────────────────
+function _scBuildMainBlock(rows) {
+  const sorted = _scApplySort(_scannerView, rows);
+  const content = sorted.length
+    ? sorted.map(_scRow).join('')
+    : `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows match</div>`;
+  return `<div id="sc-blk-main">
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.10);">
+      ${_scSortDropdown(_scannerView)}
+    </div>
+    ${_scColHdr()}${content}
+  </div>`;
+}
+
+function _scBuildPosBlock() {
+  const posRows = [..._scannerData]
+    .filter(r => r.list_name === 'positions')
+    .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''));
+  const sorted = _scApplySort('positions', posRows);
+  const posContent = sorted.length
+    ? sorted.map(_scRow).join('')
+    : `<div style="padding:20px 10px;color:#404858;font-size:11px;font-style:italic;">No retired positions yet.</div>`;
+  return `<div id="sc-blk-positions" style="margin-top:28px;border-top:1px solid var(--border2);padding-top:16px;">
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 10px 6px;">
+      <span style="font-size:10px;font-weight:700;letter-spacing:1px;color:#6080a0;">POSITIONS</span>
+      <span style="margin-left:auto;">${_scSortDropdown('positions')}</span>
+    </div>
+    ${_scColHdr()}${posContent}
+  </div>`;
+}
+
+function renderScanners() {
+  const body = document.getElementById('sc-body');
+  if (!body) return;
+
+  const rows = _scGetFilteredRows();
+
   const btnStyle = (active) =>
     `background:${active ? 'rgba(0,212,255,0.18)' : 'transparent'};color:${active ? '#00d4ff' : '#6080a0'};border:1px solid ${active ? '#00d4ff66' : 'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active ? '700' : '400'};cursor:pointer;font-family:var(--font);letter-spacing:0.4px;`;
 
@@ -8674,27 +8813,9 @@ function renderScanners() {
     ${scannerBar}${dateBar}${legend}
   </div>`;
 
-  // ── Positions block (Momentum view only) ─────────────────
-  let positionsBlock = '';
-  if (_scannerView === 'momentum') {
-    const posRows = [..._scannerData]
-      .filter(r => r.list_name === 'positions')
-      .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''));
-    const posContent = posRows.length
-      ? posRows.map(_scRow).join('')
-      : `<div style="padding:20px 10px;color:#404858;font-size:11px;font-style:italic;">No retired positions yet.</div>`;
-    positionsBlock = `
-      <div style="margin-top:28px;border-top:1px solid var(--border2);padding-top:16px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#6080a0;padding:0 10px 8px;">POSITIONS</div>
-        ${_scColHdr()}${posContent}
-      </div>`;
-  }
+  const positionsBlock = _scannerView === 'momentum' ? _scBuildPosBlock() : '';
 
-  if (!rows.length) {
-    body.innerHTML = `<div style="min-width:1100px;">${filterBar}<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows match</div>${positionsBlock}</div>`;
-    return;
-  }
-  body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scColHdr()}${rows.map(_scRow).join('')}${positionsBlock}</div>`;
+  body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
 }
 
 async function initScanners() {
