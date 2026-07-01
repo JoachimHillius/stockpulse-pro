@@ -896,7 +896,8 @@ select option{background:var(--bg2);}
     <button id="mom-nuggets-btn" onclick="toggleMomNuggets()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Show only gold-star, high-conviction names (Gold star + GreenZone ≥ 60)">★ Nuggets</button>
     <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="momentum">never</span></span>
     <button id="mom-refresh-btn" class="btn btn-ghost btn-sm" onclick="runRefresh(this,'momentum',()=>fetchLiveAll(true))">↻ Refresh</button>
-    <button onclick="syncSwingBaselines()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Fetch 1W/1M/6M/1Y history for all positions (stored in DB)">↻ Sync Hist</button>
+    <span id="mom-sync-hist-ts" style="font-size:10px;color:#6a7a8a;white-space:nowrap;">Hist <span data-refresh-label="momentum_hist">never</span></span>
+    <button id="mom-sync-hist-btn" onclick="syncSwingBaselines()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Fetch 1W/1M/6M/1Y history for all positions (stored in DB)">↻ Sync Hist</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
     <input id="mom-csv-input" type="file" accept=".csv" multiple style="display:none;" onchange="handleMomentumCsvFiles(this.files)">
     <button onclick="exportMomentumCsv()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Export all positions to CSV">⬇ Export CSV</button>
@@ -1498,7 +1499,7 @@ function getMarketStatus(){
 function isInTradingWindow(){
   return getMarketStatus().state!=='closed';
 }
-const _lastRefresh={carousel:null,options_flow:null,flow_predictor:null,watchlist:null,momentum:null,scanners:null};
+const _lastRefresh={carousel:null,options_flow:null,flow_predictor:null,watchlist:null,momentum:null,momentum_hist:null,scanners:null};
 function setRefreshed(key){
   _lastRefresh[key]=new Date();
   try{
@@ -7638,14 +7639,99 @@ async function backfillSwingSectors(){
 }
 
 async function syncSwingBaselines(){
-  const supa=await getSupabaseAsync(); if(!supa){ showToast('Baselines','No DB','error'); return; }
-  showToast('Baselines','Syncing history server-side… (~1 min, please wait)','info');
-  try{
-    const {data,error}=await supa.functions.invoke('sync-swing-baselines',{body:{}});
-    if(error){ showToast('Baselines','Sync failed: '+(error.message||error),'error'); return; }
-    await loadSwingData(); renderMomentum();
-    showToast('Baselines','✓ '+(data?.done??0)+' synced ('+(data?.failed??0)+' failed)','info');
-  }catch(e){ showToast('Baselines','Sync error: '+e,'error'); }
+  const btn = document.getElementById('mom-sync-hist-btn');
+  const origHTML  = btn ? btn.innerHTML  : '↻ Sync Hist';
+  const origBg    = btn ? btn.style.background   : '';
+  const origColor = btn ? btn.style.color        : '';
+  const origBrd   = btn ? btn.style.borderColor  : '';
+
+  function setBtnState(state, msg, errorDetail) {
+    if (!btn) return;
+    btn.disabled = state === 'working';
+    if (state === 'working') {
+      btn.style.background = '#ffb020'; btn.style.color = '#000';
+      btn.style.borderColor = '#ffb020'; btn.style.fontWeight = '700';
+      btn.innerHTML = '⟳ Syncing…';
+      btn.title = 'Fetch 1W/1M/6M/1Y history for all positions (stored in DB)';
+    } else if (state === 'success') {
+      btn.style.background = '#00e5b0'; btn.style.color = '#000';
+      btn.style.borderColor = '#00e5b0'; btn.style.fontWeight = '700';
+      btn.innerHTML = '✓ Synced';
+      btn.title = msg || 'Sync complete';
+      setTimeout(() => {
+        btn.style.background = origBg; btn.style.color = origColor;
+        btn.style.borderColor = origBrd; btn.style.fontWeight = '';
+        btn.innerHTML = origHTML;
+        btn.title = 'Fetch 1W/1M/6M/1Y history for all positions (stored in DB)';
+      }, 2500);
+    } else { // error
+      btn.style.background = '#ff3d5a'; btn.style.color = '#fff';
+      btn.style.borderColor = '#ff3d5a'; btn.style.fontWeight = '700';
+      btn.innerHTML = '✗ Sync failed';
+      btn.title = errorDetail || msg || 'Unknown error — check console';
+    }
+  }
+
+  const supa = await getSupabaseAsync();
+  if (!supa) { setBtnState('error', null, 'No DB connection'); return; }
+
+  // Snapshot max(last_synced_at) before the call
+  const { data: beforeRows } = await supa
+    .from('price_sync_status')
+    .select('last_synced_at')
+    .order('last_synced_at', { ascending: false })
+    .limit(1);
+  const beforeTs = beforeRows?.[0]?.last_synced_at ?? null;
+  console.log('[SyncHist] before max last_synced_at:', beforeTs);
+
+  setBtnState('working');
+
+  let data, invokeError;
+  try {
+    console.log('[SyncHist] invoking sync-swing-baselines…');
+    const result = await supa.functions.invoke('sync-swing-baselines', { body: {} });
+    data        = result.data;
+    invokeError = result.error;
+    console.log('[SyncHist] response:', { data, error: invokeError });
+  } catch (e) {
+    console.error('[SyncHist] fetch threw:', e);
+    setBtnState('error', null, String(e));
+    showToast('Sync Hist', 'Network error: ' + e, 'error');
+    return;
+  }
+
+  if (invokeError) {
+    const msg = invokeError.message || String(invokeError);
+    setBtnState('error', null, msg);
+    showToast('Sync Hist', 'Sync failed: ' + msg, 'error');
+    return;
+  }
+
+  // Re-query max(last_synced_at) to confirm progress
+  const { data: afterRows } = await supa
+    .from('price_sync_status')
+    .select('last_synced_at')
+    .order('last_synced_at', { ascending: false })
+    .limit(1);
+  const afterTs = afterRows?.[0]?.last_synced_at ?? null;
+  console.log('[SyncHist] after max last_synced_at:', afterTs, '| advanced:', afterTs !== beforeTs && afterTs > (beforeTs ?? ''));
+
+  const advanced = afterTs && afterTs !== beforeTs && afterTs > (beforeTs ?? '');
+  if (!advanced) {
+    const detail = `No rows advanced (before: ${beforeTs ?? 'none'}, after: ${afterTs ?? 'none'}). Edge fn returned: done=${data?.done??'?'}, failed=${data?.failed??'?'}`;
+    console.warn('[SyncHist] silent no-op detected:', detail);
+    setBtnState('error', null, detail);
+    showToast('Sync Hist', 'No rows updated — check Edge Function logs', 'error');
+    return;
+  }
+
+  // Success
+  setRefreshed('momentum_hist');
+  await loadSwingData();
+  renderMomentum();
+  const summary = `✓ ${data?.done ?? 0} synced, ${data?.failed ?? 0} failed`;
+  setBtnState('success', summary);
+  showToast('Sync Hist', summary, 'info');
 }
 
 async function initMomentum() {
