@@ -7924,8 +7924,8 @@ function _momRow(row) {
   </div>`;
 }
 
-// ── Per-block sort/filter state ──────────────────────────────────────
-function _mkCtl() { return { sort: 'default', potential: new Set(), sector: 'all', search: '' }; }
+// ── Per-block sort state ──────────────────────────────────────────────
+function _mkCtl() { return { sort: 'default' }; }
 const _momCtl = {
   all_market:  _mkCtl(),
   tech_titans: _mkCtl(),
@@ -7952,73 +7952,34 @@ const _MOM_BLOCK_DEFS = [
     maxRows: () => 999 },
 ];
 
-function _applyBlkFiltersSort(bid, arr) {
-  const ctl = _momCtl[bid];
-  if (!ctl) return arr;
-  let out = arr;
-  if (ctl.search) {
-    const q = ctl.search.toLowerCase();
-    out = out.filter(r =>
-      (r.symbol   || '').toLowerCase().includes(q) ||
-      (r.security || '').toLowerCase().includes(q)
-    );
-  }
-  if (ctl.sector !== 'all') {
-    out = out.filter(r => (r.sector || '') === ctl.sector);
-  }
-  if (ctl.potential.size > 0) {
-    out = out.filter(r => ctl.potential.has(momMoveBucket(r)));
-  }
-  if (ctl.sort !== 'default') {
-    out = [...out].sort((a, b) => {
-      if (ctl.sort === 'sym_az') return (a.symbol || '').localeCompare(b.symbol || '');
-      if (ctl.sort === 'sym_za') return (b.symbol || '').localeCompare(a.symbol || '');
-      if (ctl.sort === 'gz_hi')  return (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1);
-      if (ctl.sort === 'gz_lo')  return (a.rating_greenzone ?? -1) - (b.rating_greenzone ?? -1);
-      if (ctl.sort === 'daypl_hi' || ctl.sort === 'd1_hi') {
-        const getD1 = r => {
-          const perf = r.perf || histBaselines[r.symbol]?.perf;
-          return perf?.d1 ?? getQ(r.symbol).dp ?? null;
-        };
-        return (getD1(b) ?? -9999) - (getD1(a) ?? -9999);
-      }
-      return 0;
-    });
-  }
-  return out;
+function _applyBlkSort(bid, arr) {
+  const sort = (_momCtl[bid] || _mkCtl()).sort;
+  if (sort === 'default') return arr;
+  return [...arr].sort((a, b) => {
+    if (sort === 'sym_az') return (a.symbol || '').localeCompare(b.symbol || '');
+    if (sort === 'sym_za') return (b.symbol || '').localeCompare(a.symbol || '');
+    if (sort === 'gz_hi')  return (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1);
+    if (sort === 'gz_lo')  return (a.rating_greenzone ?? -1) - (b.rating_greenzone ?? -1);
+    if (sort === 'star_gold' || sort === 'star_green') {
+      const rank = { gold: 0, green: 1, dip: 2, red: 3 };
+      if (sort === 'star_green') { rank.green = 0; rank.gold = 1; }
+      const ra = rank[momMoveBucket(a)] ?? 4;
+      const rb = rank[momMoveBucket(b)] ?? 4;
+      return ra - rb;
+    }
+    if (sort === 'daypl_hi' || sort === 'd1_hi') {
+      const getD1 = r => {
+        const perf = r.perf || histBaselines[r.symbol]?.perf;
+        return perf?.d1 ?? getQ(r.symbol).dp ?? null;
+      };
+      return (getD1(b) ?? -9999) - (getD1(a) ?? -9999);
+    }
+    return 0;
+  });
 }
 
 function _momBlkSetSort(bid, val) {
   if (_momCtl[bid]) _momCtl[bid].sort = val;
-  _rerenderMomBlock(bid);
-}
-function _momBlkSetSector(bid, val) {
-  if (_momCtl[bid]) _momCtl[bid].sector = val;
-  _rerenderMomBlock(bid);
-}
-function _momBlkSetSearch(bid) {
-  const el = document.getElementById('mom-blk-' + bid + '-search');
-  if (_momCtl[bid]) _momCtl[bid].search = el ? el.value.trim().toLowerCase() : '';
-  _rerenderMomBlock(bid);
-  setTimeout(() => {
-    const newEl = document.getElementById('mom-blk-' + bid + '-search');
-    if (newEl) { const v = newEl.value; newEl.focus(); newEl.setSelectionRange(v.length, v.length); }
-  }, 0);
-}
-function _momBlkTogglePotential(bid, bucket) {
-  const ctl = _momCtl[bid];
-  if (!ctl) return;
-  if (ctl.potential.has(bucket)) ctl.potential.delete(bucket);
-  else ctl.potential.add(bucket);
-  _rerenderMomBlock(bid);
-}
-function _momBlkClearAll(bid) {
-  if (_momCtl[bid]) {
-    _momCtl[bid].sort      = 'default';
-    _momCtl[bid].potential = new Set();
-    _momCtl[bid].sector    = 'all';
-    _momCtl[bid].search    = '';
-  }
   _rerenderMomBlock(bid);
 }
 
@@ -8035,14 +7996,10 @@ function _rerenderMomBlock(blockId) {
 
 function _momSection(title, baseRows, borderColor, maxRows, blockId) {
   const ctl   = _momCtl[blockId] || _mkCtl();
-  const rows  = _applyBlkFiltersSort(blockId, baseRows);
+  const rows  = _applyBlkSort(blockId, baseRows);
   const shown = rows.slice(0, maxRows);
   const overflow = rows.length > maxRows ? rows.length - maxRows : 0;
-
-  const hasFilter = ctl.search || ctl.sector !== 'all' || ctl.potential.size > 0 || ctl.sort !== 'default';
-  const countLabel = hasFilter
-    ? `${rows.length} of ${baseRows.length} position${baseRows.length !== 1 ? 's' : ''}`
-    : `${baseRows.length} position${baseRows.length !== 1 ? 's' : ''}`;
+  const countLabel = `${baseRows.length} position${baseRows.length !== 1 ? 's' : ''}`;
 
   const overflowNote = overflow > 0
     ? `<div style="font-size:10px;color:#6080a0;padding:5px 10px;text-align:right;">+ ${overflow} more — showing top ${maxRows} by GreenZone rating</div>`
@@ -8051,36 +8008,22 @@ function _momSection(title, baseRows, borderColor, maxRows, blockId) {
     ? `<div style="padding:14px;text-align:center;color:#505060;font-size:11px;">No positions</div>`
     : '';
 
-  const sectors = [...new Set(baseRows.map(r => r.sector).filter(Boolean))].sort();
-  const sectorOpts = `<option value="all">All</option>` +
-    sectors.map(s => `<option value="${s}" ${s === ctl.sector ? 'selected' : ''}>${s}</option>`).join('');
+  const sortOpts = [
+    ['default',    'Sort: Default'],
+    ['sym_az',     'Symbol A→Z'],
+    ['sym_za',     'Symbol Z→A'],
+    ['star_gold',  'Star: Gold first'],
+    ['star_green', 'Star: Green first'],
+    ['gz_hi',      'GZ High→Low'],
+    ['gz_lo',      'GZ Low→High'],
+    ['daypl_hi',   'Day P/L High→Low'],
+    ['d1_hi',      '1D% High→Low'],
+  ].map(([val, label]) =>
+    `<option value="${val}" ${ctl.sort === val ? 'selected' : ''}>${label}</option>`
+  ).join('');
 
-  const potCfg = [
-    { key: 'gold',  label: '★ High vol', ac: '#ffd000' },
-    { key: 'dip',   label: '★ Pullback',  ac: '#ff3d5a' },
-    { key: 'green', label: '★ Uptrend',   ac: '#00e5b0' },
-    { key: 'red',   label: '★ Weak',      ac: '#ff8040' },
-  ];
-  const potBtns = potCfg.map(({ key, label, ac }) => {
-    const on = ctl.potential.has(key);
-    return `<button onclick="_momBlkTogglePotential('${blockId}','${key}')" style="padding:2px 6px;background:${on ? ac + '22' : 'transparent'};border:1px solid ${on ? ac : 'var(--border2)'};border-radius:4px;color:${on ? ac : '#8090a0'};font-size:9px;font-weight:${on ? '700' : '400'};cursor:pointer;font-family:var(--font);">${label}</button>`;
-  }).join('');
-
-  const ctlRow = `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.12);">
-      <select onchange="_momBlkSetSort('${blockId}',this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 5px;font-size:9px;font-family:var(--font);cursor:pointer;">
-        <option value="default" ${ctl.sort==='default'?'selected':''}>Sort: Default</option>
-        <option value="sym_az"  ${ctl.sort==='sym_az'?'selected':''}>A→Z</option>
-        <option value="sym_za"  ${ctl.sort==='sym_za'?'selected':''}>Z→A</option>
-        <option value="gz_hi"   ${ctl.sort==='gz_hi'?'selected':''}>GZ High→Low</option>
-        <option value="gz_lo"   ${ctl.sort==='gz_lo'?'selected':''}>GZ Low→High</option>
-        <option value="d1_hi"   ${ctl.sort==='d1_hi'?'selected':''}>1D% High→Low</option>
-      </select>
-      <span style="border-left:1px solid var(--border2);height:12px;display:inline-block;"></span>
-      ${potBtns}
-      <span style="border-left:1px solid var(--border2);height:12px;display:inline-block;"></span>
-      <select onchange="_momBlkSetSector('${blockId}',this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 5px;font-size:9px;font-family:var(--font);cursor:pointer;max-width:110px;">${sectorOpts}</select>
-      <input id="mom-blk-${blockId}-search" type="text" value="${ctl.search.replace(/"/g,'&quot;')}" placeholder="Search…" oninput="_momBlkSetSearch('${blockId}')" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 7px;font-size:9px;font-family:var(--font);width:120px;outline:none;">
-      ${hasFilter ? `<button onclick="_momBlkClearAll('${blockId}')" style="padding:2px 6px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#6080a0;font-size:9px;cursor:pointer;font-family:var(--font);">✕ Clear</button>` : ''}
+  const ctlRow = `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.12);">
+      <select onchange="_momBlkSetSort('${blockId}',this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${sortOpts}</select>
     </div>`;
 
   return `<div id="mom-blk-${blockId}" style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden;">
