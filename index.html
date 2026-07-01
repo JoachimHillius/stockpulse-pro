@@ -8022,8 +8022,9 @@ function _momSection(title, baseRows, borderColor, maxRows, blockId) {
     `<option value="${val}" ${ctl.sort === val ? 'selected' : ''}>${label}</option>`
   ).join('');
 
-  const ctlRow = `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.12);">
-      <select onchange="_momBlkSetSort('${blockId}',this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${sortOpts}</select>
+  const ctlRow = `<div style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.12);">
+      <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.6px;white-space:nowrap;">SORT</span>
+      <select onchange="_momBlkSetSort('${blockId}',this.value)" style="width:auto;max-width:190px;flex-shrink:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${sortOpts}</select>
     </div>`;
 
   return `<div id="mom-blk-${blockId}" style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden;">
