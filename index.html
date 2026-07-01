@@ -436,6 +436,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
+    <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom:2px solid transparent;">⊞ Map</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -9161,6 +9162,306 @@ async function saveScannerNewRow() {
   renderScanners();
   const dest = listName === 'momentum' ? 'Momentum' : 'XGPT / Iris';
   showToast(sym, retireId ? `Added to ${dest} + retired` : `Added to ${dest}`, 'success');
+}
+
+// ============================================================
+// MARKET MAP
+// ============================================================
+
+const MM_SECTORS = [
+  { sym: 'XLK', label: 'Technology' },
+  { sym: 'IGV', label: 'Software' },
+  { sym: 'SMH', label: 'Semis' },
+  { sym: 'XLF', label: 'Financials' },
+  { sym: 'XLE', label: 'Energy' },
+  { sym: 'XLV', label: 'Health' },
+  { sym: 'XLP', label: 'Staples' },
+  { sym: 'XLY', label: 'Discretionary' },
+  { sym: 'XLI', label: 'Industrials' },
+  { sym: 'XLB', label: 'Materials' },
+  { sym: 'XLU', label: 'Utilities' },
+];
+const MM_CONTEXT = ['SPY', 'QQQ', 'IWM', 'VIX'];
+const MM_ALL_SYMS = [...MM_CONTEXT, ...MM_SECTORS.map(s => s.sym)];
+
+// ETF → sector label map for user-stock grouping
+const MM_ETF_FOR_SECTOR = {
+  'Technology':    'XLK',
+  'Software':      'IGV',
+  'Semis':         'SMH',
+  'Semiconductors':'SMH',
+  'Financials':    'XLF',
+  'Energy':        'XLE',
+  'Health':        'XLV',
+  'Healthcare':    'XLV',
+  'Staples':       'XLP',
+  'Consumer Staples': 'XLP',
+  'Discretionary': 'XLY',
+  'Consumer Discretionary': 'XLY',
+  'Industrials':   'XLI',
+  'Materials':     'XLB',
+  'Utilities':     'XLU',
+};
+
+let _mmData   = null;   // { [sym]: { rows: [{trading_date,open,high,low,close}] } }
+let _mmSort   = 'from52hi'; // current sort column
+let _mmSortDir = 1;         // 1=asc, -1=desc
+
+function _mmRsi(closes) {
+  // RSI(14) from an array of closes (oldest first)
+  if (closes.length < 15) return null;
+  const recent = closes.slice(-15);
+  let gains = 0, losses = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const d = recent[i] - recent[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  const avgG = gains / 14, avgL = losses / 14;
+  if (avgL === 0) return 100;
+  const rs = avgG / avgL;
+  return +(100 - 100 / (1 + rs)).toFixed(1);
+}
+
+function _mmCalc(rows) {
+  // rows: [{trading_date, open, high, low, close}], sorted oldest→newest
+  if (!rows || rows.length < 2) return null;
+  const closes = rows.map(r => parseFloat(r.close)).filter(v => !isNaN(v));
+  if (!closes.length) return null;
+  const highs  = rows.map(r => parseFloat(r.high)).filter(v => !isNaN(v));
+  const lows   = rows.map(r => parseFloat(r.low)).filter(v => !isNaN(v));
+  const last   = closes.at(-1);
+  const lastDate = rows.at(-1).trading_date;
+
+  // 52-week window = last 252 trading days (or all if fewer)
+  const w52 = closes.slice(-252);
+  const h52 = Math.max(...highs.slice(-252));
+  const l52 = Math.min(...lows.slice(-252));
+
+  // Period returns: 1m≈21, 3m≈63, 6m≈126 trading days
+  const ret = (n) => {
+    const idx = closes.length - 1 - n;
+    if (idx < 0) return null;
+    return +((last / closes[idx] - 1) * 100).toFixed(2);
+  };
+
+  return {
+    last,
+    lastDate,
+    from52hi: h52 > 0 ? +((last / h52 - 1) * 100).toFixed(2) : null,
+    from52lo: l52 > 0 ? +((last / l52 - 1) * 100).toFixed(2) : null,
+    ret1m:  ret(21),
+    ret3m:  ret(63),
+    ret6m:  ret(126),
+    rsi14:  _mmRsi(closes),
+  };
+}
+
+async function _mmLoadData() {
+  const supa = await getSupabaseAsync();
+  if (!supa) throw new Error('Supabase not ready');
+  const PAGE = 1000;
+  const result = {};
+
+  for (const sym of MM_ALL_SYMS) {
+    let all = [], from = 0;
+    while (true) {
+      const { data, error } = await supa
+        .from('price_history')
+        .select('trading_date,open,high,low,close')
+        .eq('symbol', sym)
+        .order('trading_date', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error || !data || !data.length) break;
+      all = all.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+      if (from > 50000) break;
+    }
+    result[sym] = all; // oldest→newest
+  }
+  return result;
+}
+
+function _mmPct(val, invert) {
+  if (val == null) return '<span style="color:#505060;">—</span>';
+  const v = invert ? -val : val;
+  const color = v > 5 ? '#00e5b0' : v > 0 ? '#82c8a0' : v > -5 ? '#ffb020' : '#ff3d5a';
+  return `<span style="color:${color};">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
+}
+
+function _mmRsiColor(rsi) {
+  if (rsi == null) return '#8090a0';
+  if (rsi <= 30) return '#00e5b0';
+  if (rsi <= 45) return '#82c8a0';
+  if (rsi >= 70) return '#ff3d5a';
+  if (rsi >= 60) return '#ffb020';
+  return '#c4d2e0';
+}
+
+function _mmRowHighlight(calc) {
+  // Deep oversold (from 52-hi < -15% AND rsi < 40) = faint cyan bg
+  if (calc.from52hi != null && calc.from52hi < -15 && (calc.rsi14 == null || calc.rsi14 < 45))
+    return 'background:rgba(0,212,255,0.06);';
+  // Extended (from52hi > -3% AND ret3m > 15%) = faint amber bg
+  if (calc.from52hi != null && calc.from52hi > -3 && calc.ret3m != null && calc.ret3m > 15)
+    return 'background:rgba(255,176,32,0.07);';
+  return '';
+}
+
+function _mmSortData(rows) {
+  const key = _mmSort;
+  return [...rows].sort((a, b) => {
+    const av = a.calc[key] ?? (key === 'from52hi' ? 9999 : -9999);
+    const bv = b.calc[key] ?? (key === 'from52hi' ? 9999 : -9999);
+    return (av - bv) * _mmSortDir;
+  });
+}
+
+function _mmThBtn(col, label) {
+  const active = _mmSort === col;
+  const arrow  = active ? (_mmSortDir === 1 ? ' ↑' : ' ↓') : '';
+  return `<span onclick="_mmSetSort('${col}')" style="cursor:pointer;color:${active ? '#00d4ff' : '#8090a0'};font-weight:${active ? '700' : '400'};user-select:none;">${label}${arrow}</span>`;
+}
+
+function _mmSetSort(col) {
+  if (_mmSort === col) _mmSortDir *= -1;
+  else { _mmSort = col; _mmSortDir = 1; }
+  _mmRender();
+}
+
+function _mmRender() {
+  const el = document.getElementById('mm-inner');
+  if (!el || !_mmData) return;
+
+  // ── Context row ───────────────────────────────────────────
+  const ctxHtml = MM_CONTEXT.map(sym => {
+    const rows = _mmData[sym] || [];
+    const last = rows.at(-1);
+    const prev = rows.at(-2);
+    if (!last) return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;"><div style="font-size:11px;font-weight:700;color:var(--text);">${sym}</div><div style="font-size:10px;color:#505060;">No data</div></div>`;
+    const close = parseFloat(last.close);
+    const d1pct = prev ? +((close / parseFloat(prev.close) - 1) * 100).toFixed(2) : null;
+    const d1color = d1pct == null ? '#8090a0' : d1pct >= 0 ? '#00e5b0' : '#ff3d5a';
+    const shortDate = last.trading_date.slice(5).replace('-', '/');
+    return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;">
+      <div style="font-size:11px;font-weight:700;color:var(--cyan);">${sym}</div>
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin:2px 0;">${sym === 'VIX' ? close.toFixed(2) : '$' + close.toFixed(2)}</div>
+      <div style="font-size:10px;color:${d1color};">${d1pct != null ? (d1pct >= 0 ? '+' : '') + d1pct.toFixed(2) + '%' : '—'} <span style="color:#505060;">${shortDate}</span></div>
+    </div>`;
+  }).join('');
+
+  // ── Sector board ──────────────────────────────────────────
+  const sectorRows = MM_SECTORS.map(({ sym, label }) => {
+    const calc = _mmCalc(_mmData[sym] || []);
+    return { sym, label, calc: calc || {} };
+  });
+  const sorted = _mmSortData(sectorRows);
+
+  const thStyle = 'font-size:9px;font-weight:700;letter-spacing:0.6px;color:#6080a0;padding:5px 8px;text-align:right;white-space:nowrap;';
+  const thL     = 'font-size:9px;font-weight:700;letter-spacing:0.6px;color:#6080a0;padding:5px 8px;text-align:left;';
+  const thead = `<div style="display:grid;grid-template-columns:90px 70px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid var(--border2);margin-bottom:2px;">
+    <span style="${thL}">SECTOR ETF</span>
+    <span style="${thStyle}">${_mmThBtn('last','LAST')}</span>
+    <span style="${thStyle}">${_mmThBtn('from52hi','% 52H')}</span>
+    <span style="${thStyle}">${_mmThBtn('from52lo','% 52L')}</span>
+    <span style="${thStyle}">${_mmThBtn('ret1m','1M%')}</span>
+    <span style="${thStyle}">${_mmThBtn('ret3m','3M%')}</span>
+    <span style="${thStyle}">${_mmThBtn('ret6m','6M%')}</span>
+    <span style="${thStyle}">${_mmThBtn('rsi14','RSI')}</span>
+  </div>`;
+
+  const tdStyle = 'padding:5px 8px;text-align:right;font-size:11px;';
+  const tdL     = 'padding:5px 8px;text-align:left;font-size:11px;';
+  const tbodyHtml = sorted.map(({ sym, label, calc }) => {
+    const hl = _mmRowHighlight(calc);
+    return `<div style="display:grid;grid-template-columns:90px 70px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid rgba(128,144,160,0.1);${hl}">
+      <span style="${tdL}font-weight:700;color:var(--text);"><span style="color:var(--cyan);font-size:10px;">${sym}</span><br><span style="font-size:9px;color:#8090a0;">${label}</span></span>
+      <span style="${tdStyle}color:#c4d2e0;">${calc.last != null ? '$' + calc.last.toFixed(2) : '—'}</span>
+      <span style="${tdStyle}">${_mmPct(calc.from52hi, false)}</span>
+      <span style="${tdStyle}">${_mmPct(calc.from52lo, true)}</span>
+      <span style="${tdStyle}">${_mmPct(calc.ret1m, true)}</span>
+      <span style="${tdStyle}">${_mmPct(calc.ret3m, true)}</span>
+      <span style="${tdStyle}">${_mmPct(calc.ret6m, true)}</span>
+      <span style="${tdStyle};color:${_mmRsiColor(calc.rsi14)};">${calc.rsi14 != null ? calc.rsi14 : '—'}</span>
+    </div>`;
+  }).join('');
+
+  // ── User stocks by sector ─────────────────────────────────
+  // Build etf→[symbols] map from _swingData
+  const byEtf = {};
+  (_swingData || []).filter(r => r.status !== 'closed').forEach(r => {
+    const etf = MM_ETF_FOR_SECTOR[r.sector] || null;
+    if (!etf) return;
+    if (!byEtf[etf]) byEtf[etf] = [];
+    byEtf[etf].push(r.symbol);
+  });
+
+  const userSectorsHtml = Object.keys(byEtf).length === 0
+    ? '<div style="color:#505060;font-size:11px;padding:8px 0;">No Momentum Watchlist symbols with matched sectors.</div>'
+    : sorted.map(({ sym, label, calc }) => {
+        const syms = byEtf[sym];
+        if (!syms || !syms.length) return '';
+        const hl = _mmRowHighlight(calc);
+        const badge = calc.from52hi != null && calc.from52hi < -15 ? '<span style="background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:3px;padding:1px 5px;font-size:8px;font-weight:700;margin-left:5px;">OVERSOLD</span>'
+          : calc.from52hi != null && calc.from52hi > -3 && calc.ret3m != null && calc.ret3m > 15 ? '<span style="background:rgba(255,176,32,0.15);color:#ffb020;border-radius:3px;padding:1px 5px;font-size:8px;font-weight:700;margin-left:5px;">EXTENDED</span>'
+          : '';
+        return `<div style="padding:6px 10px;border-radius:4px;margin-bottom:4px;${hl}border:1px solid rgba(128,144,160,0.1);">
+          <div style="font-size:10px;font-weight:700;color:var(--cyan);margin-bottom:4px;">${sym} <span style="color:#8090a0;font-weight:400;">${label}</span>${badge} <span style="color:#6080a0;font-size:9px;margin-left:8px;">${calc.from52hi != null ? (calc.from52hi >= 0 ? '+' : '') + calc.from52hi.toFixed(1) + '% from 52H' : ''}</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;">${syms.map(s => `<span style="background:var(--bg3);border:1px solid var(--border2);border-radius:4px;padding:3px 8px;font-size:11px;font-weight:700;color:var(--text);">${s}</span>`).join('')}</div>
+        </div>`;
+      }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">${ctxHtml}</div>
+
+    <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#6080a0;margin-bottom:8px;">SECTOR ETF BOARD</div>
+    <div style="overflow-x:auto;">
+      <div style="min-width:500px;">
+        ${thead}${tbodyHtml}
+      </div>
+    </div>
+
+    <div style="margin-top:6px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-size:9px;color:#6080a0;display:flex;gap:16px;flex-wrap:wrap;">
+      <span><span style="display:inline-block;width:10px;height:10px;background:rgba(0,212,255,0.15);border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Oversold / compressed — watch for reversal</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:rgba(255,176,32,0.15);border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Extended — late to chase</span>
+      <span>% 52H = distance from 52-wk high &nbsp;·&nbsp; Click column headers to sort</span>
+    </div>
+
+    <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#6080a0;margin:18px 0 8px;">YOUR MOMENTUM STOCKS BY SECTOR</div>
+    ${userSectorsHtml}
+  `;
+}
+
+async function showMarketMap() {
+  let modal = document.getElementById('market-map-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'market-map-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:flex-start;justify-content:center;background:rgba(8,30,45,0.65);padding:24px 16px;overflow-y:auto;';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;width:100%;max-width:660px;box-shadow:0 12px 40px rgba(0,0,0,0.5);">
+      <div style="display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;font-weight:700;color:var(--text);letter-spacing:0.5px;">⊞ MARKET MAP</span>
+        <button onclick="document.getElementById('market-map-modal').style.display='none'" style="margin-left:auto;background:none;border:none;cursor:pointer;color:#6080a0;font-size:18px;line-height:1;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">✕</button>
+      </div>
+      <div id="mm-inner" style="padding:18px;min-height:200px;"><div style="text-align:center;padding:40px;color:#6080a0;font-size:12px;">Loading price history…</div></div>
+    </div>`;
+  modal.style.display = 'flex';
+
+  // Use cached data if fresh (same session load)
+  if (_mmData) { _mmRender(); return; }
+
+  try {
+    _mmData = await _mmLoadData();
+    _mmRender();
+  } catch (e) {
+    const inner = document.getElementById('mm-inner');
+    if (inner) inner.innerHTML = `<div style="padding:30px;text-align:center;color:#ff3d5a;font-size:12px;">Failed to load: ${e.message}</div>`;
+  }
 }
 </script>
 
