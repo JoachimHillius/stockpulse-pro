@@ -910,6 +910,39 @@ select option{background:var(--bg2);}
     <span><span style="color:#ff3d5a;">★</span><span style="color:#00e5b0;">★</span> Strong name pulling back · potential dip</span>
     <span><span style="color:#ff3d5a;">★</span> Genuinely weak · declining or flat</span>
   </div>
+  <!-- ── Momentum filter / sort control bar ───────────────── -->
+  <div id="mom-filter-bar" style="display:flex;align-items:center;gap:7px;margin-bottom:12px;flex-wrap:wrap;padding:7px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
+    <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.8px;">SORT</span>
+    <select id="mom-sort-sel" onchange="setMomSort(this.value)"
+      style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:var(--font);cursor:pointer;">
+      <option value="default">Default</option>
+      <option value="sym_az">Symbol A→Z</option>
+      <option value="sym_za">Symbol Z→A</option>
+      <option value="gz_hi">GZ High→Low</option>
+      <option value="gz_lo">GZ Low→High</option>
+      <option value="daypl_hi">Day P/L High→Low</option>
+      <option value="d1_hi">1D% High→Low</option>
+    </select>
+    <span style="border-left:1px solid var(--border2);height:14px;display:inline-block;"></span>
+    <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.8px;">POTENTIAL</span>
+    <button id="mom-pot-all"   onclick="clearMomPotential()"           style="padding:2px 8px;background:rgba(0,212,255,0.15);border:1px solid #00d4ff55;border-radius:4px;color:#00d4ff;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);">All</button>
+    <button id="mom-pot-gold"  onclick="toggleMomPotential('gold')"    style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#ffd000;">★</span> High vol</button>
+    <button id="mom-pot-dip"   onclick="toggleMomPotential('dip')"     style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#ff3d5a;">★</span><span style="color:#00e5b0;">★</span> Pullback</button>
+    <button id="mom-pot-green" onclick="toggleMomPotential('green')"   style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#00e5b0;">★</span> Uptrend</button>
+    <button id="mom-pot-red"   onclick="toggleMomPotential('red')"     style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;font-size:10px;cursor:pointer;font-family:var(--font);"><span style="color:#ff3d5a;">★</span> Weak</button>
+    <span style="border-left:1px solid var(--border2);height:14px;display:inline-block;"></span>
+    <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.8px;">SECTOR</span>
+    <select id="mom-sector-sel" onchange="setMomSector(this.value)"
+      style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 6px;font-size:10px;font-family:var(--font);cursor:pointer;">
+      <option value="all">All Sectors</option>
+    </select>
+    <span style="border-left:1px solid var(--border2);height:14px;display:inline-block;"></span>
+    <input id="mom-search-input" type="text" placeholder="Search symbol / name…" oninput="setMomSearch()"
+      style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 8px;font-size:10px;font-family:var(--font);width:160px;outline:none;">
+    <button onclick="clearMomFilters()" title="Clear all filters"
+      style="padding:2px 8px;background:transparent;border:1px solid var(--border2);border-radius:4px;color:#6080a0;font-size:10px;cursor:pointer;font-family:var(--font);">✕ Clear</button>
+  </div>
+
   <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
     <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading...</div>
   </div>
@@ -7675,15 +7708,6 @@ async function syncSwingBaselines(){
   const supa = await getSupabaseAsync();
   if (!supa) { setBtnState('error', null, 'No DB connection'); return; }
 
-  // Snapshot max(last_synced_at) before the call
-  const { data: beforeRows } = await supa
-    .from('price_sync_status')
-    .select('last_synced_at')
-    .order('last_synced_at', { ascending: false })
-    .limit(1);
-  const beforeTs = beforeRows?.[0]?.last_synced_at ?? null;
-  console.log('[SyncHist] before max last_synced_at:', beforeTs);
-
   setBtnState('working');
 
   let data, invokeError;
@@ -7707,29 +7731,32 @@ async function syncSwingBaselines(){
     return;
   }
 
-  // Re-query max(last_synced_at) to confirm progress
-  const { data: afterRows } = await supa
-    .from('price_sync_status')
-    .select('last_synced_at')
-    .order('last_synced_at', { ascending: false })
-    .limit(1);
-  const afterTs = afterRows?.[0]?.last_synced_at ?? null;
-  console.log('[SyncHist] after max last_synced_at:', afterTs, '| advanced:', afterTs !== beforeTs && afterTs > (beforeTs ?? ''));
+  // Judge success from the response: done must be > 0
+  const done   = data?.done   ?? 0;
+  const failed = data?.failed ?? 0;
+  const total  = data?.total  ?? 0;
+  console.log('[SyncHist] done:', done, 'failed:', failed, 'total:', total);
 
-  const advanced = afterTs && afterTs !== beforeTs && afterTs > (beforeTs ?? '');
-  if (!advanced) {
-    const detail = `No rows advanced (before: ${beforeTs ?? 'none'}, after: ${afterTs ?? 'none'}). Edge fn returned: done=${data?.done??'?'}, failed=${data?.failed??'?'}`;
-    console.warn('[SyncHist] silent no-op detected:', detail);
+  if (done === 0) {
+    const detail = `Edge fn returned done=0 (failed=${failed}, total=${total}). Nothing was written.`;
+    console.warn('[SyncHist]', detail);
     setBtnState('error', null, detail);
-    showToast('Sync Hist', 'No rows updated — check Edge Function logs', 'error');
+    showToast('Sync Hist', 'No rows synced — check Edge Function logs', 'error');
     return;
   }
 
-  // Success
+  // Pull max(price_updated_at) from swing_watchlist for the timestamp
+  const { data: tsRows } = await supa
+    .from('swing_watchlist')
+    .select('price_updated_at')
+    .order('price_updated_at', { ascending: false })
+    .limit(1);
+  console.log('[SyncHist] max price_updated_at after sync:', tsRows?.[0]?.price_updated_at ?? 'none');
+
   setRefreshed('momentum_hist');
   await loadSwingData();
   renderMomentum();
-  const summary = `✓ ${data?.done ?? 0} synced, ${data?.failed ?? 0} failed`;
+  const summary = `✓ ${done} synced, ${failed} failed`;
   setBtnState('success', summary);
   showToast('Sync Hist', summary, 'info');
 }
@@ -7867,6 +7894,8 @@ function _momRow(row) {
     const cls = Math.abs(val) < 0.05 ? 'pct-zero' : val > 0 ? 'pct-pos' : 'pct-neg';
     return `<span class="pct-cell ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
   };
+  // NET$ day-change: only available when live quote is present
+  const hasLive = q.p != null;
   const netClr = (q.d ?? 0) >= 0 ? 'pct-pos' : 'pct-neg';
   const h1  = getPriceChangePct(sym, 60);
   const d1  = perf?.d1 ?? q.dp;
@@ -7875,8 +7904,8 @@ function _momRow(row) {
   const m6  = perf?.m6 ?? null;
   const y1  = perf?.y1 ?? null;
 
-  // Swing-specific P/L
-  const currentPrice = q.p;
+  // Swing-specific P/L — prefer live Finnhub quote, fall back to DB current_price
+  const currentPrice = q.p ?? (row.current_price != null ? Number(row.current_price) : null);
   const openPrice    = row.open_price != null && row.open_price !== '' ? Number(row.open_price) : null;
   const dayPL        = d1;  // today's % change (same as 1D — reinforces significance in swing context)
   const entryPL      = (currentPrice && openPrice && openPrice > 0)
@@ -7902,7 +7931,7 @@ function _momRow(row) {
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector || ''}">${row.sector || '—'}</span>
     <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
     <span style="text-align:right;font-size:11px;color:#c4d2e0;">${row.qty != null && row.qty !== '' ? row.qty : '—'}</span>
-    <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
+    <span class="pct-cell ${netClr}" style="text-align:right;">${!hasLive || q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
     ${pctCell(h1)}
     ${pctCell(d1)}
     ${pctCell(w1)}
@@ -7966,6 +7995,106 @@ function toggleMomNuggets(){
   renderMomentum();
 }
 
+// ── Sort + filter state ───────────────────────────────────────
+let _momSort             = 'default';
+let _momFilterPotential  = new Set();   // empty = show all; values: 'gold'|'dip'|'green'|'red'
+let _momFilterSector     = 'all';
+let _momSearch           = '';
+
+function setMomSort(val) { _momSort = val; renderMomentum(); }
+function setMomSector(val) { _momFilterSector = val; renderMomentum(); }
+function setMomSearch() {
+  const el = document.getElementById('mom-search-input');
+  _momSearch = el ? el.value.trim().toLowerCase() : '';
+  renderMomentum();
+}
+
+function toggleMomPotential(bucket) {
+  if (_momFilterPotential.has(bucket)) _momFilterPotential.delete(bucket);
+  else _momFilterPotential.add(bucket);
+  _updateMomPotBtns();
+  renderMomentum();
+}
+function clearMomPotential() {
+  _momFilterPotential.clear();
+  _updateMomPotBtns();
+  renderMomentum();
+}
+function clearMomFilters() {
+  _momSort = 'default';
+  _momFilterPotential.clear();
+  _momFilterSector = 'all';
+  _momSearch = '';
+  const sortSel   = document.getElementById('mom-sort-sel');     if (sortSel)   sortSel.value = 'default';
+  const secSel    = document.getElementById('mom-sector-sel');   if (secSel)    secSel.value  = 'all';
+  const searchEl  = document.getElementById('mom-search-input'); if (searchEl)  searchEl.value = '';
+  _updateMomPotBtns();
+  renderMomentum();
+}
+
+function _updateMomPotBtns() {
+  const anyActive = _momFilterPotential.size > 0;
+  const allBtn = document.getElementById('mom-pot-all');
+  if (allBtn) {
+    allBtn.style.background  = !anyActive ? 'rgba(0,212,255,0.15)' : 'transparent';
+    allBtn.style.color       = !anyActive ? '#00d4ff'              : '#8090a0';
+    allBtn.style.borderColor = !anyActive ? '#00d4ff55'            : 'var(--border2)';
+    allBtn.style.fontWeight  = !anyActive ? '700'                  : '';
+  }
+  const cfg = {
+    gold:  { id: 'mom-pot-gold',  ac: '#ffd000' },
+    dip:   { id: 'mom-pot-dip',   ac: '#ff3d5a' },
+    green: { id: 'mom-pot-green', ac: '#00e5b0' },
+    red:   { id: 'mom-pot-red',   ac: '#ff3d5a' },
+  };
+  Object.entries(cfg).forEach(([bucket, { id, ac }]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const on = _momFilterPotential.has(bucket);
+    btn.style.background  = on ? ac + '22' : 'transparent';
+    btn.style.color       = on ? ac        : '#8090a0';
+    btn.style.borderColor = on ? ac        : 'var(--border2)';
+    btn.style.fontWeight  = on ? '700'     : '';
+  });
+}
+
+function _applyMomFiltersSort(arr) {
+  let out = arr;
+  // Text search
+  if (_momSearch) {
+    out = out.filter(r =>
+      (r.symbol   || '').toLowerCase().includes(_momSearch) ||
+      (r.security || '').toLowerCase().includes(_momSearch)
+    );
+  }
+  // Sector
+  if (_momFilterSector !== 'all') {
+    out = out.filter(r => (r.sector || '') === _momFilterSector);
+  }
+  // Potential star category (multi-select)
+  if (_momFilterPotential.size > 0) {
+    out = out.filter(r => _momFilterPotential.has(momMoveBucket(r)));
+  }
+  // Sort (applied AFTER default GZ pre-sort so we override it cleanly)
+  if (_momSort !== 'default') {
+    out = [...out].sort((a, b) => {
+      if (_momSort === 'sym_az') return (a.symbol||'').localeCompare(b.symbol||'');
+      if (_momSort === 'sym_za') return (b.symbol||'').localeCompare(a.symbol||'');
+      if (_momSort === 'gz_hi')  return (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1);
+      if (_momSort === 'gz_lo')  return (a.rating_greenzone ?? -1) - (b.rating_greenzone ?? -1);
+      if (_momSort === 'daypl_hi' || _momSort === 'd1_hi') {
+        const getD1 = r => {
+          const perf = r.perf || histBaselines[r.symbol]?.perf;
+          return perf?.d1 ?? getQ(r.symbol).dp ?? null;
+        };
+        return (getD1(b) ?? -9999) - (getD1(a) ?? -9999);
+      }
+      return 0;
+    });
+  }
+  return out;
+}
+
 function renderMomentum() {
   const body = document.getElementById('mom-body');
   if (!body) return;
@@ -7975,6 +8104,15 @@ function renderMomentum() {
     const ga = a.rating_greenzone ?? -1, gb = b.rating_greenzone ?? -1;
     return gb - ga;
   });
+
+  // Rebuild sector dropdown (preserve selected value)
+  const secSel = document.getElementById('mom-sector-sel');
+  if (secSel) {
+    const sectors = [...new Set((_swingData||[]).map(r => r.sector).filter(Boolean))].sort();
+    secSel.innerHTML = `<option value="all">All Sectors</option>` +
+      sectors.map(s => `<option value="${s}" ${s === _momFilterSector ? 'selected' : ''}>${s}</option>`).join('');
+  }
+
   const allOpen = sortByGZ(_swingData.filter(r => r.category === 'all_market' && r.status === 'open'));
   const ttOpen  = sortByGZ(_swingData.filter(r => r.category === 'tech_titans' && r.status === 'open'));
   const jhRows  = [..._swingData.filter(r => r.category === 'jh')].sort((a, b) => (a.symbol||'').localeCompare(b.symbol||''));
@@ -7982,7 +8120,7 @@ function renderMomentum() {
 
   const _nugget = r => momMoveBucket(r) === 'gold' &&
     ((r.rating_greenzone_current ?? r.rating_greenzone ?? 0) >= MOM_NUGGET_GZ_MIN);
-  const _nf = arr => _momNuggetsOnly ? arr.filter(_nugget) : arr;
+  const _nf = arr => _applyMomFiltersSort(_momNuggetsOnly ? arr.filter(_nugget) : arr);
 
   body.innerHTML = [
     _momSection('ALL MARKETS — OPEN', _nf(allOpen), '#00e5b0', _momNuggetsOnly ? 999 : 10),
