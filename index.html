@@ -2726,7 +2726,7 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
     <span class="wl-chevron${isCollapsed ? ' closed' : ''}" id="wl-chev-${secId}">▾</span>
     <span>${sector}</span>
     <span style="color:#e0e0e0;margin-left:8px;font-size:9px;">${matched.length} stocks</span>
-    <span style="margin-left:auto;display:flex;align-items:center;gap:5px;" onclick="event.stopPropagation()">
+    <span style="margin-left:12px;display:flex;align-items:center;gap:5px;" onclick="event.stopPropagation()">
       <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.6px;">SORT</span>
       <select onchange="_wlBlkSetSort('${secId}',this.value)" style="width:auto;max-width:190px;flex-shrink:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${sortOpts}</select>
     </span>
@@ -8773,7 +8773,7 @@ function _scBuildPosBlock() {
   return `<div id="sc-blk-positions" style="margin-top:28px;border-top:1px solid var(--border2);padding-top:16px;">
     <div style="display:flex;align-items:center;gap:8px;padding:4px 10px 6px;">
       <span style="font-size:10px;font-weight:700;letter-spacing:1px;color:#6080a0;">POSITIONS</span>
-      <span style="margin-left:auto;">${_scSortDropdown('positions')}</span>
+      <span style="margin-left:12px;">${_scSortDropdown('positions')}</span>
     </div>
     ${_scColHdr()}${posContent}
   </div>`;
