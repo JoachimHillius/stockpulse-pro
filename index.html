@@ -426,14 +426,14 @@ select option{background:var(--bg2);}
 <div class="header">
   <div class="brand">STOCKPULSE<span> PRO</span></div>
   <nav class="nav">
+    <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
     <button class="nav-btn active" onclick="goPage('morning',this)">Morning Brief</button>
     <button class="nav-btn" onclick="goPage('watchlist',this)">Watchlist</button>
     <button class="nav-btn" onclick="goPage('momentum',this)" style="white-space:normal;line-height:1.2;padding:0 12px;font-size:10px;">Momentum<br>Watchlist</button>
+    <button class="nav-btn" onclick="goPage('scanners',this)">Scanners</button>
     <button class="nav-btn" onclick="goPage('flow',this)">Options Flow</button>
-    <button class="nav-btn" onclick="goPage('news',this)">News Scanner</button>
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
-    <button class="nav-btn" onclick="goPage('scanners',this)">Scanners</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
   </nav>
@@ -928,6 +928,8 @@ select option{background:var(--bg2);}
     </div>
     <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="scanners">never</span></span>
     <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'scanners',()=>loadScannerData())">↻ Refresh</button>
+    <button class="btn btn-sm" onclick="showScannerAddForm()"
+      style="background:#00d4ff18;border:1px solid #00d4ff55;color:#00d4ff;font-size:11px;padding:5px 12px;border-radius:5px;cursor:pointer;font-family:var(--font);font-weight:700;letter-spacing:0.3px;">+ Add Ticker</button>
   </div>
   <div id="sc-body" style="overflow-x:auto;">
     <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading…</div>
@@ -8262,14 +8264,18 @@ async function handleMomentumCsvFiles(files) {
 // ============================================================
 // SCANNERS TAB
 // ============================================================
-let _scannerData  = [];        // all rows from scanner_watchlist
-let _scannerView  = 'xgpt_iris'; // active sub-view list_name
+let _scannerData       = [];        // all rows from scanner_watchlist
+let _scannerView       = 'xgpt_iris'; // active sub-view list_name
+let _scFilterScanner   = 'all';     // 'all' | 'xgpt' | 'iris'
+let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
 
-// ── CSS grid for the scanner table (17 columns) ──────────────
+// ── CSS grid for the scanner table (18 columns) ──────────────
 // SYM 108 | NAME 118 | SECT 80 | PRICE 70 | QTY 50 | NET$ 68 |
 // 1H 46 | 1D 46 | 1W 50 | 1M 50 | 6M 50 | 1Y 50 |
-// IRIS 36 | XGPT 36 | GZ 36 | SEEN 44 | FIRST SEEN 80 | ACTIONS 60
-const SC_GRID = '108px 118px 80px 70px 50px 68px 46px 46px 50px 50px 50px 50px 36px 36px 36px 44px 80px 60px';
+// IRIS 36 | XGPT 36 | GZ 36 | SEEN# 46 | FIRST SEEN 80 | ACTIONS 60
+const SC_GRID = '108px 118px 80px 70px 50px 68px 46px 46px 50px 50px 50px 50px 36px 36px 36px 46px 80px 60px';
+const SC_DIV  = 'border-right:1px solid rgba(128,144,160,0.15);padding-right:8px;';
+const SC_DIV_L = 'padding-left:8px;';
 
 async function loadScannerData() {
   const supa = await getSupabaseAsync();
@@ -8295,6 +8301,7 @@ async function loadScannerData() {
 
 function setScannerView(view) {
   _scannerView = view;
+  _scFilterScanner = 'all'; // reset scanner filter when switching tabs
   const xBtn = document.getElementById('sc-tab-xgpt');
   const mBtn = document.getElementById('sc-tab-mom');
   if (xBtn) {
@@ -8313,8 +8320,9 @@ function setScannerView(view) {
 }
 
 function _scColHdr() {
-  const th = (label, align) =>
-    `<span style="text-align:${align||'right'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--text);">${label}</span>`;
+  const DIV = 'border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;';
+  const th = (label, align, extra) =>
+    `<span style="text-align:${align||'right'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--text);${extra||''}">${label}</span>`;
   return `<div style="display:grid;grid-template-columns:${SC_GRID};gap:2px;padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--border2);">
     ${th('SYMBOL','left')}
     ${th('SECURITY','left')}
@@ -8327,12 +8335,12 @@ function _scColHdr() {
     ${th('1W')}
     ${th('1M')}
     ${th('6M')}
-    ${th('1Y')}
-    ${th('IRIS','center')}
+    ${th('1Y','right',DIV)}
+    ${th('IRIS','center','padding-left:8px;')}
     ${th('XGPT','center')}
-    ${th('GZ','center')}
-    ${th('SEEN')}
-    ${th('FIRST SEEN','left')}
+    ${th('GZ','center',DIV)}
+    ${th('SEEN #','right','padding-left:8px;'+DIV)}
+    ${th('FIRST SEEN','left','padding-left:8px;')}
     <span></span>
   </div>`;
 }
@@ -8373,10 +8381,26 @@ function _scRow(row) {
   // net_value: prefer DB value; fallback price * qty
   const netVal = row.net_value ?? (price != null && row.qty ? price * row.qty : null);
 
+  // Action badge (Buy = green, Sell = red) — shown when row.action is set
+  const actionBadge = row.action
+    ? `<span style="font-size:8px;font-weight:700;color:${row.action === 'Buy' ? '#00e5b0' : '#ff3d5a'};background:${row.action === 'Buy' ? 'rgba(0,229,176,0.12)' : 'rgba(255,61,90,0.12)'};border-radius:3px;padding:1px 4px;margin-right:2px;">${row.action.toUpperCase()}</span>`
+    : '';
+
+  // Symbol color-coding (XGPT/Iris view only)
+  let symColor = 'var(--text)';
+  if (_scannerView === 'xgpt_iris') {
+    const alsoOnMomentum = _scannerData.some(
+      r => r.symbol === sym && (r.list_name === 'momentum' || r.list_name === 'positions')
+    );
+    if (alsoOnMomentum)             symColor = '#ffb020'; // gold = cross-scanner overlap
+    else if ((row.xgpt_count ?? 0) > 0) symColor = '#4da6ff'; // blue = XGPT only
+    // iris-only → default (var(--text))
+  }
+
   return `<div style="display:grid;grid-template-columns:${SC_GRID};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;${reviewStyle}"
     onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background='${row.needs_review && _scannerView==='momentum' ? 'rgba(255,176,32,0.08)' : ''}'">
-    <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">
-      ${newBadge}<span>${sym}</span>
+    <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:${symColor};white-space:nowrap;">
+      ${actionBadge}${newBadge}<span>${sym}</span>
     </span>
     <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
@@ -8388,12 +8412,12 @@ function _scRow(row) {
     ${_scPctCell(perf?.w1)}
     ${_scPctCell(perf?.m1)}
     ${_scPctCell(perf?.m6)}
-    ${_scPctCell(perf?.y1)}
-    <span style="text-align:center;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
+    <span style="text-align:right;font-size:10px;font-weight:600;color:${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'#00e5b0':'#ff3d5a'):'#505060'};border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;">${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'+':'')+Number(perf.y1).toFixed(1)+'%':'—'}</span>
+    <span style="text-align:center;padding-left:8px;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
-    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
-    <span style="text-align:right;font-size:11px;color:#c4d2e0;" title="${seenTip}">${row.total_count??'—'}</span>
-    <span style="font-size:10px;color:#c4cedb;">${row.first_seen_date||'—'}</span>
+    <span style="text-align:center;border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;padding-left:8px;border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;" title="${seenTip}">${row.total_count??'—'}</span>
+    <span style="font-size:10px;color:#c4cedb;padding-left:8px;">${row.first_seen_date||'—'}</span>
     <span style="text-align:right;white-space:nowrap;">
       ${clearNew}${reviewBtn}
       <button onclick="showScannerForm(_scannerData.find(r=>String(r.id)==='${safeId}'))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
@@ -8401,21 +8425,114 @@ function _scRow(row) {
   </div>`;
 }
 
+function setScannerFilter(val) {
+  _scFilterScanner = val;
+  renderScanners();
+}
+function setScannerDateFilter(val) {
+  _scFilterDate = val;
+  renderScanners();
+}
+
 function renderScanners() {
   const body = document.getElementById('sc-body');
   if (!body) return;
-  const rows = [..._scannerData]
-    .filter(r => r.list_name === _scannerView)
-    .sort((a, b) => {
-      const tc = (b.total_count ?? 0) - (a.total_count ?? 0);
-      if (tc !== 0) return tc;
-      return (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
+
+  // ── Filter helpers ────────────────────────────────────────
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  function withinDays(dateStr, days) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    return (today - d) / 86400000 <= days;
+  }
+
+  let rows = [..._scannerData].filter(r => r.list_name === _scannerView);
+
+  // Scanner filter (XGPT/Iris view only)
+  if (_scannerView === 'xgpt_iris' && _scFilterScanner !== 'all') {
+    if (_scFilterScanner === 'xgpt') rows = rows.filter(r => (r.xgpt_count ?? 0) > 0);
+    if (_scFilterScanner === 'iris') rows = rows.filter(r => (r.iris_count  ?? 0) > 0);
+  }
+
+  // Date filter (first_seen_date)
+  if (_scFilterDate !== 'all') {
+    const days = _scFilterDate === 'today' ? 0 : _scFilterDate === '7d' ? 7 : 30;
+    rows = rows.filter(r => {
+      if (!r.first_seen_date) return false;
+      const d = new Date(r.first_seen_date);
+      if (_scFilterDate === 'today') {
+        d.setHours(0, 0, 0, 0);
+        return d.getTime() === today.getTime();
+      }
+      return withinDays(r.first_seen_date, days);
     });
+  }
+
+  // ── Sort: last_alert_date DESC (nulls last), first_seen_date DESC, created_at DESC ──
+  rows.sort((a, b) => {
+    const aAlert = a.last_alert_date || null;
+    const bAlert = b.last_alert_date || null;
+    if (aAlert && bAlert) {
+      const cmp = bAlert.localeCompare(aAlert);
+      if (cmp !== 0) return cmp;
+    } else if (aAlert) return -1;
+    else if (bAlert) return 1;
+    const cmpFs = (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
+    if (cmpFs !== 0) return cmpFs;
+    return (b.created_at || '').localeCompare(a.created_at || '');
+  });
+
+  // ── Filter bar ────────────────────────────────────────────
+  const btnStyle = (active) =>
+    `background:${active ? 'rgba(0,212,255,0.18)' : 'transparent'};color:${active ? '#00d4ff' : '#6080a0'};border:1px solid ${active ? '#00d4ff66' : 'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active ? '700' : '400'};cursor:pointer;font-family:var(--font);letter-spacing:0.4px;`;
+
+  const scannerBar = (_scannerView === 'xgpt_iris') ? `
+    <span style="font-size:10px;color:#6080a0;margin-right:4px;">SCANNER:</span>
+    <button style="${btnStyle(_scFilterScanner==='all')}"   onclick="setScannerFilter('all')">All</button>
+    <button style="${btnStyle(_scFilterScanner==='xgpt')}"  onclick="setScannerFilter('xgpt')">XGPT</button>
+    <button style="${btnStyle(_scFilterScanner==='iris')}"  onclick="setScannerFilter('iris')">Iris</button>
+    <span style="margin:0 8px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>` : '';
+
+  const dateBar = `
+    <span style="font-size:10px;color:#6080a0;margin-right:4px;">FIRST SEEN:</span>
+    <button style="${btnStyle(_scFilterDate==='all')}"   onclick="setScannerDateFilter('all')">All</button>
+    <button style="${btnStyle(_scFilterDate==='today')}" onclick="setScannerDateFilter('today')">Today</button>
+    <button style="${btnStyle(_scFilterDate==='7d')}"    onclick="setScannerDateFilter('7d')">7d</button>
+    <button style="${btnStyle(_scFilterDate==='30d')}"   onclick="setScannerDateFilter('30d')">30d</button>`;
+
+  const legend = (_scannerView === 'xgpt_iris') ? `
+    <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:10px;color:#6080a0;">
+      <span style="color:var(--text);">▪</span> Iris
+      <span style="color:#4da6ff;">▪</span> XGPT
+      <span style="color:#ffb020;">▪</span> Momentum
+    </span>` : '';
+
+  const filterBar = `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 8px;flex-wrap:wrap;">
+    ${scannerBar}${dateBar}${legend}
+  </div>`;
+
+  // ── Positions block (Momentum view only) ─────────────────
+  let positionsBlock = '';
+  if (_scannerView === 'momentum') {
+    const posRows = [..._scannerData]
+      .filter(r => r.list_name === 'positions')
+      .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''));
+    const posContent = posRows.length
+      ? posRows.map(_scRow).join('')
+      : `<div style="padding:20px 10px;color:#404858;font-size:11px;font-style:italic;">No retired positions yet.</div>`;
+    positionsBlock = `
+      <div style="margin-top:28px;border-top:1px solid var(--border2);padding-top:16px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#6080a0;padding:0 10px 8px;">POSITIONS</div>
+        ${_scColHdr()}${posContent}
+      </div>`;
+  }
+
   if (!rows.length) {
-    body.innerHTML = `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows for this view</div>`;
+    body.innerHTML = `<div style="min-width:1100px;">${filterBar}<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows match</div>${positionsBlock}</div>`;
     return;
   }
-  body.innerHTML = `<div style="min-width:1100px;">${_scColHdr()}${rows.map(_scRow).join('')}</div>`;
+  body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scColHdr()}${rows.map(_scRow).join('')}${positionsBlock}</div>`;
 }
 
 async function initScanners() {
@@ -8446,7 +8563,7 @@ async function scClearReview(id) {
   try { await supa.from('scanner_watchlist').update({ needs_review: false }).eq('id', id); } catch(e) {}
 }
 
-// ── Edit / Move modal ────────────────────────────────────────
+// ── Edit modal ───────────────────────────────────────────────
 
 function showScannerForm(row) {
   if (!row) return;
@@ -8458,33 +8575,70 @@ function showScannerForm(row) {
     modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
     document.body.appendChild(modal);
   }
-  const v = k => row[k] ?? '';
+  const v = k => (row[k] != null ? String(row[k]).replace(/"/g, '&quot;') : '');
   const fld = (label, id, type, extra, val) => `
     <div style="margin-bottom:10px;">
       <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
-      <input id="sc-${id}" type="${type}" ${extra} value="${val ?? ''}"
+      <input id="sc-${id}" type="${type}" ${extra||''} value="${val??''}"
         style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
     </div>`;
-  const selFld = (label, id, opts, current) => `
+  const selFld = (label, id, opts, current, onChange) => `
     <div style="margin-bottom:10px;">
       <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
-      <select id="sc-${id}" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
-        ${opts.map(([val, label]) => `<option value="${val}" ${current === val ? 'selected' : ''}>${label}</option>`).join('')}
+      <select id="sc-${id}" ${onChange ? `onchange="${onChange}"` : ''} style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
+        ${opts.map(([val, lbl]) => `<option value="${val}" ${current === val ? 'selected' : ''}>${lbl}</option>`).join('')}
       </select>
     </div>`;
-  const safeId = String(row.id).replace(/'/g, "\\'");
+
+  const safeId  = String(row.id).replace(/'/g, "\\'");
+  const isMom   = row.list_name === 'momentum';
+
+  // Retire dropdown: momentum symbols excluding this row
+  const momSymbols = _scannerData
+    .filter(r => r.list_name === 'momentum' && String(r.id) !== String(row.id))
+    .sort((a, b) => (a.symbol||'').localeCompare(b.symbol||''));
+  const retireOpts = momSymbols.map(r =>
+    `<option value="${String(r.id).replace(/"/g,'&quot;')}">${r.symbol}${r.security ? ' — '+r.security : ''}</option>`
+  ).join('');
+
+  const listToggle = `var w=document.getElementById('sc-ed-retire-wrap');if(w)w.style.display=this.value==='momentum'?'':'none';`;
+
   modal.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:22px 24px;width:100%;max-width:460px;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:22px 24px;width:100%;max-width:480px;box-shadow:0 8px 30px rgba(0,0,0,0.4);max-height:92vh;overflow-y:auto;">
       <div style="font-size:12px;font-weight:700;color:#c0c8d0;margin-bottom:16px;letter-spacing:0.8px;">✎ EDIT — ${row.symbol}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
-        ${selFld('MOVE TO LIST', 'list-name', [['xgpt_iris','XGPT / Iris'],['momentum','Momentum']], v('list_name'))}
+        ${fld('SYMBOL', 'ed-symbol', 'text', 'autocomplete="off" oninput="this.value=this.value.toUpperCase()"', v('symbol'))}
+        ${fld('SECURITY (NAME)', 'ed-security', 'text', '', v('security'))}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+        ${fld('SECTOR', 'ed-sector', 'text', '', v('sector'))}
+        ${selFld('LIST', 'list-name', [['xgpt_iris','XGPT / Iris'],['momentum','Momentum']], row.list_name, listToggle)}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+        ${selFld('SOURCE SCANNER', 'ed-scanner', [['xgpt','XGPT'],['iris','Iris'],['momentum','Momentum']], row.source_scanner||'momentum')}
+        ${selFld('ACTION', 'ed-action', [['','—'],['Buy','Buy'],['Sell','Sell'],['Watch','Watch']], row.action||'')}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;">
+        ${fld('ENTRY', 'ed-entry', 'number', 'step="any"', v('entry_price'))}
+        ${fld('EXIT',  'ed-exit',  'number', 'step="any"', v('exit_price'))}
+        ${fld('STOP',  'ed-stop',  'number', 'step="any"', v('stop_price'))}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
         ${fld('QTY (SHARES)', 'qty', 'number', 'step="any"', v('qty'))}
       </div>
-      <div style="margin-bottom:14px;">
+      <div style="margin-bottom:10px;">
         <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
         <textarea id="sc-notes" rows="2"
-          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;resize:none;font-family:var(--font);">${v('notes')}</textarea>
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;resize:none;font-family:var(--font);">${row.notes||''}</textarea>
       </div>
+      <div id="sc-ed-retire-wrap" style="display:${isMom ? '' : 'none'};border-top:1px solid var(--border2);padding-top:10px;margin-bottom:10px;">
+        <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">REPLACE / RETIRE TICKER <span style="color:#6080a0;font-weight:400;">(optional)</span></div>
+        <select id="sc-ed-retire-id" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
+          <option value="">— none —</option>
+          ${retireOpts}
+        </select>
+      </div>
+      <div id="sc-edit-error" style="color:#ff3d5a;font-size:11px;min-height:16px;margin-bottom:8px;"></div>
       <div style="display:flex;gap:8px;">
         <button onclick="saveScannerRow('${safeId}')"
           style="flex:1;padding:8px;background:#00d4ff22;border:1px solid #00d4ff;border-radius:5px;color:#00d4ff;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">SAVE</button>
@@ -8496,31 +8650,234 @@ function showScannerForm(row) {
 }
 
 async function saveScannerRow(id) {
-  const g = suffix => { const el = document.getElementById('sc-' + suffix); return el ? el.value.trim() : ''; };
+  const g    = suffix => { const el = document.getElementById('sc-' + suffix); return el ? el.value.trim() : ''; };
+  const errEl = document.getElementById('sc-edit-error');
+  const setErr = msg => { if (errEl) errEl.textContent = msg; };
+
+  const newSym      = g('ed-symbol').toUpperCase() || null;
   const newListName = g('list-name');
-  const newQty      = g('qty') === '' ? null : Number(g('qty'));
-  const newNotes    = g('notes') || null;
+  const newSecurity = g('ed-security') || null;
+  const newSector   = g('ed-sector')   || null;
+  const newScanner  = g('ed-scanner')  || null;
+  const newAction   = g('ed-action')   || null;
+  const newEntry    = g('ed-entry')    === '' ? null : Number(g('ed-entry'));
+  const newExit     = g('ed-exit')     === '' ? null : Number(g('ed-exit'));
+  const newStop     = g('ed-stop')     === '' ? null : Number(g('ed-stop'));
+  const newQty      = g('qty')         === '' ? null : Number(g('qty'));
+  const newNotes    = g('notes')       || null;
+  const retireId    = g('ed-retire-id');
 
   const row = _scannerData.find(r => String(r.id) === String(id));
   if (!row) return;
 
-  // Optimistic update
-  row.list_name = newListName;
-  row.qty       = newQty;
-  row.notes     = newNotes;
-  // Recalculate net_value if we have a price
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+
+  const updates = {
+    symbol:         newSym      ?? row.symbol,
+    list_name:      newListName,
+    security:       newSecurity,
+    sector:         newSector,
+    source_scanner: newScanner,
+    action:         newAction,
+    entry_price:    newEntry,
+    exit_price:     newExit,
+    stop_price:     newStop,
+    qty:            newQty,
+    notes:          newNotes,
+  };
   const q = getQ(row.symbol);
-  if (q.p != null && newQty != null) row.net_value = q.p * newQty;
+  if (q.p != null && newQty != null) updates.net_value = q.p * newQty;
+
+  const { error: mainErr } = await supa.from('scanner_watchlist').update(updates).eq('id', id);
+  if (mainErr) { setErr('Save failed: ' + mainErr.message); return; }
+  Object.assign(row, updates);
+
+  if (retireId) {
+    const outRow = _scannerData.find(r => String(r.id) === String(retireId));
+    const { error: retireErr } = await supa
+      .from('scanner_watchlist')
+      .update({ list_name: 'positions', action: 'Sell' })
+      .eq('id', retireId);
+    if (retireErr) { setErr('Retire failed: ' + retireErr.message); return; }
+    if (outRow) { outRow.list_name = 'positions'; outRow.action = 'Sell'; }
+  }
 
   document.getElementById('scanner-form-modal').style.display = 'none';
   renderScanners();
-  showToast(row.symbol, 'Saved', 'info');
+  showToast(row.symbol, retireId ? 'Saved + retired' : 'Saved', 'info');
+}
 
-  const supa = await getSupabaseAsync(); if (!supa) return;
-  const updates = { list_name: newListName, qty: newQty, notes: newNotes };
-  if (row.net_value != null) updates.net_value = row.net_value;
-  const { error } = await supa.from('scanner_watchlist').update(updates).eq('id', id);
-  if (error) showToast(row.symbol, 'Save failed: ' + error.message, 'error');
+// ── Add Ticker modal ─────────────────────────────────────────
+
+function showScannerAddForm() {
+  let modal = document.getElementById('scanner-form-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'scanner-form-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(8,30,45,0.55);padding:20px;';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.body.appendChild(modal);
+  }
+
+  const fld = (label, id, type, extra, val, req) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">${label}${req ? ' <span style="color:#ff3d5a;">*</span>' : ''}</div>
+      <input id="sc-${id}" type="${type}" ${extra||''} value="${val??''}"
+        style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
+    </div>`;
+  const selFld = (label, id, opts, current, onChange) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
+      <select id="sc-${id}" ${onChange ? `onchange="${onChange}"` : ''} style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
+        ${opts.map(([v, l]) => `<option value="${v}" ${current === v ? 'selected' : ''}>${l}</option>`).join('')}
+      </select>
+    </div>`;
+
+  const defaultList = _scannerView === 'momentum' ? 'momentum' : 'xgpt_iris';
+  const isMom = defaultList === 'momentum';
+
+  const momSymbols = _scannerData
+    .filter(r => r.list_name === 'momentum')
+    .sort((a, b) => (a.symbol||'').localeCompare(b.symbol||''));
+  const retireOpts = momSymbols.map(r =>
+    `<option value="${String(r.id).replace(/"/g,'&quot;')}">${r.symbol}${r.security ? ' — '+r.security : ''}</option>`
+  ).join('');
+
+  const listToggle = `var w=document.getElementById('sc-new-retire-wrap');if(w)w.style.display=this.value==='momentum'?'':'none';`;
+
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:22px 24px;width:100%;max-width:480px;box-shadow:0 8px 30px rgba(0,0,0,0.4);max-height:92vh;overflow-y:auto;">
+      <div style="font-size:12px;font-weight:700;color:#00d4ff;margin-bottom:16px;letter-spacing:0.8px;">+ ADD TICKER</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+        ${fld('SYMBOL', 'new-symbol', 'text', 'autocomplete="off" oninput="this.value=this.value.toUpperCase()"', '', true)}
+        ${fld('SECURITY (NAME)', 'new-security', 'text', '', '', false)}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+        ${fld('SECTOR', 'new-sector', 'text', '', '', false)}
+        ${selFld('LIST', 'new-list', [['xgpt_iris','XGPT / Iris'],['momentum','Momentum']], defaultList, listToggle)}
+      </div>
+      ${selFld('SOURCE SCANNER', 'new-scanner', [['xgpt','XGPT'],['iris','Iris'],['momentum','Momentum']], isMom ? 'momentum' : 'xgpt')}
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;">
+        ${fld('ENTRY', 'new-entry', 'number', 'step="any"', '', false)}
+        ${fld('EXIT',  'new-exit',  'number', 'step="any"', '', false)}
+        ${fld('STOP',  'new-stop',  'number', 'step="any"', '', false)}
+      </div>
+      ${fld('QTY (SHARES)', 'new-qty', 'number', 'step="any"', '', false)}
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
+        <textarea id="sc-new-notes" rows="2"
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;resize:none;font-family:var(--font);"></textarea>
+      </div>
+      <div id="sc-new-retire-wrap" style="display:${isMom ? '' : 'none'};border-top:1px solid var(--border2);padding-top:10px;margin-bottom:10px;">
+        <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">REPLACE / RETIRE TICKER <span style="color:#6080a0;font-weight:400;">(optional)</span></div>
+        <select id="sc-new-retire-id" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);">
+          <option value="">— none —</option>
+          ${retireOpts}
+        </select>
+      </div>
+      <div id="sc-add-error" style="color:#ff3d5a;font-size:11px;min-height:16px;margin-bottom:8px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="saveScannerNewRow()"
+          style="flex:1;padding:8px;background:#00d4ff22;border:1px solid #00d4ff;border-radius:5px;color:#00d4ff;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">SAVE</button>
+        <button onclick="document.getElementById('scanner-form-modal').style.display='none'"
+          style="padding:8px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:#8090a0;font-size:12px;cursor:pointer;font-family:var(--font);">Cancel</button>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
+}
+
+async function saveScannerNewRow() {
+  const g     = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const errEl = document.getElementById('sc-add-error');
+  const setErr = msg => { if (errEl) errEl.textContent = msg; };
+
+  const sym      = g('sc-new-symbol').toUpperCase();
+  const listName = g('sc-new-list');
+  const scanner  = g('sc-new-scanner');
+  const retireId = g('sc-new-retire-id');
+
+  if (!sym) { setErr('Symbol is required.'); return; }
+  setErr('');
+
+  const today    = new Date().toISOString().slice(0, 10);
+  const qty      = g('sc-new-qty')      === '' ? null : Number(g('sc-new-qty'));
+  const entry    = g('sc-new-entry')    === '' ? null : Number(g('sc-new-entry'));
+  const exitVal  = g('sc-new-exit')     === '' ? null : Number(g('sc-new-exit'));
+  const stopVal  = g('sc-new-stop')     === '' ? null : Number(g('sc-new-stop'));
+  const notes    = g('sc-new-notes')    || null;
+  const security = g('sc-new-security') || null;
+  const sector   = g('sc-new-sector')   || null;
+
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+
+  // ── Step A: upsert new row ────────────────────────────────
+  const { data: existing } = await supa
+    .from('scanner_watchlist')
+    .select('id, total_count, xgpt_count, iris_count, momentum_count')
+    .eq('list_name', listName)
+    .eq('symbol', sym)
+    .maybeSingle();
+
+  if (existing) {
+    const updates = {
+      total_count:     (existing.total_count    ?? 0) + 1,
+      xgpt_count:      (existing.xgpt_count     ?? 0) + (scanner === 'xgpt'     ? 1 : 0),
+      iris_count:      (existing.iris_count      ?? 0) + (scanner === 'iris'     ? 1 : 0),
+      momentum_count:  (existing.momentum_count  ?? 0) + (scanner === 'momentum' ? 1 : 0),
+      last_alert_date: today,
+    };
+    const { error } = await supa.from('scanner_watchlist').update(updates).eq('id', existing.id);
+    if (error) { setErr('Update failed: ' + error.message); return; }
+    const cached = _scannerData.find(r => String(r.id) === String(existing.id));
+    if (cached) Object.assign(cached, updates);
+  } else {
+    const newRow = {
+      symbol:          sym,
+      security:        security,
+      sector:          sector,
+      list_name:       listName,
+      action:          listName === 'momentum' ? 'Buy' : null,
+      first_seen_date: today,
+      last_alert_date: today,
+      is_new:          true,
+      needs_review:    listName === 'momentum',
+      source_scanner:  scanner,
+      total_count:     1,
+      xgpt_count:      scanner === 'xgpt'     ? 1 : 0,
+      iris_count:      scanner === 'iris'     ? 1 : 0,
+      momentum_count:  scanner === 'momentum' ? 1 : 0,
+      qty:             qty,
+      entry_price:     entry,
+      exit_price:      exitVal,
+      stop_price:      stopVal,
+      notes:           notes,
+    };
+    const { data: inserted, error } = await supa
+      .from('scanner_watchlist')
+      .insert(newRow)
+      .select()
+      .single();
+    if (error) { setErr('Insert failed: ' + error.message); return; }
+    _scannerData.unshift(inserted);
+  }
+
+  // ── Step B: retire outgoing (optional) ───────────────────
+  if (retireId) {
+    const outRow = _scannerData.find(r => String(r.id) === String(retireId));
+    const { error: retireErr } = await supa
+      .from('scanner_watchlist')
+      .update({ list_name: 'positions', action: 'Sell' })
+      .eq('id', retireId);
+    if (retireErr) { setErr('Retire failed: ' + retireErr.message); return; }
+    if (outRow) { outRow.list_name = 'positions'; outRow.action = 'Sell'; }
+  }
+
+  document.getElementById('scanner-form-modal').style.display = 'none';
+  renderScanners();
+  const dest = listName === 'momentum' ? 'Momentum' : 'XGPT / Iris';
+  showToast(sym, retireId ? `Added to ${dest} + retired` : `Added to ${dest}`, 'success');
 }
 </script>
 
