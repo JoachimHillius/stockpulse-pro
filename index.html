@@ -929,6 +929,8 @@ select option{background:var(--bg2);}
         style="padding:5px 14px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:#00d4ff22;color:#00d4ff;font-weight:700;">XGPT / Iris</button>
       <button id="sc-tab-mom" onclick="setScannerView('momentum')"
         style="padding:5px 14px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:transparent;color:#8090a0;">Momentum</button>
+      <button id="sc-tab-tenx" onclick="setScannerView('money_markets')"
+        style="padding:5px 14px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:transparent;color:#8090a0;">10X <span id="sc-tenx-count" style="font-size:9px;background:rgba(0,229,176,0.18);color:#00e5b0;border-radius:3px;padding:0 4px;margin-left:2px;"></span></button>
     </div>
     <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="scanners">never</span></span>
     <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'scanners',()=>loadScannerData())">↻ Refresh</button>
@@ -8513,7 +8515,7 @@ let _scFilterScanner   = 'all';     // 'all' | 'xgpt' | 'iris'
 let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
 
 // ── Per-block sort state (keyed by view id or 'positions') ────
-const _scCtl = { xgpt_iris: { sort: 'default' }, momentum: { sort: 'default' }, positions: { sort: 'default' } };
+const _scCtl = { xgpt_iris: { sort: 'default' }, momentum: { sort: 'default' }, positions: { sort: 'default' }, money_markets: { sort: 'default' } };
 
 // ── CSS grid for the scanner table (18 columns) ──────────────
 // SYM 108 | NAME 118 | SECT 80 | PRICE 70 | QTY 50 | NET$ 68 |
@@ -8550,6 +8552,7 @@ function setScannerView(view) {
   _scFilterScanner = 'all'; // reset scanner filter when switching tabs
   const xBtn = document.getElementById('sc-tab-xgpt');
   const mBtn = document.getElementById('sc-tab-mom');
+  const tBtn = document.getElementById('sc-tab-tenx');
   if (xBtn) {
     const on = view === 'xgpt_iris';
     xBtn.style.background = on ? '#00d4ff22' : 'transparent';
@@ -8561,6 +8564,12 @@ function setScannerView(view) {
     mBtn.style.background = on ? '#ffb02022' : 'transparent';
     mBtn.style.color      = on ? '#ffb020'   : '#8090a0';
     mBtn.style.fontWeight = on ? '700' : '';
+  }
+  if (tBtn) {
+    const on = view === 'money_markets';
+    tBtn.style.background = on ? '#00e5b022' : 'transparent';
+    tBtn.style.color      = on ? '#00e5b0'   : '#8090a0';
+    tBtn.style.fontWeight = on ? '700' : '';
   }
   renderScanners();
 }
@@ -8671,6 +8680,77 @@ function _scRow(row) {
   </div>`;
 }
 
+// ── 10X (money_markets) table ────────────────────────────────
+// SYM 108 | NAME 118 | SECT 80 | PRICE 70 | QTY 50 | NET$ 68 |
+// 1H 46 | 1D 46 | 1W 50 | 1M 50 | 6M 50 | 1Y 50 |
+// NOTE 1fr | FIRST SEEN 80 | ACTIONS 60
+const SC_GRID_TENX = '108px 118px 80px 70px 50px 68px 46px 46px 50px 50px 50px 50px 1fr 80px 60px';
+
+function _scColHdrTenx() {
+  const DIV = 'border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;';
+  const th = (label, align, extra) =>
+    `<span style="text-align:${align||'right'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--text);${extra||''}">${label}</span>`;
+  return `<div style="display:grid;grid-template-columns:${SC_GRID_TENX};gap:2px;padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--border2);">
+    ${th('SYMBOL','left')}
+    ${th('SECURITY','left')}
+    ${th('SECTOR','left')}
+    ${th('PRICE')}
+    ${th('QTY')}
+    ${th('NET$')}
+    ${th('1H')}
+    ${th('1D')}
+    ${th('1W')}
+    ${th('1M')}
+    ${th('6M')}
+    ${th('1Y','right',DIV)}
+    ${th('NOTE','left','padding-left:8px;')}
+    ${th('FIRST SEEN','left')}
+    <span></span>
+  </div>`;
+}
+
+function _scRowTenx(row) {
+  const sym    = row.symbol || '';
+  const safeId = String(row.id).replace(/'/g, "\\'");
+  const q      = getQ(sym);
+  const perf   = row.perf || histBaselines[sym]?.perf;
+  const price  = q.p ?? row.current_price ?? null;
+  const netVal = row.net_value ?? (price != null && row.qty ? price * row.qty : null);
+  const DIV    = 'border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;';
+
+  const newBadge = row.is_new
+    ? `<span style="font-size:8px;font-weight:700;background:#ff3d5a;color:#fff;border-radius:3px;padding:1px 4px;margin-right:3px;">NEW</span>`
+    : '';
+  const clearNew = row.is_new
+    ? `<button onclick="scClearNew('${safeId}')" title="Clear new flag" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:10px;padding:1px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">✕</button>`
+    : '';
+  const noteText = row.notes || '—';
+
+  return `<div style="display:grid;grid-template-columns:${SC_GRID_TENX};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;"
+    onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background=''">
+    <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">
+      ${newBadge}<span>${sym}</span>
+    </span>
+    <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
+    <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
+    <span style="text-align:right;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">${fmtPrice(sym, price)}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;">${row.qty != null ? row.qty : '—'}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;">${netVal != null ? '$' + Number(netVal).toLocaleString(undefined,{maximumFractionDigits:0}) : '—'}</span>
+    ${_scPctCell(perf?.h1)}
+    ${_scPctCell(perf?.d1 ?? q.dp)}
+    ${_scPctCell(perf?.w1)}
+    ${_scPctCell(perf?.m1)}
+    ${_scPctCell(perf?.m6)}
+    <span style="text-align:right;font-size:10px;font-weight:600;color:${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'#00e5b0':'#ff3d5a'):'#505060'};${DIV}">${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'+':'')+Number(perf.y1).toFixed(1)+'%':'—'}</span>
+    <span style="font-size:10px;color:#c4cedb;padding-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${noteText.replace(/"/g,'&quot;')}">${noteText}</span>
+    <span style="font-size:10px;color:#c4cedb;">${row.first_seen_date||'—'}</span>
+    <span style="text-align:right;white-space:nowrap;">
+      ${clearNew}
+      <button onclick="showScannerForm(_scannerData.find(r=>String(r.id)==='${safeId}'))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+    </span>
+  </div>`;
+}
+
 function setScannerFilter(val) {
   _scFilterScanner = val;
   renderScanners();
@@ -8769,14 +8849,15 @@ function _scSortDropdown(blockId) {
 
 function _scBuildMainBlock(rows) {
   const sorted = _scApplySort(_scannerView, rows);
+  const isTenx = _scannerView === 'money_markets';
   const content = sorted.length
-    ? sorted.map(_scRow).join('')
+    ? sorted.map(isTenx ? _scRowTenx : _scRow).join('')
     : `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows match</div>`;
   return `<div id="sc-blk-main">
     <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.10);">
       ${_scSortDropdown(_scannerView)}
     </div>
-    ${_scColHdr()}${content}
+    ${isTenx ? _scColHdrTenx() : _scColHdr()}${content}
   </div>`;
 }
 
@@ -8832,6 +8913,13 @@ function renderScanners() {
   </div>`;
 
   const positionsBlock = _scannerView === 'momentum' ? _scBuildPosBlock() : '';
+
+  // Update 10X count badge
+  const tenxCountEl = document.getElementById('sc-tenx-count');
+  if (tenxCountEl) {
+    const tenxCount = _scannerData.filter(r => r.list_name === 'money_markets').length;
+    tenxCountEl.textContent = tenxCount > 0 ? tenxCount : '';
+  }
 
   body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
 }
