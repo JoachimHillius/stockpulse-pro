@@ -8653,9 +8653,11 @@ function _scRow(row) {
 
   // Source badge (All view only)
   const srcBadge = _scannerView === 'all' ? (() => {
-    if (row.list_name === 'xgpt_iris')     return '<span style="font-size:7px;font-weight:700;background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">XG</span>';
-    if (row.list_name === 'momentum')      return '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>';
-    if (row.list_name === 'money_markets') return '<span style="font-size:7px;font-weight:700;background:rgba(0,229,176,0.15);color:#00e5b0;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">10X</span>';
+    const src = row.source_scanner || (row.list_name === 'momentum' ? 'momentum' : row.list_name === 'money_markets' ? 'tenx' : '');
+    if (src === 'xgpt')     return '<span style="font-size:7px;font-weight:700;background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">XG</span>';
+    if (src === 'iris')     return '<span style="font-size:7px;font-weight:700;background:rgba(160,200,255,0.15);color:#a0c8ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">IR</span>';
+    if (src === 'tenx')     return '<span style="font-size:7px;font-weight:700;background:rgba(0,229,176,0.15);color:#00e5b0;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">10X</span>';
+    if (src === 'momentum') return '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>';
     return '';
   })() : '';
 
