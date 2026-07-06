@@ -8678,6 +8678,7 @@ function _scRow(row) {
     <span style="text-align:right;white-space:nowrap;">
       ${clearNew}${reviewBtn}
       <button onclick="showScannerForm(_scannerData.find(r=>String(r.id)==='${safeId}'))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+      <button onclick="scDeleteRow('${safeId}')" title="Delete row" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">⊗</button>
     </span>
   </div>`;
 }
@@ -8749,6 +8750,7 @@ function _scRowTenx(row) {
     <span style="text-align:right;white-space:nowrap;">
       ${clearNew}
       <button onclick="showScannerForm(_scannerData.find(r=>String(r.id)==='${safeId}'))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+      <button onclick="scDeleteRow('${safeId}')" title="Delete row" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">⊗</button>
     </span>
   </div>`;
 }
@@ -8952,6 +8954,18 @@ async function scClearReview(id) {
   renderScanners();
   const supa = await getSupabaseAsync(); if (!supa) return;
   try { await supa.from('scanner_watchlist').update({ needs_review: false }).eq('id', id); } catch(e) {}
+}
+
+async function scDeleteRow(id) {
+  const row = _scannerData.find(r => String(r.id) === String(id));
+  if (!row) return;
+  if (!confirm(`Remove ${row.symbol} from scanner?`)) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) { alert('No database connection'); return; }
+  const { error } = await supa.from('scanner_watchlist').delete().eq('id', id);
+  if (error) { alert('Delete failed: ' + error.message); return; }
+  _scannerData = _scannerData.filter(r => String(r.id) !== String(id));
+  renderScanners();
 }
 
 // ── Edit modal ───────────────────────────────────────────────
