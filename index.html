@@ -924,15 +924,15 @@ select option{background:var(--bg2);}
     <span style="font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:1px;">SCANNERS</span>
     <span id="sc-status" style="font-size:10px;color:#6080a0;"></span>
     <!-- segmented sub-view control -->
-    <div style="display:flex;border:1px solid var(--border2);border-radius:5px;overflow:hidden;margin-left:10px;flex-shrink:0;">
+    <div style="display:flex;margin-left:10px;flex-shrink:0;">
       <button id="sc-tab-xgpt" onclick="setScannerView('xgpt_iris')"
-        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:#00d4ff22;color:#00d4ff;font-weight:700;">XGPT / Iris</button>
+        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:1px solid var(--border2);border-right:none;border-radius:5px 0 0 5px;cursor:pointer;background:#00d4ff22;color:#00d4ff;font-weight:700;">XGPT / Iris</button>
       <button id="sc-tab-mom" onclick="setScannerView('momentum')"
-        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:transparent;color:#8090a0;">Momentum</button>
+        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:1px solid var(--border2);border-right:none;border-radius:0;cursor:pointer;background:transparent;color:#8090a0;">Momentum</button>
       <button id="sc-tab-tenx" onclick="setScannerView('money_markets')"
-        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:transparent;color:#8090a0;">10X <span id="sc-tenx-count" style="font-size:9px;background:rgba(0,229,176,0.18);color:#00e5b0;border-radius:3px;padding:0 4px;margin-left:2px;"></span></button>
+        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:1px solid var(--border2);border-right:none;border-radius:0;cursor:pointer;background:transparent;color:#8090a0;">10X <span id="sc-tenx-count" style="font-size:9px;background:rgba(0,229,176,0.18);color:#00e5b0;border-radius:3px;padding:0 4px;margin-left:2px;"></span></button>
       <button id="sc-tab-all" onclick="setScannerView('all')"
-        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:transparent;color:#8090a0;">All</button>
+        style="padding:5px 10px;font-size:11px;font-family:var(--font);border:1px solid var(--border2);border-radius:0 5px 5px 0;cursor:pointer;background:transparent;color:#8090a0;">All</button>
     </div>
     <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="scanners">never</span></span>
     <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'scanners',refreshScanners)">↻ Refresh</button>
