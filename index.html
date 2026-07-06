@@ -925,6 +925,8 @@ select option{background:var(--bg2);}
     <span id="sc-status" style="font-size:10px;color:#6080a0;"></span>
     <!-- segmented sub-view control -->
     <div style="display:flex;border:1px solid var(--border2);border-radius:5px;overflow:hidden;margin-left:10px;flex-shrink:0;">
+      <button id="sc-tab-all" onclick="setScannerView('all')"
+        style="padding:5px 14px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:transparent;color:#8090a0;">All</button>
       <button id="sc-tab-xgpt" onclick="setScannerView('xgpt_iris')"
         style="padding:5px 14px;font-size:11px;font-family:var(--font);border:none;cursor:pointer;background:#00d4ff22;color:#00d4ff;font-weight:700;">XGPT / Iris</button>
       <button id="sc-tab-mom" onclick="setScannerView('momentum')"
@@ -8518,7 +8520,7 @@ let _scFilterScanner   = 'all';     // 'all' | 'xgpt' | 'iris'
 let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
 
 // ── Per-block sort state (keyed by view id or 'positions') ────
-const _scCtl = { xgpt_iris: { sort: 'default' }, momentum: { sort: 'default' }, positions: { sort: 'default' }, money_markets: { sort: 'default' } };
+const _scCtl = { xgpt_iris: { sort: 'default' }, momentum: { sort: 'default' }, positions: { sort: 'default' }, money_markets: { sort: 'default' }, all: { sort: 'default' } };
 
 // ── CSS grid for the scanner table (18 columns) ──────────────
 // SYM 108 | NAME 118 | SECT 80 | PRICE 70 | QTY 50 | NET$ 68 |
@@ -8553,27 +8555,20 @@ async function loadScannerData() {
 function setScannerView(view) {
   _scannerView = view;
   _scFilterScanner = 'all'; // reset scanner filter when switching tabs
-  const xBtn = document.getElementById('sc-tab-xgpt');
-  const mBtn = document.getElementById('sc-tab-mom');
-  const tBtn = document.getElementById('sc-tab-tenx');
-  if (xBtn) {
-    const on = view === 'xgpt_iris';
-    xBtn.style.background = on ? '#00d4ff22' : 'transparent';
-    xBtn.style.color      = on ? '#00d4ff'   : '#8090a0';
-    xBtn.style.fontWeight = on ? '700' : '';
-  }
-  if (mBtn) {
-    const on = view === 'momentum';
-    mBtn.style.background = on ? '#ffb02022' : 'transparent';
-    mBtn.style.color      = on ? '#ffb020'   : '#8090a0';
-    mBtn.style.fontWeight = on ? '700' : '';
-  }
-  if (tBtn) {
-    const on = view === 'money_markets';
-    tBtn.style.background = on ? '#00e5b022' : 'transparent';
-    tBtn.style.color      = on ? '#00e5b0'   : '#8090a0';
-    tBtn.style.fontWeight = on ? '700' : '';
-  }
+  const tabs = {
+    'sc-tab-all':  { view: 'all',           bg: '#c4d2e022', color: '#c4d2e0' },
+    'sc-tab-xgpt': { view: 'xgpt_iris',     bg: '#00d4ff22', color: '#00d4ff' },
+    'sc-tab-mom':  { view: 'momentum',      bg: '#ffb02022', color: '#ffb020' },
+    'sc-tab-tenx': { view: 'money_markets', bg: '#00e5b022', color: '#00e5b0' },
+  };
+  Object.entries(tabs).forEach(([id, cfg]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const on = view === cfg.view;
+    btn.style.background = on ? cfg.bg        : 'transparent';
+    btn.style.color      = on ? cfg.color     : '#8090a0';
+    btn.style.fontWeight = on ? '700'         : '';
+  });
   renderScanners();
 }
 
@@ -8656,10 +8651,18 @@ function _scRow(row) {
     // iris-only → default (var(--text))
   }
 
+  // Source badge (All view only)
+  const srcBadge = _scannerView === 'all' ? (() => {
+    if (row.list_name === 'xgpt_iris')     return '<span style="font-size:7px;font-weight:700;background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">XG</span>';
+    if (row.list_name === 'momentum')      return '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>';
+    if (row.list_name === 'money_markets') return '<span style="font-size:7px;font-weight:700;background:rgba(0,229,176,0.15);color:#00e5b0;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">10X</span>';
+    return '';
+  })() : '';
+
   return `<div style="display:grid;grid-template-columns:${SC_GRID};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;${reviewStyle}"
     onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background='${row.needs_review && _scannerView==='momentum' ? 'rgba(255,176,32,0.08)' : ''}'">
     <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:${symColor};white-space:nowrap;">
-      ${actionBadge}${newBadge}<span>${sym}</span>
+      ${actionBadge}${newBadge}<span>${sym}</span>${srcBadge}
     </span>
     <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
@@ -8818,7 +8821,9 @@ function _scBlkSetSort(blockId, val) {
 
 function _scGetFilteredRows() {
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  let rows = [..._scannerData].filter(r => r.list_name === _scannerView);
+  let rows = _scannerView === 'all'
+    ? [..._scannerData].filter(r => r.list_name !== 'positions')
+    : [..._scannerData].filter(r => r.list_name === _scannerView);
   if (_scannerView === 'xgpt_iris' && _scFilterScanner !== 'all') {
     if (_scFilterScanner === 'xgpt') rows = rows.filter(r => (r.xgpt_count ?? 0) > 0);
     if (_scFilterScanner === 'iris') rows = rows.filter(r => (r.iris_count  ?? 0) > 0);
@@ -8931,14 +8936,63 @@ function renderScanners() {
   body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
 }
 
+// Compute perf from price_history rows and store in histBaselines[sym]
+async function _loadScannerPerfFromHistory(syms) {
+  const supa = await getSupabaseAsync();
+  if (!supa || !syms.length) return;
+  for (const sym of syms) {
+    try {
+      const { data } = await supa
+        .from('price_history')
+        .select('trading_date,close')
+        .eq('symbol', sym)
+        .order('trading_date', { ascending: false })
+        .limit(260); // ~1 year of trading days
+      if (!data || data.length < 2) continue;
+      const closes = [...data].reverse().map(r => parseFloat(r.close)).filter(n => !isNaN(n) && n > 0);
+      if (closes.length < 2) continue;
+      const last = closes.at(-1);
+      const ret = n => closes.length > n ? +((last / closes[closes.length - 1 - n] - 1) * 100).toFixed(2) : null;
+      if (!histBaselines[sym]) histBaselines[sym] = {};
+      histBaselines[sym].perf = {
+        d1: ret(1),
+        w1: closes.length >= 6   ? ret(5)   : null,
+        m1: closes.length >= 22  ? ret(21)  : null,
+        m3: closes.length >= 64  ? ret(63)  : null,
+        m6: closes.length >= 127 ? ret(126) : null,
+        y1: closes.length >= 253 ? ret(252) : null,
+      };
+    } catch (e) {
+      console.warn('[ScannerPerf]', sym, e.message);
+    }
+  }
+  localStorage.setItem('sp_histBaselines', JSON.stringify(histBaselines));
+}
+
+// Register scanner symbols in price_sync_status so cron starts building history
+async function _scRegisterSymbols(syms) {
+  if (!syms.length) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    await supa
+      .from('price_sync_status')
+      .upsert(syms.map(s => ({ symbol: s, last_status: 'pending' })), { onConflict: 'symbol', ignoreDuplicates: true });
+  } catch (e) {
+    console.warn('[ScannerReg]', e.message);
+  }
+}
+
 async function refreshScanners() {
   await loadScannerData();
-  // Populate histBaselines for any scanner symbols not yet cached (perf windows)
   const syms = [...new Set(_scannerData.map(r => r.symbol).filter(Boolean))];
-  const missing = syms.filter(s => !histBaselines[s]);
-  if (missing.length) await loadHistoricalBaselines(missing);
-  renderScanners(); // show perf data immediately
-  // Fetch live prices — scanner symbols now included in fetchLiveAll's tickerList
+  // Register any new symbols so cron tracks them
+  await _scRegisterSymbols(syms);
+  // Hydrate perf from price_history for symbols not already cached
+  const needsPerf = syms.filter(s => !histBaselines[s]?.perf);
+  if (needsPerf.length) await _loadScannerPerfFromHistory(needsPerf);
+  renderScanners(); // show perf immediately
+  // Fetch live prices (scanner syms already in fetchLiveAll tickerList)
   if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
 }
 
@@ -8946,11 +9000,9 @@ async function initScanners() {
   renderScanners(); // show loading state
   await loadScannerData();
   renderScanners();
-  // Populate histBaselines for scanner symbols not yet cached
   const syms = [...new Set(_scannerData.map(r => r.symbol).filter(Boolean))];
-  const missing = syms.filter(s => !histBaselines[s]);
-  if (missing.length) loadHistoricalBaselines(missing); // fire-and-forget on init
-  // Pull live prices for scanner symbols
+  _scRegisterSymbols(syms); // fire-and-forget — register new symbols
+  _loadScannerPerfFromHistory(syms.filter(s => !histBaselines[s]?.perf)); // fire-and-forget
   if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
 }
 
