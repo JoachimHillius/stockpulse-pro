@@ -8026,7 +8026,7 @@ function _momRow(row) {
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector || ''}">${row.sector || '—'}</span>
     <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
-    <span style="text-align:right;font-size:11px;color:#c4d2e0;">${row.qty != null && row.qty !== '' ? row.qty : '—'}</span>
+    <span style="text-align:right;font-size:11px;color:#c4d2e0;white-space:nowrap;">${row.qty != null && row.qty !== '' ? row.qty : '—'}${row.shares_sold > 0 ? ` <span style="font-size:9px;font-weight:700;color:#ffb020;background:rgba(255,176,32,0.12);border-radius:3px;padding:1px 4px;">SOLD ${row.shares_sold}</span>` : ''}</span>
     <span class="pct-cell ${netClr}" style="text-align:right;">${!hasLive || q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
     ${pctCell(h1)}
     ${pctCell(d1)}
@@ -8287,16 +8287,20 @@ function showMomentumForm(row) {
             <option value="Buy"><option value="Hold"><option value="Sell"><option value="Sold">
           </datalist>
         </div>
-        ${fld('OPEN PRICE', 'open-price', 'number', 'step="0.01" min="0"', v('open_price'))}
-        ${fld('QTY (SHARES)', 'qty', 'number', 'step="any"', v('qty'))}
+        ${fld('OPEN PRICE', 'open-price', 'number', 'step="0.01" min="0" oninput="updateSwModalHelper()"', v('open_price'))}
+        ${fld('QTY (SHARES)', 'qty', 'number', 'step="any" oninput="updateSwModalHelper()"', v('qty'))}
         ${fld('OPEN DATE', 'open-date', 'date', '', v('open_date'))}
         ${fld('CLOSE PRICE', 'close-price', 'number', 'step="0.01" min="0"', v('close_price'))}
         ${fld('CLOSE DATE', 'close-date', 'date', '', v('close_date'))}
+        ${fld('SHARES SOLD', 'shares-sold', 'number', 'step="1" min="0" oninput="updateSwModalHelper()"', v('shares_sold'))}
+        ${fld('SOLD PRICE', 'sold-price', 'number', 'step="0.01" min="0" oninput="updateSwModalHelper()"', v('sold_price'))}
+        ${fld('SOLD DATE', 'sold-date-field', 'date', '', v('sold_date'))}
         ${fld('STOP PRICE', 'stop-price', 'number', 'step="0.01" min="0"', v('stop_price'))}
         ${fld('DIVIDEND YIELD %', 'div-yield', 'number', 'step="0.01" min="0"', v('dividend_yield'))}
         ${fld('RETURN %', 'ret-pct', 'number', 'step="0.01"', v('return_pct'))}
         ${fld('SORT ORDER', 'sort', 'number', 'step="1" min="0"', v('sort_order'))}
       </div>
+      <div id="sw-partial-info" style="margin-bottom:10px;padding:7px 10px;background:rgba(0,197,255,0.06);border:1px solid rgba(0,197,255,0.15);border-radius:5px;font-size:11px;color:#8090a0;display:none;"></div>
       <div style="margin-bottom:14px;">
         <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
         <textarea id="sw-notes" rows="2"
@@ -8313,6 +8317,29 @@ function showMomentumForm(row) {
       </div>
     </div>`;
   modal.style.display = 'flex';
+  updateSwModalHelper();
+}
+
+function updateSwModalHelper() {
+  const el = document.getElementById('sw-partial-info');
+  if (!el) return;
+  const g = id => { const e = document.getElementById('sw-' + id); return e ? e.value.trim() : ''; };
+  const qty        = parseFloat(g('qty'));
+  const sharesSold = parseFloat(g('shares-sold'));
+  const soldPrice  = parseFloat(g('sold-price'));
+  const openPrice  = parseFloat(g('open-price'));
+  if (!sharesSold || sharesSold <= 0) { el.style.display = 'none'; return; }
+  const parts = [];
+  const holding = (qty || 0) - sharesSold;
+  if (!isNaN(holding)) parts.push(`<span style="color:#c4d2e0;">Still holding: <b>${holding}</b> shares</span>`);
+  if (soldPrice > 0 && openPrice > 0) {
+    const rpct = ((soldPrice / openPrice - 1) * 100).toFixed(2);
+    const color = +rpct >= 0 ? '#00e5b0' : '#ff3d5a';
+    parts.push(`<span>Realized P&amp;L: <b style="color:${color};">${+rpct >= 0 ? '+' : ''}${rpct}%</b></span>`);
+  }
+  if (!parts.length) { el.style.display = 'none'; return; }
+  el.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+  el.style.display = 'block';
 }
 
 async function toggleMomentumLive(id, ev){
@@ -8360,6 +8387,9 @@ async function saveMomentumRow(id) {
     return_pct:       numOrNull(g('ret-pct')),
     sort_order:       numOrNull(g('sort')) ?? null,
     notes:            g('notes') || null,
+    shares_sold:      numOrNull(g('shares-sold')),
+    sold_price:       numOrNull(g('sold-price')),
+    sold_date:        dateOrNull(g('sold-date-field')),
   };
 
   const supa = await getSupabaseAsync();
