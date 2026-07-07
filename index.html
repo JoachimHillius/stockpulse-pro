@@ -9396,11 +9396,11 @@ const MM_ETF_FOR_SECTOR = {
   'Utilities':     'XLU',
 };
 
-let _mmData   = null;
-let _mmSort   = 'ret1d'; // current sort column
-let _mmSortDir = -1;      // -1=desc (best performing sector on top)
-
-let _mmEtf1d = {};
+let _mmData     = null;
+let _mmSort     = 'ret1d'; // current sort column
+let _mmSortDir  = -1;       // -1=desc (best performing sector on top)
+let _mmEtf1d    = {};
+let _mmLiveData = {}; // Finnhub live quotes for MM symbols, keyed by symbol
 
 function _mmEtf1dFromData() {
   if (!_mmData) return;
@@ -9595,25 +9595,32 @@ function _mmRender() {
 
   // ── Context row ───────────────────────────────────────────
   const ctxHtml = MM_CONTEXT.map(sym => {
+    const live = _mmLiveData[sym]; // Finnhub quote from _mmRefresh, if available
     const rows = _mmData[sym] || [];
     const last = rows.at(-1);
     const prev = rows.at(-2);
-    if (!last) return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;"><div style="font-size:11px;font-weight:700;color:var(--text);">${sym}</div><div style="font-size:10px;color:#b8c4d4;">No data</div></div>`;
-    const close = parseFloat(last.close);
-    const d1pct = prev ? +((close / parseFloat(prev.close) - 1) * 100).toFixed(2) : null;
+    if (!live && !last) return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;"><div style="font-size:11px;font-weight:700;color:var(--text);">${sym}</div><div style="font-size:10px;color:#b8c4d4;">No data</div></div>`;
+    // Prefer live quote; fall back to price_history
+    const close  = live ? live.c : parseFloat(last.close);
+    const d1pct  = live ? live.dp : (prev ? +((close / parseFloat(prev.close) - 1) * 100).toFixed(2) : null);
     const d1color = d1pct == null ? '#b8c4d4' : d1pct >= 0 ? '#00e5b0' : '#ff3d5a';
-    const shortDate = last.trading_date.slice(5).replace('-', '/');
+    const dateLabel = live
+      ? `<span style="color:#00e5b0;font-weight:700;font-size:8px;">LIVE</span>`
+      : `<span style="color:#9aa8ba;">${last.trading_date.slice(5).replace('-', '/')}</span>`;
     return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;">
       <div style="font-size:11px;font-weight:700;color:var(--cyan);">${sym}</div>
       <div style="font-size:15px;font-weight:700;color:var(--text);margin:2px 0;">${sym === 'VIX' ? close.toFixed(2) : '$' + close.toFixed(2)}</div>
-      <div style="font-size:10px;color:${d1color};">${d1pct != null ? (d1pct >= 0 ? '+' : '') + d1pct.toFixed(2) + '%' : '—'} <span style="color:#9aa8ba;">${shortDate}</span></div>
+      <div style="font-size:10px;color:${d1color};">${d1pct != null ? (d1pct >= 0 ? '+' : '') + d1pct.toFixed(2) + '%' : '—'} ${dateLabel}</div>
     </div>`;
   }).join('');
 
   // ── Sector board ──────────────────────────────────────────
   const sectorRows = MM_SECTORS.map(({ sym, label }) => {
-    const calc = _mmCalc(_mmData[sym] || []);
-    return { sym, label, calc: calc || {} };
+    const calc = _mmCalc(_mmData[sym] || []) || {};
+    const live = _mmLiveData[sym];
+    // Overlay live price + 1D% when a fresh Finnhub quote is available
+    if (live) { calc.last = live.c; calc.ret1d = live.dp; }
+    return { sym, label, calc };
   });
   const sorted = _mmSortData(sectorRows);
 
@@ -9708,17 +9715,62 @@ function _mmRender() {
   `;
 }
 
+// Fetch fresh Finnhub quotes for all 15 Market Map symbols in one parallel burst.
+// 15 concurrent requests is well within Finnhub's 60/min free limit.
+// Sequential with sleep() was competing with fetchLiveAll's ongoing budget and getting rate-limited.
+async function _mmFetchLiveQuotes() {
+  const fhKey = localStorage.getItem('sp_fh');
+  if (!fhKey) { console.warn('[MM live] No Finnhub key — skipping live overlay'); return; }
+  MM_ALL_SYMS.forEach(s => _fhCache.delete(s)); // bust stale TTL entries before parallel fetch
+  const settled = await Promise.allSettled(MM_ALL_SYMS.map(async sym => {
+    const r = await fetch('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(sym) + '&token=' + fhKey);
+    const d = await r.json();
+    console.log('[MM live]', sym, 'c=', d.c, 'dp=', d.dp, 'raw=', JSON.stringify(d));
+    // Use current price if valid; fall back to prev close so we always get something
+    const isLive = !!(d.c && d.c !== 0);
+    const price  = isLive ? d.c : ((d.pc && d.pc !== 0) ? d.pc : null);
+    if (price == null) throw new Error('no price in response');
+    // When falling back to pc, d.dp would be computed from c=0 — zero it out
+    return { sym, c: price, dp: isLive ? (d.dp || 0) : 0, d: isLive ? (d.d || 0) : 0, t: d.t || 0, isLive };
+  }));
+  const results = {};
+  settled.forEach(res => {
+    if (res.status === 'rejected') { console.warn('[MM live] fetch failed:', res.reason?.message); return; }
+    const { sym, ...q } = res.value;
+    results[sym] = q;
+    _fhCache.set(sym, { ...q, fetchedAt: Date.now() });
+  });
+  console.log('[MM live] fetched', Object.keys(results).length, '/', MM_ALL_SYMS.length, 'symbols:', results);
+  _mmLiveData = results;
+}
+
 async function _mmRefresh() {
   _mmData = null;
   _mmEtf1d = {};
+  _mmLiveData = {};
+
+  // Orange busy state — disabled so double-clicks don't stack fetches
+  const btn = document.getElementById('mm-refresh-btn');
+  if (btn) { btn.disabled = true; btn.style.color = '#ffb020'; btn.style.borderColor = '#ffb020'; btn.onmouseleave = null; }
+
   const inner = document.getElementById('mm-inner');
   if (inner) inner.innerHTML = '<div style="text-align:center;padding:40px;color:#b8c4d4;font-size:12px;">Refreshing…</div>';
   try {
-    _mmData = await _mmLoadData();
+    // Parallel: live Finnhub quotes + Supabase price_history
+    const [, freshData] = await Promise.all([_mmFetchLiveQuotes(), _mmLoadData()]);
+    _mmData = freshData;
     _mmEtf1dFromData();
     _mmRender();
   } catch (e) {
     if (inner) inner.innerHTML = `<div style="padding:30px;text-align:center;color:#ff3d5a;font-size:12px;">Failed: ${e.message}</div>`;
+  } finally {
+    // Restore button regardless of success/error
+    if (btn) {
+      btn.disabled = false;
+      btn.style.color = '#b8c4d4';
+      btn.style.borderColor = 'var(--border2)';
+      btn.onmouseleave = () => { btn.style.color = '#b8c4d4'; };
+    }
   }
 }
 
@@ -9736,7 +9788,7 @@ async function showMarketMap() {
     <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;width:100%;max-width:660px;box-shadow:0 12px 40px rgba(0,0,0,0.5);">
       <div style="display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);">
         <span style="font-size:13px;font-weight:700;color:var(--text);letter-spacing:0.5px;">⊞ MARKET MAP</span>
-        <button onclick="_mmRefresh()" style="margin-left:auto;background:none;border:1px solid var(--border2);border-radius:4px;cursor:pointer;color:#b8c4d4;font-size:11px;padding:3px 10px;font-family:var(--font);" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#b8c4d4'" title="Reload from price_history">↻ Refresh</button>
+        <button id="mm-refresh-btn" onclick="_mmRefresh()" style="margin-left:auto;background:none;border:1px solid var(--border2);border-radius:4px;cursor:pointer;color:#b8c4d4;font-size:11px;padding:3px 10px;font-family:var(--font);" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#b8c4d4'" title="Reload live quotes + price history">↻ Refresh</button>
         <button onclick="document.getElementById('market-map-modal').style.display='none'" style="margin-left:8px;background:none;border:none;cursor:pointer;color:#b8c4d4;font-size:18px;line-height:1;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#b8c4d4'">✕</button>
       </div>
       <div id="mm-inner" style="padding:18px;min-height:200px;"><div style="text-align:center;padding:40px;color:#b8c4d4;font-size:12px;">Loading price history…</div></div>
