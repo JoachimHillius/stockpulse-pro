@@ -9594,25 +9594,56 @@ function _mmRender() {
   if (!el || !_mmData) return;
 
   // ── Context row ───────────────────────────────────────────
-  const ctxHtml = MM_CONTEXT.map(sym => {
-    const live = _mmLiveData[sym]; // Finnhub quote from _mmRefresh, if available
+  const _ctxTile = (sym, close, d1pct, dateLabel) => {
+    const d1color = d1pct == null ? '#b8c4d4' : d1pct >= 0 ? '#00e5b0' : '#ff3d5a';
+    // VIX and SPX are indexes — no $ prefix; SPX also uses comma formatting
+    const priceStr = sym === 'VIX' ? close.toFixed(2)
+                   : sym === 'SPX' ? close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                   : '$' + close.toFixed(2);
+    return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;">
+      <div style="font-size:11px;font-weight:700;color:var(--cyan);">${sym}</div>
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin:2px 0;">${priceStr}</div>
+      <div style="font-size:10px;color:${d1color};">${d1pct != null ? (d1pct >= 0 ? '+' : '') + d1pct.toFixed(2) + '%' : '—'} ${dateLabel}</div>
+    </div>`;
+  };
+
+  const ctxTiles = MM_CONTEXT.map(sym => {
+    const live = _mmLiveData[sym];
     const rows = _mmData[sym] || [];
     const last = rows.at(-1);
     const prev = rows.at(-2);
     if (!live && !last) return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;"><div style="font-size:11px;font-weight:700;color:var(--text);">${sym}</div><div style="font-size:10px;color:#b8c4d4;">No data</div></div>`;
-    // Prefer live quote; fall back to price_history
     const close  = live ? live.c : parseFloat(last.close);
     const d1pct  = live ? live.dp : (prev ? +((close / parseFloat(prev.close) - 1) * 100).toFixed(2) : null);
-    const d1color = d1pct == null ? '#b8c4d4' : d1pct >= 0 ? '#00e5b0' : '#ff3d5a';
     const dateLabel = live
       ? `<span style="color:#00e5b0;font-weight:700;font-size:8px;">LIVE</span>`
       : `<span style="color:#9aa8ba;">${last.trading_date.slice(5).replace('-', '/')}</span>`;
-    return `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;min-width:100px;">
-      <div style="font-size:11px;font-weight:700;color:var(--cyan);">${sym}</div>
-      <div style="font-size:15px;font-weight:700;color:var(--text);margin:2px 0;">${sym === 'VIX' ? close.toFixed(2) : '$' + close.toFixed(2)}</div>
-      <div style="font-size:10px;color:${d1color};">${d1pct != null ? (d1pct >= 0 ? '+' : '') + d1pct.toFixed(2) + '%' : '—'} ${dateLabel}</div>
-    </div>`;
-  }).join('');
+    return _ctxTile(sym, close, d1pct, dateLabel);
+  });
+
+  // SPX tile — inserted after SPY (index 0). Uses live _mmLiveData['SPX'] when available;
+  // otherwise derives from SPY price_history so the tile is always visible.
+  const spxLive = _mmLiveData['SPX'];
+  const spyRows = _mmData['SPY'] || [];
+  const spyLast = spyRows.at(-1);
+  const spyPrev = spyRows.at(-2);
+  let spxTile = '';
+  if (spxLive) {
+    const badge = spxLive.source === 'spy'
+      ? `<span style="color:#9aa8ba;font-size:8px;">≈SPY×10</span>`
+      : `<span style="color:#00e5b0;font-weight:700;font-size:8px;">LIVE</span>`;
+    spxTile = _ctxTile('SPX', spxLive.c, spxLive.dp, badge);
+  } else if (spyLast) {
+    // Derive approximation from SPY price_history before any live fetch has run
+    const spyClose = parseFloat(spyLast.close);
+    const spxPrice = spyClose * 10;
+    const spxDp    = spyPrev ? +((spyClose / parseFloat(spyPrev.close) - 1) * 100).toFixed(2) : null;
+    const badge    = `<span style="color:#9aa8ba;font-size:8px;">≈SPY×10</span>`;
+    spxTile = _ctxTile('SPX', spxPrice, spxDp, badge);
+  }
+  ctxTiles.splice(1, 0, spxTile); // insert right after SPY
+
+  const ctxHtml = ctxTiles.join('');
 
   // ── Sector board ──────────────────────────────────────────
   const sectorRows = MM_SECTORS.map(({ sym, label }) => {
@@ -9740,6 +9771,28 @@ async function _mmFetchLiveQuotes() {
     results[sym] = q;
     _fhCache.set(sym, { ...q, fetchedAt: Date.now() });
   });
+  // Try to get real SPX index value — Finnhub free tier often blocks ^GSPC.
+  // Try three symbol variants in order; if all fail, derive from SPY quote.
+  let spxFetched = false;
+  for (const variant of ['^GSPC', 'SPX', '.SPX']) {
+    try {
+      const r = await fetch('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(variant) + '&token=' + fhKey);
+      const d = await r.json();
+      console.log('[MM live SPX]', variant, 'c=', d.c, 'raw=', JSON.stringify(d));
+      if (d.c && d.c !== 0) {
+        results['SPX'] = { c: d.c, dp: d.dp || 0, d: d.d || 0, t: d.t || 0, isLive: true, source: 'fh' };
+        spxFetched = true;
+        break;
+      }
+    } catch (e) { console.warn('[MM live SPX]', variant, e.message); }
+  }
+  // Derive from SPY if Finnhub didn't return a real index value
+  if (!spxFetched && results['SPY']) {
+    const spy = results['SPY'];
+    results['SPX'] = { c: +(spy.c * 10).toFixed(2), dp: spy.dp, d: +(spy.d * 10).toFixed(2), t: spy.t, isLive: spy.isLive, source: 'spy' };
+    console.log('[MM live SPX] derived from SPY:', results['SPX']);
+  }
+
   console.log('[MM live] fetched', Object.keys(results).length, '/', MM_ALL_SYMS.length, 'symbols:', results);
   _mmLiveData = results;
 }
