@@ -8408,16 +8408,20 @@ async function saveMomentumRow(id) {
   };
 
   const supa = await getSupabaseAsync();
-  if (!supa) { showToast('Momentum', 'No database connection', 'error'); return; }
+  if (!supa) { showToast('Momentum', 'No database connection — not saved', 'error'); return; }
 
-  let error;
+  let savedRow = null;
   if (id === null) {
-    ({ error } = await supa.from('swing_watchlist').insert(fields));
+    // INSERT — use .select() so we get the DB-generated id/timestamps back
+    const { data, error } = await supa.from('swing_watchlist').insert(fields).select().single();
+    if (error) { showToast(symbol, 'Save failed — not saved: ' + error.message, 'error'); return; }
+    savedRow = data;
   } else {
-    ({ error } = await supa.from('swing_watchlist').update(fields).eq('id', id));
+    // UPDATE — .select().single() confirms the write committed
+    const { data, error } = await supa.from('swing_watchlist').update(fields).eq('id', id).select().single();
+    if (error) { showToast(symbol, 'Save failed — not saved: ' + error.message, 'error'); return; }
+    savedRow = data;
   }
-
-  if (error) { showToast('Momentum', 'Save failed: ' + error.message, 'error'); return; }
 
   // Write a trade_sales log row when shares_sold increases (new or incremental sale)
   const newSharesSold = fields.shares_sold ?? 0;
@@ -8434,10 +8438,22 @@ async function saveMomentumRow(id) {
     });
   }
 
+  // Close modal immediately, then patch data and render — row appears before toast
   document.getElementById('momentum-form-modal').style.display = 'none';
-  showToast(symbol, id === null ? 'Position added' : 'Position updated', 'info');
-  await loadSwingData();
+
+  if (id === null) {
+    // Optimistic insert at top so the new row is visible right away
+    _swingData = [savedRow, ...(_swingData || [])];
+  } else {
+    // Patch in place — covers all fields the user just saved
+    const idx = (_swingData || []).findIndex(r => String(r.id) === String(id));
+    if (idx !== -1) _swingData[idx] = { ..._swingData[idx], ...savedRow };
+  }
   renderMomentum();
+  showToast(symbol, id === null ? 'Position added ✓' : 'Position updated ✓', 'info');
+
+  // Background re-fetch to restore correct sort order after optimistic insert
+  loadSwingData().then(() => renderMomentum()).catch(() => {});
 }
 
 async function closeMomentumPosition(id) {
@@ -10656,9 +10672,9 @@ async function _tlSaveForm(id) {
   const sharesSold = num(g('shares'));
   const soldPrice  = num(g('sold-price'));
   const entryPrice = num(g('entry-price'));
-  if (!symbol)     { alert('Symbol is required'); return; }
-  if (!sharesSold) { alert('Shares Sold is required'); return; }
-  if (!soldPrice)  { alert('Sold Price is required'); return; }
+  if (!symbol)     { showToast('Trade Log', 'Symbol is required', 'error'); return; }
+  if (!sharesSold) { showToast('Trade Log', 'Shares Sold is required', 'error'); return; }
+  if (!soldPrice)  { showToast('Trade Log', 'Sold Price is required', 'error'); return; }
   const pnlPct    = (entryPrice && soldPrice) ? +((soldPrice / entryPrice - 1) * 100).toFixed(4) : null;
   const pnlDollar = (entryPrice && soldPrice) ? +((soldPrice - entryPrice) * sharesSold).toFixed(2) : null;
   const payload = {
@@ -10674,12 +10690,11 @@ async function _tlSaveForm(id) {
     notes:               g('notes') || null,
   };
   const supa = await getSupabaseAsync();
-  if (!supa) return;
+  if (!supa) { showToast('Trade Log', 'No database connection — not saved', 'error'); return; }
   try {
     if (id != null) {
       const { error } = await supa.from('trade_sales').update(payload).eq('id', id);
       if (error) throw error;
-      // Patch cache in place
       const idx = (_tlData || []).findIndex(r => r.id === id);
       if (idx !== -1) _tlData[idx] = { ..._tlData[idx], ...payload };
     } else {
@@ -10689,8 +10704,9 @@ async function _tlSaveForm(id) {
     }
     document.getElementById('tl-form-modal').style.display = 'none';
     renderTradeLog();
+    showToast(symbol, id != null ? 'Sale updated ✓' : 'Sale recorded ✓', 'info');
   } catch (e) {
-    alert('Save failed: ' + e.message);
+    showToast('Trade Log', 'Save failed — not saved: ' + e.message, 'error');
   }
 }
 
