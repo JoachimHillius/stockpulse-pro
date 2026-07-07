@@ -9419,6 +9419,7 @@ let _mmSort     = 'ret1d'; // current sort column
 let _mmSortDir  = -1;       // -1=desc (best performing sector on top)
 let _mmEtf1d    = {};
 let _mmLiveData = {}; // Finnhub live quotes for MM symbols, keyed by symbol
+let _mmUniverse = null; // full deduped universe {byEtf, other, total}
 
 function _mmEtf1dFromData() {
   if (!_mmData) return;
@@ -9708,30 +9709,7 @@ function _mmRender() {
     </div>`;
   }).join('');
 
-  // ── User stocks by sector ─────────────────────────────────
-  // Build etf→[symbols] map from _swingData
-  const byEtf = {};
-  (_swingData || []).filter(r => r.status !== 'closed').forEach(r => {
-    const etf = MM_ETF_FOR_SECTOR[r.sector] || null;
-    if (!etf) return;
-    if (!byEtf[etf]) byEtf[etf] = [];
-    byEtf[etf].push(r.symbol);
-  });
-
-  const userSectorsHtml = Object.keys(byEtf).length === 0
-    ? '<div style="color:#b8c4d4;font-size:11px;padding:8px 0;">No Momentum Watchlist symbols with matched sectors.</div>'
-    : sorted.map(({ sym, label, calc }) => {
-        const syms = byEtf[sym];
-        if (!syms || !syms.length) return '';
-        const hl = _mmRowHighlight(calc);
-        const badge = calc.from52hi != null && calc.from52hi < -15 ? '<span style="background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:3px;padding:1px 5px;font-size:8px;font-weight:700;margin-left:5px;">OVERSOLD</span>'
-          : calc.from52hi != null && calc.from52hi > -3 && calc.ret3m != null && calc.ret3m > 15 ? '<span style="background:rgba(255,176,32,0.15);color:#ffb020;border-radius:3px;padding:1px 5px;font-size:8px;font-weight:700;margin-left:5px;">EXTENDED</span>'
-          : '';
-        return `<div style="padding:6px 10px;border-radius:4px;margin-bottom:4px;${hl}border:1px solid rgba(128,144,160,0.1);">
-          <div style="font-size:10px;font-weight:700;color:var(--cyan);margin-bottom:4px;">${sym} <span style="color:#e8eef4;font-weight:400;">${label}</span>${badge} <span style="color:#b8c4d4;font-size:9px;margin-left:8px;">${calc.from52hi != null ? (calc.from52hi >= 0 ? '+' : '') + calc.from52hi.toFixed(1) + '% from 52H' : ''}</span></div>
-          <div style="display:flex;flex-wrap:wrap;gap:5px;">${syms.map(s => `<span style="background:var(--bg3);border:1px solid var(--border2);border-radius:4px;padding:3px 8px;font-size:11px;font-weight:700;color:var(--text);">${s}</span>`).join('')}</div>
-        </div>`;
-      }).join('');
+  // ── Universe panel (populated asynchronously below) ──────────────────────────
 
   el.innerHTML = `
     <details style="margin-bottom:14px;background:rgba(0,0,0,0.15);border-radius:5px;padding:6px 10px;">
@@ -9763,8 +9741,173 @@ function _mmRender() {
       <span>% 52H = distance from 52-wk high &nbsp;·&nbsp; Click column headers to sort</span>
     </div>
 
-    <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#d0dae6;margin:18px 0 8px;">YOUR MOMENTUM STOCKS BY SECTOR</div>
-    ${userSectorsHtml}
+    <div id="mm-universe-panel" style="min-height:40px;">
+      <div style="color:#6080a0;font-size:11px;padding:12px 0;">Loading universe…</div>
+    </div>
+  `;
+
+  // Fire-and-forget: load (or re-use) the full symbol universe, then paint it into the panel
+  if (_mmUniverse) {
+    _mmRenderUniversePanel();
+  } else {
+    _mmLoadUniverse()
+      .then(() => _mmRenderUniversePanel())
+      .catch(e => {
+        const p = document.getElementById('mm-universe-panel');
+        if (p) p.innerHTML = `<div style="color:#ff3d5a;font-size:11px;padding:8px 0;">Universe load failed: ${e.message}</div>`;
+      });
+  }
+}
+
+// Build a deduped universe of ALL known symbols, grouped by sector.
+// Sources: omen_daily_summary (latest date) + price_history (latest date) + all watchlists.
+async function _mmLoadUniverse() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+
+  // ── "listed" set: appears in ANY watchlist ─────────────────
+  const listedSet = new Set([
+    ...Object.values(WATCHLIST).flat(),
+    ...(_swingData    || []).map(r => r.symbol).filter(Boolean),
+    ...(_scannerData  || []).map(r => r.symbol).filter(Boolean),
+    ...(_userWatchlist|| []).map(r => r.symbol).filter(Boolean),
+  ]);
+
+  // ── symbol → sector resolution ─────────────────────────────
+  // Priority: swing/user watchlist sector field > SECTOR_BY_SYMBOL (from hard-coded WATCHLIST)
+  const symSector = {};
+  Object.entries(SECTOR_BY_SYMBOL || {}).forEach(([s, sec]) => { symSector[s] = sec; });
+  (_userWatchlist  || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
+  (_swingData      || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
+  (_scannerData    || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
+
+  // ── collect all symbols ────────────────────────────────────
+  const allSyms = new Set(listedSet); // start with what we already know
+  const flowMap = {};
+
+  // 1 — omen_daily_summary for latest date (flow data + symbols)
+  try {
+    const { data: lr } = await supa.from('omen_daily_summary')
+      .select('trading_date').order('trading_date', { ascending: false }).limit(1);
+    const latestOmen = lr?.[0]?.trading_date;
+    if (latestOmen) {
+      const { data: flowRows } = await supa.from('omen_daily_summary')
+        .select('symbol,total_premium,sentiment')
+        .eq('trading_date', latestOmen).limit(5000);
+      (flowRows || []).forEach(r => {
+        if (!r.symbol) return;
+        allSyms.add(r.symbol);
+        flowMap[r.symbol] = { premium: +(r.total_premium) || 0, sentiment: +(r.sentiment) };
+      });
+    }
+  } catch (e) { console.warn('[MM Universe] omen load failed:', e.message); }
+
+  // 2 — price_history: all symbols present on its latest trading date (one query per 1000)
+  try {
+    const { data: latestPH } = await supa.from('price_history')
+      .select('trading_date').order('trading_date', { ascending: false }).limit(1);
+    const phDate = latestPH?.[0]?.trading_date;
+    if (phDate) {
+      let from = 0;
+      while (true) {
+        const { data } = await supa.from('price_history')
+          .select('symbol').eq('trading_date', phDate).range(from, from + 999);
+        if (!data || !data.length) break;
+        data.forEach(r => { if (r.symbol) allSyms.add(r.symbol); });
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+    }
+  } catch (e) { console.warn('[MM Universe] price_history load failed:', e.message); }
+
+  // ── classify each symbol ───────────────────────────────────
+  const boardSyms = new Set(MM_ALL_SYMS); // skip the ETF tiles themselves
+  const byEtf = {};
+  const other = [];
+
+  for (const sym of allSyms) {
+    if (boardSyms.has(sym)) continue;
+    const flow    = flowMap[sym] || null;
+    const listed  = listedSet.has(sym);
+    const entry   = { symbol: sym, listed, premium: flow?.premium || 0, sentiment: flow?.sentiment ?? null };
+    const etf     = MM_ETF_FOR_SECTOR[symSector[sym]] || null;
+    if (etf) {
+      if (!byEtf[etf]) byEtf[etf] = [];
+      byEtf[etf].push(entry);
+    } else {
+      other.push(entry);
+    }
+  }
+
+  // Sort each bucket: most active flow first, then alpha
+  const sortE = arr => arr.sort((a, b) => (b.premium - a.premium) || a.symbol.localeCompare(b.symbol));
+  Object.values(byEtf).forEach(arr => sortE(arr));
+  sortE(other);
+
+  const total = Object.values(byEtf).reduce((n, a) => n + a.length, 0) + other.length;
+  _mmUniverse = { byEtf, other, total };
+}
+
+function _mmRenderUniversePanel() {
+  const panel = document.getElementById('mm-universe-panel');
+  if (!panel) return;
+
+  if (!_mmUniverse) {
+    panel.innerHTML = '<div style="color:#6080a0;font-size:11px;padding:12px 0;">Loading universe…</div>';
+    return;
+  }
+
+  const { byEtf, other, total } = _mmUniverse;
+
+  const chipHtml = entries => entries.map(e => {
+    const style = e.listed
+      ? 'background:var(--bg3);border:1px solid var(--border2);color:#c4d2e0;'
+      : 'background:rgba(255,176,32,0.07);border:1px solid rgba(255,176,32,0.38);color:#ffb020;';
+    const prefix = e.listed ? '' : '⚑ ';
+    // Small coloured dot when options flow exists today: green=calls-heavy, red=puts-heavy
+    const dot = e.premium > 0
+      ? `<span style="display:inline-block;width:4px;height:4px;border-radius:50%;margin-left:3px;vertical-align:middle;background:${(e.sentiment ?? 0) >= 50 ? '#00e5b0' : '#ff6080'};" title="${(e.premium / 1e6).toFixed(2)}M options premium"></span>`
+      : '';
+    return `<span style="${style}border-radius:3px;padding:2px 5px;font-size:9px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;">${prefix}${e.symbol}${dot}</span>`;
+  }).join('');
+
+  const sectorBlocks = MM_SECTORS.map(({ sym, label }) => {
+    const entries = byEtf[sym] || [];
+    if (!entries.length) return '';
+    const notListed = entries.filter(e => !e.listed).length;
+    const notListedBit = notListed ? ` &nbsp;·&nbsp; <span style="color:#ffb020;">${notListed} ⚑ not listed</span>` : '';
+    return `<details open style="margin-bottom:5px;">
+      <summary style="list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer;padding:5px 8px;background:var(--bg3);border-radius:4px;">
+        <span style="font-size:10px;font-weight:700;color:var(--cyan);">${sym}</span>
+        <span style="font-size:10px;color:#c4d2e0;">${label}</span>
+        <span style="font-size:9px;color:#6080a0;">&nbsp;·&nbsp; ${entries.length} symbols${notListedBit}</span>
+      </summary>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;padding:6px 2px 4px;max-height:80px;overflow-y:auto;">
+        ${chipHtml(entries)}
+      </div>
+    </details>`;
+  }).join('');
+
+  const otherBlock = other.length
+    ? `<details style="margin-bottom:5px;">
+        <summary style="list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer;padding:5px 8px;background:var(--bg3);border-radius:4px;">
+          <span style="font-size:10px;color:#8090a0;">Other / Unclassified &nbsp;·&nbsp; ${other.length} symbols</span>
+        </summary>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;padding:6px 2px 4px;max-height:80px;overflow-y:auto;">
+          ${chipHtml(other)}
+        </div>
+      </details>`
+    : '';
+
+  panel.innerHTML = `
+    <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#d0dae6;margin:18px 0 8px;">
+      SECTOR MOMENTUM &nbsp;·&nbsp; ${total.toLocaleString()} symbols
+      <span style="font-size:8px;color:#6080a0;font-weight:400;margin-left:10px;">
+        ● = options flow today (green=calls / red=puts) &nbsp;·&nbsp; <span style="color:#ffb020;">⚑</span> = not in any watchlist
+      </span>
+    </div>
+    ${sectorBlocks}
+    ${otherBlock}
   `;
 }
 
@@ -9823,6 +9966,7 @@ async function _mmRefresh() {
   _mmData = null;
   _mmEtf1d = {};
   _mmLiveData = {};
+  _mmUniverse = null; // force universe reload so fresh omen + price_history data is used
 
   // Orange busy state — disabled so double-clicks don't stack fetches
   const btn = document.getElementById('mm-refresh-btn');
