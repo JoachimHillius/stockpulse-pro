@@ -9423,6 +9423,7 @@ let _mmUniverse    = null; // full deduped universe {byEtf, other, total}
 let _mmBuyWatch    = null; // top-25 buy watch scored results
 let _mmBuyWatchSort = { col: 'score', dir: -1 };
 let _mmPositions   = null; // positions panel data {held, watch}
+let _mmSearch      = '';   // symbol search/filter query
 
 function _mmEtf1dFromData() {
   if (!_mmData) return;
@@ -9744,6 +9745,16 @@ function _mmRender() {
       <span>% 52H = distance from 52-wk high &nbsp;·&nbsp; Click column headers to sort</span>
     </div>
 
+    <div style="margin-top:14px;margin-bottom:4px;display:flex;align-items:center;gap:8px;">
+      <input id="mm-search-input" type="text" placeholder="Search symbol…" value="${_mmSearch}"
+        oninput="_mmSetSearch(this.value)"
+        style="flex:1;max-width:220px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--text);font-family:var(--font);font-size:11px;padding:5px 10px;outline:none;"
+        onfocus="this.style.borderColor='#00d4ff'" onblur="this.style.borderColor='var(--border2)'"
+        autocomplete="off" spellcheck="false">
+      ${_mmSearch ? `<button onclick="_mmSetSearch('')" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:0 2px;line-height:1;" title="Clear search">✕</button>` : ''}
+      <span style="font-size:9px;color:#5a708a;">Filters Sector Momentum &amp; Buy Watch</span>
+    </div>
+
     <div id="mm-universe-panel" style="min-height:40px;">
       <div style="color:#6080a0;font-size:11px;padding:12px 0;">Loading universe…</div>
     </div>
@@ -9884,6 +9895,8 @@ function _mmRenderUniversePanel() {
   }
 
   const { byEtf, other, total } = _mmUniverse;
+  const q = _mmSearch; // already uppercased
+  const matchSym = e => !q || e.symbol.includes(q);
 
   const chipHtml = entries => entries.map(e => {
     const style = e.listed
@@ -9898,7 +9911,7 @@ function _mmRenderUniversePanel() {
   }).join('');
 
   const sectorBlocks = MM_SECTORS.map(({ sym, label }) => {
-    const entries = byEtf[sym] || [];
+    const entries = (byEtf[sym] || []).filter(matchSym);
     if (!entries.length) return '';
     const notListed = entries.filter(e => !e.listed).length;
     const notListedBit = notListed ? ` &nbsp;·&nbsp; <span style="color:#ffb020;">${notListed} ⚑ not listed</span>` : '';
@@ -9914,20 +9927,23 @@ function _mmRenderUniversePanel() {
     </details>`;
   }).join('');
 
-  const otherBlock = other.length
+  const filteredOther = other.filter(matchSym);
+  const otherBlock = filteredOther.length
     ? `<details style="margin-bottom:5px;">
         <summary style="list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer;padding:5px 8px;background:var(--bg3);border-radius:4px;">
-          <span style="font-size:10px;color:#8090a0;">Other / Unclassified &nbsp;·&nbsp; ${other.length} symbols</span>
+          <span style="font-size:10px;color:#8090a0;">Other / Unclassified &nbsp;·&nbsp; ${filteredOther.length} symbols</span>
         </summary>
         <div style="display:flex;flex-wrap:wrap;gap:3px;padding:6px 2px 4px;max-height:80px;overflow-y:auto;">
-          ${chipHtml(other)}
+          ${chipHtml(filteredOther)}
         </div>
       </details>`
     : '';
 
+  const matchCount = MM_SECTORS.reduce((n, { sym }) => n + (byEtf[sym] || []).filter(matchSym).length, 0) + filteredOther.length;
+
   panel.innerHTML = `
     <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#d0dae6;margin:18px 0 8px;">
-      SECTOR MOMENTUM &nbsp;·&nbsp; ${total.toLocaleString()} symbols
+      SECTOR MOMENTUM &nbsp;·&nbsp; ${q ? `${matchCount} of ${total.toLocaleString()} matching "${q}"` : `${total.toLocaleString()} symbols`}
       <span style="font-size:8px;color:#6080a0;font-weight:400;margin-left:10px;">
         ● = options flow today (green=calls / red=puts) &nbsp;·&nbsp; <span style="color:#ffb020;">⚑</span> = not in any watchlist
       </span>
@@ -9935,6 +9951,20 @@ function _mmRenderUniversePanel() {
     ${sectorBlocks}
     ${otherBlock}
   `;
+}
+
+// ── SEARCH ──────────────────────────────────────────────────────────────────────────────────────
+
+function _mmSetSearch(val) {
+  _mmSearch = (val || '').trim().toUpperCase();
+  // Update the clear button visibility without re-running _mmRender()
+  const clrBtn = document.querySelector('#mm-search-input + button');
+  if (clrBtn) clrBtn.style.display = _mmSearch ? '' : 'none';
+  // If called from clear-button, restore input value
+  const inp = document.getElementById('mm-search-input');
+  if (inp && inp.value.toUpperCase() !== _mmSearch) inp.value = _mmSearch;
+  _mmRenderUniversePanel();
+  _mmRenderBuyWatchPanel();
 }
 
 // ── MOMENTUM BUY WATCH ──────────────────────────────────────────────────────────────────────────
@@ -10104,7 +10134,10 @@ function _mmRenderBuyWatchPanel() {
     w1: r => r.calc?.ret1w ?? -999,   m1: r => r.calc?.ret1m ?? -999,
     m3: r => r.calc?.ret3m ?? -999,   dip: r => r.calc?.from52hi ?? -999,
   };
-  const sorted = [..._mmBuyWatch].sort((a, b) => ((key[col]?.(a) ?? 0) - (key[col]?.(b) ?? 0)) * dir);
+  const q = _mmSearch;
+  const sorted = [..._mmBuyWatch]
+    .filter(r => !q || r.sym.includes(q) || r.sector.toUpperCase().includes(q))
+    .sort((a, b) => ((key[col]?.(a) ?? 0) - (key[col]?.(b) ?? 0)) * dir);
 
   const GR = '96px 64px 54px 44px 50px 50px 54px 44px 42px';
   const th = (k, lbl, align = 'right') => {
@@ -10321,6 +10354,7 @@ async function _mmRefresh() {
   _mmUniverse  = null; // force universe reload so fresh omen + price_history data is used
   _mmBuyWatch  = null; // force buy watch re-score on next render
   _mmPositions = null; // re-load positions with latest prices
+  _mmSearch    = '';   // clear search so we see full results after refresh
 
   // Orange busy state — disabled so double-clicks don't stack fetches
   const btn = document.getElementById('mm-refresh-btn');
