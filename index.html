@@ -8552,22 +8552,37 @@ async function handleMomentumCsvFiles(files) {
   const supa = await getSupabaseAsync();
   if (!supa) { showToast('Import', 'No database connection', 'error'); return; }
 
-  // Confirm if table already has rows
-  if (_swingData.length > 0) {
-    if (!confirm(`Table has ${_swingData.length} row${_swingData.length !== 1 ? 's' : ''}. Import anyway? New rows will be added.`)) return;
+  // Fields that belong to the user's position tracking — never overwrite on re-import.
+  // (Note: if per-account tracking is added later, the uniqueness key becomes (symbol, account).)
+  const PROTECTED = new Set(['entry_price','buy_below','shares','shares_sold','sold_price','sold_date','notes']);
+
+  // Pre-fetch all existing symbol → id mappings so we can split insert vs update.
+  let existingMap = new Map(); // symbol → DB row id
+  try {
+    const { data: ex } = await supa.from('swing_watchlist').select('id,symbol');
+    (ex || []).forEach(r => { if (r.symbol) existingMap.set(r.symbol.toUpperCase(), r.id); });
+  } catch (e) { console.warn('[Import] could not fetch existing symbols', e.message); }
+
+  if (existingMap.size > 0) {
+    if (!confirm(`Watchlist has ${existingMap.size} symbol${existingMap.size !== 1 ? 's' : ''}. Import will add new symbols and update non-position fields on existing ones (entry_price, shares, notes, etc. are preserved). Continue?`)) return;
   }
 
-  let totalInserted = 0, totalSkipped = 0;
+  let totalInserted = 0, totalUpdated = 0, totalSkipped = 0;
 
   for (const file of Array.from(files)) {
     const text = await file.text();
     const parsed = _parseMomCsv(text);
 
-    const toInsert = [];
+    const newRows = [];
+    const seenInFile = new Set(); // guard against duplicates within the same CSV
+
     for (const r of parsed) {
       const sym = (r.symbol || '').trim().toUpperCase();
       if (!sym) { totalSkipped++; continue; }
-      toInsert.push({
+      if (seenInFile.has(sym)) { totalSkipped++; continue; } // skip same-file duplicates
+      seenInFile.add(sym);
+
+      const fullRow = {
         symbol:           sym,
         security:         r.security || null,
         sector:           r.sector || null,
@@ -8590,21 +8605,44 @@ async function handleMomentumCsvFiles(files) {
         notes:            r.notes || null,
         replace_marker:   r.replace_marker || null,
         is_held:          (String(r.is_held).toLowerCase()==='yes' || String(r.is_held).toLowerCase()==='true'),
-      });
+      };
+
+      if (existingMap.has(sym)) {
+        // Update existing row — strip protected fields so user data is never overwritten.
+        const updateFields = Object.fromEntries(
+          Object.entries(fullRow).filter(([k]) => !PROTECTED.has(k) && k !== 'symbol')
+        );
+        const rowId = existingMap.get(sym);
+        try {
+          const { error } = await supa.from('swing_watchlist').update(updateFields).eq('id', rowId);
+          if (error) throw error;
+          totalUpdated++;
+        } catch (e) {
+          console.warn(`[Import] update failed for ${sym}:`, e.message);
+          totalSkipped++;
+        }
+      } else {
+        newRows.push(fullRow);
+        existingMap.set(sym, '__pending__'); // prevent same-file dups from re-entering new path
+      }
     }
 
-    if (!toInsert.length) { totalSkipped += parsed.length; continue; }
-
-    const { error } = await supa.from('swing_watchlist').insert(toInsert);
-    if (error) {
-      showToast('Import', `${file.name}: insert failed — ${error.message}`, 'error');
-      totalSkipped += toInsert.length;
-    } else {
-      totalInserted += toInsert.length;
+    if (newRows.length) {
+      const { error } = await supa.from('swing_watchlist').insert(newRows);
+      if (error) {
+        showToast('Import', `${file.name}: insert failed — ${error.message}`, 'error');
+        totalSkipped += newRows.length;
+      } else {
+        totalInserted += newRows.length;
+      }
     }
   }
 
-  showToast('Import', `Imported ${totalInserted} row${totalInserted !== 1 ? 's' : ''}${totalSkipped ? ` (${totalSkipped} skipped — bad format)` : ''}`, 'info');
+  const parts = [];
+  if (totalInserted) parts.push(`${totalInserted} added`);
+  if (totalUpdated)  parts.push(`${totalUpdated} updated`);
+  if (totalSkipped)  parts.push(`${totalSkipped} skipped`);
+  showToast('Import', parts.join(' · ') || 'Nothing to import', 'info');
   await loadSwingData();
   renderMomentum();
   if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
