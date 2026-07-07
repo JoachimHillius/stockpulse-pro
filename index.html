@@ -10234,13 +10234,21 @@ async function _mmLoadPositions() {
     }
   } catch (e) { console.warn('[Positions] price_history', e.message); }
 
-  // Live price: prefer fetchLiveAll data (liveData) over last_close from price_history
   const getPrice = sym => liveData[sym]?.p || lastClose[sym] || null;
 
   const held = posRows.filter(r => r.entry_price != null).map(r => {
-    const last = getPrice(r.symbol);
-    return { ...r, last, pnl: last != null ? +((last / r.entry_price - 1) * 100).toFixed(2) : null };
+    const last         = getPrice(r.symbol);
+    const totalShares  = r.shares != null ? +r.shares : (r.qty != null ? +r.qty : null);
+    const soldShares   = r.shares_sold != null ? +r.shares_sold : 0;
+    const holdingQty   = totalShares != null ? Math.max(0, totalShares - soldShares) : null;
+    const isClosed     = totalShares != null && soldShares >= totalShares && totalShares > 0;
+    const realizedPnl  = soldShares > 0 && r.sold_price != null && r.entry_price != null
+      ? +((+r.sold_price / +r.entry_price - 1) * 100).toFixed(2) : null;
+    const unrealizedPnl = !isClosed && last != null
+      ? +((last / +r.entry_price - 1) * 100).toFixed(2) : null;
+    return { ...r, last, holdingQty, soldShares, totalShares, isClosed, realizedPnl, unrealizedPnl };
   });
+
   const watch = posRows.filter(r => r.entry_price == null && r.buy_below != null).map(r => {
     const last = getPrice(r.symbol);
     return { ...r, last,
@@ -10260,21 +10268,59 @@ function _mmRenderPositionsPanel() {
   const { held, watch } = _mmPositions;
   if (!held.length && !watch.length) { panel.innerHTML = ''; return; }
 
-  const inputStyle = 'background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--text);font-family:var(--font);font-size:11px;width:72px;padding:2px 4px;text-align:right;';
+  const inSty = 'background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--text);font-family:var(--font);font-size:11px;width:64px;padding:2px 4px;text-align:right;';
   const lbl = txt => `<span style="font-size:9px;color:#8090a0;">${txt}</span>`;
+  const pct = (v, bold) => {
+    if (v == null) return '<span style="color:#6080a0;">—</span>';
+    const c = v >= 0 ? '#00e5b0' : '#ff3d5a';
+    const s = bold ? 'font-weight:700;font-size:12px;' : 'font-size:11px;';
+    return `<span style="${s}color:${c};">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+  };
+  const fmtDate = d => {
+    if (!d) return '';
+    const dt = new Date(d);
+    return `${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+  };
 
   const heldHtml = held.length ? `
     <div style="font-size:9px;font-weight:700;color:#8090a0;letter-spacing:0.8px;margin:10px 0 5px;">HELD POSITIONS</div>
     ${held.map(r => {
-      const pnlColor = r.pnl == null ? '#b8c4d4' : r.pnl >= 0 ? '#00e5b0' : '#ff3d5a';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(128,144,160,0.07);flex-wrap:wrap;">
-        <span style="font-size:11px;font-weight:700;color:var(--cyan);min-width:60px;">${r.symbol}</span>
-        ${lbl('Entry')} <span style="font-size:11px;color:#c4d2e0;">$${r.entry_price.toFixed(2)}</span>
-        ${lbl('Last')} <span style="font-size:11px;color:#c4d2e0;">${r.last != null ? '$'+r.last.toFixed(2) : '—'}</span>
-        ${lbl('P&amp;L')} <span style="font-size:12px;font-weight:700;color:${pnlColor};">${r.pnl != null ? (r.pnl >= 0 ? '+' : '') + r.pnl.toFixed(2) + '%' : '—'}</span>
-        ${r.qty != null ? lbl('Qty') + ' <span style="font-size:11px;color:#c4d2e0;">' + r.qty + '</span>' : ''}
-        ${lbl('Re-entry target')} <input type="number" step="any" value="${r.buy_below ?? ''}" placeholder="—" style="${inputStyle}" onblur="_mmSavePosField(${r.id},'buy_below',this.value)" title="Set a buy-below re-entry price">
-      </div>`;
+      const isClosed = r.isClosed;
+      const hasSold  = r.soldShares > 0;
+      // ── main holding row ──
+      const holdLine = isClosed ? '' : `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:${hasSold ? '3px' : '0'};">
+          <span style="font-size:11px;font-weight:700;color:var(--cyan);min-width:56px;">${r.symbol}</span>
+          ${r.holdingQty != null ? lbl('Holding') + ` <span style="font-size:11px;color:#c4d2e0;">${r.holdingQty}</span>` : ''}
+          ${lbl('@ $')} <span style="font-size:11px;color:#c4d2e0;">${(+r.entry_price).toFixed(2)}</span>
+          ${lbl('Last')} <span style="font-size:11px;color:#c4d2e0;">${r.last != null ? '$'+r.last.toFixed(2) : '—'}</span>
+          ${lbl('P&amp;L')} ${pct(r.unrealizedPnl, true)}
+        </div>`;
+      // ── sold sub-row ──
+      const soldLine = hasSold ? `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;opacity:0.65;">
+          ${isClosed ? `<span style="font-size:11px;font-weight:700;color:var(--cyan);min-width:56px;">${r.symbol}</span>` : '<span style="min-width:56px;"></span>'}
+          <span style="font-size:10px;color:#8090a0;text-decoration:${isClosed ? 'none' : 'line-through'};">
+            Sold ${r.soldShares} @ $${(+r.sold_price).toFixed(2)}
+            ${pct(r.realizedPnl, false)}
+            ${r.sold_date ? `<span style="font-size:9px;color:#607080;">${fmtDate(r.sold_date)}</span>` : ''}
+          </span>
+          ${isClosed ? '<span style="font-size:9px;font-weight:700;color:#ffb020;background:rgba(255,176,32,0.12);border-radius:3px;padding:1px 5px;margin-left:4px;">CLOSED</span>' : ''}
+        </div>` : '';
+      // ── record partial sale form ──
+      const saleForm = !isClosed ? `
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px;">
+          ${lbl('Sell')}
+          <input id="mm-sell-qty-${r.id}" type="number" min="1" step="1" placeholder="qty" style="${inSty}width:52px;" title="Shares to sell">
+          ${lbl('@ $')}
+          <input id="mm-sell-px-${r.id}" type="number" step="any" placeholder="price" style="${inSty}width:64px;" title="Sale price">
+          <button onclick="_mmRecordSale(${r.id})" style="font-size:10px;background:rgba(0,197,255,0.15);border:1px solid var(--cyan);border-radius:3px;color:var(--cyan);padding:2px 7px;cursor:pointer;">Record</button>
+          ${lbl('Re-entry')} <input type="number" step="any" value="${r.buy_below ?? ''}" placeholder="—" style="${inSty}" onblur="_mmSavePosField(${r.id},'buy_below',this.value)" title="Buy-below re-entry target">
+        </div>` : `
+        <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
+          ${lbl('Re-entry')} <input type="number" step="any" value="${r.buy_below ?? ''}" placeholder="—" style="${inSty}" onblur="_mmSavePosField(${r.id},'buy_below',this.value)" title="Buy-below re-entry target">
+        </div>`;
+      return `<div style="padding:6px 0;border-bottom:1px solid rgba(128,144,160,0.07);">${holdLine}${soldLine}${saleForm}</div>`;
     }).join('')}
   ` : '';
 
@@ -10289,7 +10335,7 @@ function _mmRenderPositionsPanel() {
         ${lbl('Buy below')} <span style="font-size:11px;color:#c4d2e0;">$${r.buy_below.toFixed(2)}</span>
         ${lbl('Last')} <span style="font-size:11px;color:#c4d2e0;">${r.last != null ? '$'+r.last.toFixed(2) : '—'}</span>
         ${lbl('Distance')} <span style="font-size:12px;font-weight:700;color:${distColor};">${r.dist != null ? (r.dist >= 0 ? '+' : '') + r.dist.toFixed(2) + '%' : '—'}</span>
-        ${lbl('Entry cost')} <input type="number" step="any" value="${r.entry_price ?? ''}" placeholder="—" style="${inputStyle}" onblur="_mmSavePosField(${r.id},'entry_price',this.value)" title="Set cost basis when you buy in">
+        ${lbl('Entry cost')} <input type="number" step="any" value="${r.entry_price ?? ''}" placeholder="—" style="${inSty}" onblur="_mmSavePosField(${r.id},'entry_price',this.value)" title="Set cost basis when you buy in">
       </div>`;
     }).join('')}
   ` : '';
@@ -10298,9 +10344,8 @@ function _mmRenderPositionsPanel() {
     <style>@keyframes mm-blink{0%,100%{opacity:1}50%{opacity:0.35}}</style>
     <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#d0dae6;margin:18px 0 4px;">
       MY POSITIONS &amp; RE-ENTRY
-      <span style="font-size:8px;color:#6080a0;font-weight:400;margin-left:10px;">Live P&amp;L for held positions · ⚑ flashes when last price hits buy-below target</span>
+      <span style="font-size:8px;color:#6080a0;font-weight:400;margin-left:10px;">Live P&amp;L · partial sales tracked · ⚑ flashes at buy-zone</span>
     </div>
-    <div style="font-size:9px;color:#5a708a;margin-bottom:8px;">Set entry_price or buy_below on your Swing Watchlist rows to track them here.</div>
     ${heldHtml}${watchHtml}
   `;
 }
@@ -10312,11 +10357,49 @@ async function _mmSavePosField(id, field, rawVal) {
     const supa = await getSupabaseAsync();
     if (!supa) return;
     await supa.from('swing_watchlist').update({ [field]: val }).eq('id', id);
-    // Patch _swingData in memory so re-opens are consistent without a full reload
     const r = (_swingData || []).find(r => String(r.id) === String(id));
     if (r) r[field] = val;
-    _mmPositions = null; // force re-load next render
+    _mmPositions = null;
   } catch (e) { console.warn('[Positions] save failed', e.message); }
+}
+
+async function _mmRecordSale(id) {
+  const qtyInput = document.getElementById(`mm-sell-qty-${id}`);
+  const pxInput  = document.getElementById(`mm-sell-px-${id}`);
+  if (!qtyInput || !pxInput) return;
+  const qtySold  = parseFloat(qtyInput.value);
+  const soldPrice = parseFloat(pxInput.value);
+  if (!qtySold || qtySold <= 0 || !soldPrice || soldPrice <= 0) {
+    qtyInput.style.borderColor = '#ff3d5a'; pxInput.style.borderColor = '#ff3d5a';
+    setTimeout(() => { qtyInput.style.borderColor = ''; pxInput.style.borderColor = ''; }, 1500);
+    return;
+  }
+  const row = (_swingData || []).find(r => String(r.id) === String(id));
+  if (!row) return;
+
+  // Accumulate: weighted-average sold_price across multiple partial sales
+  const prevSold  = row.shares_sold != null ? +row.shares_sold : 0;
+  const prevPrice = row.sold_price  != null ? +row.sold_price  : soldPrice;
+  const newTotal  = prevSold + qtySold;
+  const newAvgPx  = +((prevSold * prevPrice + qtySold * soldPrice) / newTotal).toFixed(4);
+  const today     = new Date().toISOString().slice(0, 10);
+
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) return;
+    await supa.from('swing_watchlist').update({
+      shares_sold: newTotal,
+      sold_price:  newAvgPx,
+      sold_date:   today,
+    }).eq('id', id);
+    row.shares_sold = newTotal;
+    row.sold_price  = newAvgPx;
+    row.sold_date   = today;
+    _mmPositions = null;
+    qtyInput.value = ''; pxInput.value = '';
+    await _mmLoadPositions();
+    _mmRenderPositionsPanel();
+  } catch (e) { console.warn('[Positions] record sale failed', e.message); }
 }
 
 // Fetch fresh Finnhub quotes for all 15 Market Map symbols in one parallel burst.
