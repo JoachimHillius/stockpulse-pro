@@ -10480,6 +10480,7 @@ function renderTradeLog() {
   const tdStyle = 'font-size:11px;color:#c4d2e0;padding:5px 8px;vertical-align:middle;';
   const inputNoteStyle = 'background:transparent;border:none;color:#8090a0;font-size:11px;font-family:var(--font);width:100%;outline:none;cursor:pointer;';
 
+  const actBtnStyle = 'background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;';
   const bodyRows = rows.length ? rows.map(r => `
     <tr style="border-bottom:1px solid rgba(128,144,160,0.06);">
       <td style="${tdStyle}white-space:nowrap;">${r.sold_date || '—'}</td>
@@ -10492,14 +10493,18 @@ function renderTradeLog() {
       <td style="${tdStyle}text-align:right;color:${pctColor(r)};">${fmtDollar(r.realized_pnl_dollar)}</td>
       <td style="${tdStyle}font-size:10px;color:#607080;">${r.source || '—'}</td>
       <td style="${tdStyle}min-width:120px;"><input type="text" value="${(r.notes||'').replace(/"/g,'&quot;')}" placeholder="add note…" style="${inputNoteStyle}" onfocus="this.style.background='var(--bg3)'" onblur="_tlSaveNote(${r.id},this.value);this.style.background='transparent'"></td>
-      <td style="${tdStyle}text-align:center;"><button onclick="_tlDeleteRow(${r.id})" title="Delete this sale log entry" style="background:none;border:none;cursor:pointer;color:#405060;font-size:13px;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#405060'">🗑</button></td>
+      <td style="${tdStyle}text-align:right;white-space:nowrap;">
+        <button onclick="_tlOpenForm(${r.id})" title="Edit" style="${actBtnStyle}color:#6080a0;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+        <button onclick="_tlDeleteRow(${r.id})" title="Delete" style="${actBtnStyle}color:#405060;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#405060'">🗑</button>
+      </td>
     </tr>`).join('') :
-    `<tr><td colspan="11" style="padding:30px;text-align:center;color:#5a708a;font-size:12px;">No sales recorded yet.</td></tr>`;
+    `<tr><td colspan="12" style="padding:30px;text-align:center;color:#5a708a;font-size:12px;">No sales recorded yet.</td></tr>`;
 
   root.innerHTML = `
-    <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
       <span style="font-size:13px;font-weight:700;letter-spacing:0.8px;color:#d0dae6;">SALES / TRADE LOG</span>
-      <button onclick="initTradeLog()" style="font-size:10px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:#8090a0;padding:3px 9px;cursor:pointer;margin-left:auto;">↻ Refresh</button>
+      <button onclick="_tlOpenForm(null)" style="font-size:11px;font-weight:700;background:rgba(0,197,255,0.12);border:1px solid var(--cyan);border-radius:4px;color:var(--cyan);padding:4px 12px;cursor:pointer;margin-left:auto;">+ Add Sale</button>
+      <button onclick="initTradeLog()" style="font-size:10px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:#8090a0;padding:4px 9px;cursor:pointer;">↻ Refresh</button>
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:10px 16px;min-width:120px;">
@@ -10530,11 +10535,125 @@ function renderTradeLog() {
             <th style="${thStyle}">Source</th>
             <th style="${thStyle}">Notes</th>
             <th style="${thStyle}"></th>
+            <th style="${thStyle}"></th>
           </tr>
         </thead>
         <tbody>${bodyRows}</tbody>
       </table>
     </div>`;
+}
+
+function _tlOpenForm(id) {
+  const row = id != null ? (_tlData || []).find(r => r.id === id) : null;
+  const isEdit = row != null;
+  let modal = document.getElementById('tl-form-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'tl-form-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(8,30,45,0.6);overflow-y:auto;padding:20px;';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.body.appendChild(modal);
+  }
+  const v = k => row ? (row[k] ?? '') : '';
+  const inSty = 'width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);';
+  const fld = (label, id, type, val, extra) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">${label}</div>
+      <input id="tl-f-${id}" type="${type}" value="${String(val).replace(/"/g,'&quot;')}" ${extra||''} style="${inSty}">
+    </div>`;
+  const sourceOpts = ['momentum','market_map','manual','watchlist','scanner'].map(s =>
+    `<option value="${s}" ${v('source')===s||(!v('source')&&s==='manual'&&!isEdit)?'selected':''}>${s}</option>`).join('');
+
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:22px 24px;width:100%;max-width:480px;box-shadow:0 8px 30px rgba(0,0,0,0.5);">
+      <div style="font-size:12px;font-weight:700;color:#c0c8d0;margin-bottom:16px;letter-spacing:0.8px;">${isEdit ? '✎ EDIT SALE — ' + (row.symbol||'') : '+ ADD SALE'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+        ${fld('SYMBOL', 'symbol', 'text', v('symbol').toUpperCase(), 'style="text-transform:uppercase;"')}
+        ${fld('SECURITY', 'security', 'text', v('security'))}
+        ${fld('SHARES SOLD', 'shares', 'number', v('shares_sold'), 'step="1" min="0" oninput="_tlUpdatePnlPreview()"')}
+        ${fld('SOLD PRICE $', 'sold-price', 'number', v('sold_price'), 'step="0.01" min="0" oninput="_tlUpdatePnlPreview()"')}
+        ${fld('ENTRY PRICE $', 'entry-price', 'number', v('entry_price'), 'step="0.01" min="0" oninput="_tlUpdatePnlPreview()"')}
+        ${fld('SOLD DATE', 'sold-date', 'date', v('sold_date') || new Date().toISOString().slice(0,10))}
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">SOURCE</div>
+        <select id="tl-f-source" style="${inSty}">${sourceOpts}</select>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
+        <input id="tl-f-notes" type="text" value="${(v('notes')||'').replace(/"/g,'&quot;')}" placeholder="optional" style="${inSty}">
+      </div>
+      <div id="tl-f-preview" style="margin-bottom:14px;padding:6px 10px;background:rgba(0,197,255,0.06);border:1px solid rgba(0,197,255,0.15);border-radius:5px;font-size:11px;color:#8090a0;display:none;"></div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="_tlSaveForm(${id != null ? id : 'null'})"
+          style="flex:1;padding:8px;background:#00d4ff22;border:1px solid #00d4ff;border-radius:5px;color:#00d4ff;font-weight:700;font-size:12px;cursor:pointer;font-family:var(--font);">
+          ${isEdit ? 'SAVE CHANGES' : 'ADD SALE'}
+        </button>
+        <button onclick="document.getElementById('tl-form-modal').style.display='none'"
+          style="padding:8px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:#8090a0;font-size:12px;cursor:pointer;font-family:var(--font);">Cancel</button>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
+  _tlUpdatePnlPreview();
+}
+
+function _tlUpdatePnlPreview() {
+  const el = document.getElementById('tl-f-preview');
+  if (!el) return;
+  const shares    = parseFloat(document.getElementById('tl-f-shares')?.value);
+  const soldPrice = parseFloat(document.getElementById('tl-f-sold-price')?.value);
+  const entryPrice = parseFloat(document.getElementById('tl-f-entry-price')?.value);
+  if (!soldPrice || !entryPrice || entryPrice <= 0) { el.style.display = 'none'; return; }
+  const pct    = ((soldPrice / entryPrice - 1) * 100).toFixed(2);
+  const dollar = shares > 0 ? ((soldPrice - entryPrice) * shares).toFixed(0) : null;
+  const c = +pct >= 0 ? '#00e5b0' : '#ff3d5a';
+  el.innerHTML = `Realized P&amp;L: <b style="color:${c};">${+pct >= 0?'+':''}${pct}%</b>${dollar != null ? ` &nbsp;·&nbsp; <b style="color:${c};">${+dollar>=0?'+$':'−$'}${Math.abs(+dollar)}</b>` : ''}`;
+  el.style.display = 'block';
+}
+
+async function _tlSaveForm(id) {
+  const g = sfx => document.getElementById('tl-f-' + sfx)?.value.trim() ?? '';
+  const num = v => { const n = parseFloat(v); return (v === '' || isNaN(n)) ? null : n; };
+  const symbol     = g('symbol').toUpperCase();
+  const sharesSold = num(g('shares'));
+  const soldPrice  = num(g('sold-price'));
+  const entryPrice = num(g('entry-price'));
+  if (!symbol)     { alert('Symbol is required'); return; }
+  if (!sharesSold) { alert('Shares Sold is required'); return; }
+  if (!soldPrice)  { alert('Sold Price is required'); return; }
+  const pnlPct    = (entryPrice && soldPrice) ? +((soldPrice / entryPrice - 1) * 100).toFixed(4) : null;
+  const pnlDollar = (entryPrice && soldPrice) ? +((soldPrice - entryPrice) * sharesSold).toFixed(2) : null;
+  const payload = {
+    symbol,
+    security:            g('security') || null,
+    shares_sold:         sharesSold,
+    sold_price:          soldPrice,
+    entry_price:         entryPrice,
+    realized_pnl_pct:    pnlPct,
+    realized_pnl_dollar: pnlDollar,
+    sold_date:           g('sold-date') || new Date().toISOString().slice(0, 10),
+    source:              g('source') || 'manual',
+    notes:               g('notes') || null,
+  };
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    if (id != null) {
+      const { error } = await supa.from('trade_sales').update(payload).eq('id', id);
+      if (error) throw error;
+      // Patch cache in place
+      const idx = (_tlData || []).findIndex(r => r.id === id);
+      if (idx !== -1) _tlData[idx] = { ..._tlData[idx], ...payload };
+    } else {
+      const { data, error } = await supa.from('trade_sales').insert(payload).select();
+      if (error) throw error;
+      if (data?.[0]) (_tlData = _tlData || []).unshift(data[0]);
+    }
+    document.getElementById('tl-form-modal').style.display = 'none';
+    renderTradeLog();
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
 }
 
 async function _tlDeleteRow(id) {
