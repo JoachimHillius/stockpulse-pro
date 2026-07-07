@@ -9526,6 +9526,7 @@ function _mmCalc(rows) {
     from52hi: h52 > 0 ? +((last / h52 - 1) * 100).toFixed(2) : null,
     from52lo: l52 > 0 ? +((last / l52 - 1) * 100).toFixed(2) : null,
     ret1d: closes.length >= 2 ? +((closes.at(-1) / closes.at(-2) - 1) * 100).toFixed(2) : null,
+    ret1w:  ret(5),
     ret1m:  ret(21),
     ret3m:  ret(63),
     ret6m:  ret(126),
@@ -9675,11 +9676,13 @@ function _mmRender() {
 
   const thStyle = 'font-size:9px;font-weight:700;letter-spacing:0.6px;color:#d0dae6;padding:5px 8px;text-align:right;white-space:nowrap;';
   const thL     = 'font-size:9px;font-weight:700;letter-spacing:0.6px;color:#d0dae6;padding:5px 8px;text-align:left;';
-  const thead = `<div style="display:grid;grid-template-columns:90px 70px 55px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid var(--border2);margin-bottom:2px;">
+  const MM_GRID = '90px 70px 55px 60px 55px 55px 60px 60px 60px 48px';
+  const thead = `<div style="display:grid;grid-template-columns:${MM_GRID};gap:0;border-bottom:1px solid var(--border2);margin-bottom:2px;">
     <span style="${thL}">SECTOR ETF</span>
     <span style="${thStyle}">${_mmThBtn('last','LAST')}</span>
     <span style="${thStyle}">${_mmThBtn('from52hi','% 52H')}</span>
     <span style="${thStyle}">${_mmThBtn('from52lo','% 52L')}</span>
+    <span style="${thStyle}">${_mmThBtn('ret1w','1W%')}</span>
     <span style="${thStyle}">${_mmThBtn('ret1m','1M%')}</span>
     <span style="${thStyle}">${_mmThBtn('ret3m','3M%')}</span>
     <span style="${thStyle}">${_mmThBtn('ret6m','6M%')}</span>
@@ -9691,11 +9694,12 @@ function _mmRender() {
   const tdL     = 'padding:5px 8px;text-align:left;font-size:11px;';
   const tbodyHtml = sorted.map(({ sym, label, calc }) => {
     const hl = _mmRowHighlight(calc);
-    return `<div style="display:grid;grid-template-columns:90px 70px 55px 60px 55px 60px 60px 60px 48px;gap:0;border-bottom:1px solid rgba(128,144,160,0.1);${hl}">
+    return `<div style="display:grid;grid-template-columns:${MM_GRID};gap:0;border-bottom:1px solid rgba(128,144,160,0.1);${hl}">
       <span style="${tdL}font-weight:700;color:var(--text);"><span style="color:var(--cyan);font-size:10px;">${sym}</span><br><span style="font-size:9px;color:#e8eef4;">${label}</span></span>
       <span style="${tdStyle}color:#c4d2e0;">${calc.last != null ? '$' + calc.last.toFixed(2) : '—'}</span>
       <span style="${tdStyle};color:${calc.from52hi == null ? '#b8c4d4' : (calc.from52hi <= -15 || (calc.rsi14 != null && calc.rsi14 < 40)) ? '#00d4ff' : (calc.from52hi >= -3 && calc.ret3m != null && calc.ret3m > 15) ? '#ffb020' : '#c4d2e0'};">${calc.from52hi != null ? (calc.from52hi >= 0 ? '+' : '') + calc.from52hi.toFixed(2) + '%' : '—'}</span>
       <span style="${tdStyle}">${_mmPct(calc.from52lo, true)}</span>
+      <span style="${tdStyle}">${_mmPct(calc.ret1w, true)}</span>
       <span style="${tdStyle}">${_mmPct(calc.ret1m, true)}</span>
       <span style="${tdStyle}">${_mmPct(calc.ret3m, true)}</span>
       <span style="${tdStyle}">${_mmPct(calc.ret6m, true)}</span>
