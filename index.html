@@ -6116,7 +6116,7 @@ function renderSectorLeaderboard() {
 // ============================================================
 let _p1FlowData = null;          // raw omen_flow rows for Phase 1 computation
 const P1_ACTIVITY_FLOOR = 20;   // min total_size contracts to qualify (tunable)
-const P1_PAGE_SIZE = 10;
+const P1_PAGE_SIZE = 20;
 let _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
 let _p1SelectedDate = null;  // null = use latest; set by date chips
 let _p1RecentDates = [];     // last 7 actual trading dates from omen_flow (for price-strip columns)
@@ -6608,6 +6608,7 @@ const PRED_STRONG=70;
 const PRED_MOMENTUM_BAND=15;
 let _predData=null;
 let _predTimeframe='D';
+let _fpSideFilter = 'all'; // 'all' | 'calls' | 'puts'
 let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
 let _predLastDates = [];
 let _predLabelMode='both';
@@ -7047,7 +7048,7 @@ function predBuildRows(){
       top_puts:byDate[todayDate]?.top_puts||null,
     });
   }
-  const top10=[...rows].sort((a,b)=>b.cumTotal-a.cumTotal).slice(0,10);
+  const top10=[...rows].sort((a,b)=>b.cumTotal-a.cumTotal).slice(0,20);
   const top5=rows.filter(r=>r.cumPut>r.cumCall).sort((a,b)=>b.cumPut-a.cumPut).slice(0,5);
   let searchRow=null;
   if(_predSearchTicker){
@@ -7372,6 +7373,12 @@ function renderFlowPredictor(){
           return`<button onclick="setP1Date('${d}')" style="padding:3px 10px;border-radius:4px;border:1px solid ${sel?'var(--cyan)':'var(--border)'};background:${sel?'var(--cyan)':'var(--bg3)'};color:${sel?'#000':'#c0c8d0'};font-size:10px;cursor:pointer;font-weight:${sel?700:400};">${fmtDateHeader(d)}</button>`;
         }).join('')}
         ${!(p1.allDates||[]).length?'<span style="font-size:10px;color:#5a708a;">No dates loaded — click ↻ Refresh</span>':''}
+        <span style="margin:0 6px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>
+        <span style="font-size:10px;color:#8090a0;letter-spacing:0.5px;margin-right:2px;">FLOW:</span>
+        ${[['all','All','#00d4ff'],['calls','Calls ▲','#00e5b0'],['puts','Puts ▼','#ff3d5a']].map(([val,lbl,activeColor])=>{
+          const active = _fpSideFilter === val;
+          return `<button onclick="setFpSideFilter('${val}')" style="background:${active?`rgba(${val==='calls'?'0,229,176':val==='puts'?'255,61,90':'0,212,255'},0.15)`:'transparent'};color:${active?activeColor:'#6080a0'};border:1px solid ${active?activeColor+'66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
+        }).join('')}
       </div>
       <div style="font-size:10px;color:#6080a0;margin-bottom:8px;padding:4px 0;">
         <span style="color:#00e5b0;margin-right:12px;">● green dot = fresh OI</span>
@@ -7400,10 +7407,15 @@ function renderFlowPredictor(){
                     if(pa==null&&pb==null)return 0; if(pa==null)return 1; if(pb==null)return -1;
                     return pb-pa;
                   });
-                  return `${p1Section('DAY TRADE',_sSort(classified.DAY_TRADE||[]),'#1a2040','#7fb0e8','DAY_TRADE')}
-                ${p1Section('SWING',_sSort(classified.SWING||[]),'#201a08','#d4b070','SWING')}
-                ${p1Section('LONG',_sSort(classified.LONG||[]),'#0a2018','#7fd0a8','LONG')}
-                ${(classified.FADING||[]).length?p1Section('FADING',_sSort(classified.FADING),'#201018','#d97f8a','FADING'):''}`;
+                  // Apply Calls/Puts side filter before the per-section top-20 page cut
+                  const sideOk = r => _fpSideFilter === 'all' || (
+                    _fpSideFilter === 'calls' ? r.direction === 'UP' : r.direction === 'DOWN'
+                  );
+                  const flt = arr => (arr||[]).filter(sideOk);
+                  return `${p1Section('DAY TRADE',_sSort(flt(classified.DAY_TRADE)),'#1a2040','#7fb0e8','DAY_TRADE')}
+                ${p1Section('SWING',_sSort(flt(classified.SWING)),'#201a08','#d4b070','SWING')}
+                ${p1Section('LONG',_sSort(flt(classified.LONG)),'#0a2018','#7fd0a8','LONG')}
+                ${flt(classified.FADING).length?p1Section('FADING',_sSort(flt(classified.FADING)),'#201018','#d97f8a','FADING'):''}`;
                 })()
               }
             `}
@@ -7415,6 +7427,12 @@ function renderFlowPredictor(){
     const srch=document.getElementById('pred-ticker-search');
     if(srch){srch.value=_predSearchTicker;srch.focus();const l=srch.value.length;srch.setSelectionRange(l,l);}
   }
+}
+
+function setFpSideFilter(val) {
+  _fpSideFilter = val;
+  _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 }; // reset pagination
+  renderFlowPredictor();
 }
 
 async function setPredTimeframe(tf){
