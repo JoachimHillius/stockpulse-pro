@@ -9848,13 +9848,31 @@ async function showMarketMap() {
     </div>`;
   modal.style.display = 'flex';
 
-  // Use cached data if fresh (same session load)
+  // If data already loaded this session, just re-render (live data already in _mmLiveData)
   if (_mmData) { _mmRender(); return; }
 
   try {
+    // Phase 1 — load price_history and render the stale values as an instant placeholder
     _mmData = await _mmLoadData();
     _mmEtf1dFromData();
     _mmRender();
+
+    // Phase 2 — auto-fetch live quotes once on initial open; re-render when done.
+    // Fire-and-forget: don't await, so the modal stays interactive.
+    // Only runs if a Finnhub key is configured; silently skips otherwise.
+    if (localStorage.getItem('sp_fh')) {
+      const btn = document.getElementById('mm-refresh-btn');
+      if (btn) { btn.disabled = true; btn.style.color = '#ffb020'; btn.style.borderColor = '#ffb020'; btn.onmouseleave = null; }
+      _mmFetchLiveQuotes()
+        .then(() => { if (_mmData) _mmRender(); }) // overwrite placeholder with live values
+        .catch(e => console.warn('[MM auto-live]', e.message))
+        .finally(() => {
+          // getElementById at settle-time so we always find the current DOM node
+          // (user may have closed/reopened the modal while the fetch was in flight)
+          const b = document.getElementById('mm-refresh-btn');
+          if (b) { b.disabled = false; b.style.color = '#b8c4d4'; b.style.borderColor = 'var(--border2)'; b.onmouseleave = () => { b.style.color = '#b8c4d4'; }; }
+        });
+    }
   } catch (e) {
     const inner = document.getElementById('mm-inner');
     if (inner) inner.innerHTML = `<div style="padding:30px;text-align:center;color:#ff3d5a;font-size:12px;">Failed to load: ${e.message}</div>`;
