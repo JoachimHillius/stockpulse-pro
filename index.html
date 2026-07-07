@@ -435,6 +435,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
     <button class="nav-btn" onclick="goPage('history',this)">History</button>
+    <button class="nav-btn" onclick="goPage('tradelog',this)" style="white-space:normal;line-height:1.2;padding:0 10px;font-size:10px;">Trade<br>Log</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
     <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
   </nav>
@@ -946,6 +947,13 @@ select option{background:var(--bg2);}
 </div>
 
 <!-- ============ PAGE: HISTORY ============ -->
+<!-- ============ PAGE: TRADE LOG ============ -->
+<div id="page-tradelog" class="page">
+  <div id="tl-root" style="max-width:1100px;">
+    <div style="color:#5a708a;font-size:12px;padding:30px 0;text-align:center;">Loading sales log…</div>
+  </div>
+</div>
+
 <div id="page-history" class="page">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
     <span style="color:#e0e0e0;">30-day prediction log — tracks what worked</span>
@@ -4526,6 +4534,9 @@ function goPage(name,btn){
   }
   if(name==='settings'){
     setTimeout(refreshPriceHistoryStatus,50);
+  }
+  if(name==='tradelog'){
+    setTimeout(initTradeLog,50);
   }
 }
 
@@ -8364,6 +8375,10 @@ async function saveMomentumRow(id) {
   const symbol = g('symbol').toUpperCase();
   if (!symbol) { showToast('Momentum', 'Symbol is required', 'error'); return; }
 
+  // Snapshot old row BEFORE save so we can detect sale delta
+  const oldRow = (id !== null) ? (_swingData || []).find(r => String(r.id) === String(id)) : null;
+  const oldSharesSold = oldRow?.shares_sold != null ? +oldRow.shares_sold : 0;
+
   const fields = {
     symbol,
     security:         g('security') || null,
@@ -8403,6 +8418,21 @@ async function saveMomentumRow(id) {
   }
 
   if (error) { showToast('Momentum', 'Save failed: ' + error.message, 'error'); return; }
+
+  // Write a trade_sales log row when shares_sold increases (new or incremental sale)
+  const newSharesSold = fields.shares_sold ?? 0;
+  const deltaSold = newSharesSold - oldSharesSold;
+  if (deltaSold > 0 && fields.sold_price != null) {
+    await _insertTradeSaleLog(supa, {
+      symbol,
+      security:    fields.security,
+      shares_sold: deltaSold,
+      sold_price:  fields.sold_price,
+      entry_price: fields.open_price,
+      sold_date:   fields.sold_date || new Date().toISOString().slice(0, 10),
+      source:      'momentum',
+    });
+  }
 
   document.getElementById('momentum-form-modal').style.display = 'none';
   showToast(symbol, id === null ? 'Position added' : 'Position updated', 'info');
@@ -10393,6 +10423,141 @@ async function _mmSavePosField(id, field, rawVal) {
   } catch (e) { console.warn('[Positions] save failed', e.message); }
 }
 
+// ── Trade Sales Log ──────────────────────────────────────────────────────────
+
+let _tlData = null; // cached rows from trade_sales
+
+async function _insertTradeSaleLog(supa, { symbol, security, shares_sold, sold_price, entry_price, sold_date, source, notes }) {
+  const pnlPct    = (entry_price && sold_price) ? +((sold_price / entry_price - 1) * 100).toFixed(4) : null;
+  const pnlDollar = (entry_price && sold_price) ? +((sold_price - entry_price) * shares_sold).toFixed(2) : null;
+  try {
+    await supa.from('trade_sales').insert({
+      symbol, security: security || null,
+      shares_sold, sold_price, entry_price: entry_price || null,
+      realized_pnl_pct: pnlPct, realized_pnl_dollar: pnlDollar,
+      sold_date: sold_date || new Date().toISOString().slice(0, 10),
+      source: source || 'watchlist', notes: notes || null,
+    });
+    _tlData = null; // invalidate cache so next open reloads
+  } catch (e) { console.warn('[TradeSales] insert failed', e.message); }
+}
+
+async function initTradeLog() {
+  const root = document.getElementById('tl-root');
+  if (!root) return;
+  root.innerHTML = '<div style="color:#5a708a;font-size:12px;padding:30px 0;text-align:center;">Loading…</div>';
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) { root.innerHTML = '<div style="color:#ff3d5a;padding:20px;">Database unavailable</div>'; return; }
+    const { data, error } = await supa.from('trade_sales')
+      .select('*').order('sold_date', { ascending: false }).order('created_at', { ascending: false }).limit(500);
+    if (error) throw error;
+    _tlData = data || [];
+  } catch (e) {
+    document.getElementById('tl-root').innerHTML = `<div style="color:#ff3d5a;padding:20px;">Load failed: ${e.message}</div>`;
+    return;
+  }
+  renderTradeLog();
+}
+
+function renderTradeLog() {
+  const root = document.getElementById('tl-root');
+  if (!root || !_tlData) return;
+  const rows = _tlData;
+
+  // Summary stats
+  const totalPnlDollar = rows.reduce((s, r) => s + (r.realized_pnl_dollar ?? 0), 0);
+  const wins     = rows.filter(r => (r.realized_pnl_pct ?? 0) > 0).length;
+  const winRate  = rows.length ? Math.round(wins / rows.length * 100) : null;
+  const totalSales = rows.length;
+
+  const pnlColor = totalPnlDollar >= 0 ? '#00e5b0' : '#ff3d5a';
+  const pctColor = r => (r.realized_pnl_pct ?? 0) >= 0 ? '#00e5b0' : '#ff3d5a';
+  const fmtPct   = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+  const fmtDollar = v => v == null ? '—' : `${v >= 0 ? '+' : ''}$${Math.abs(v).toFixed(0)}`;
+
+  const thStyle = 'font-size:10px;font-weight:700;color:#8090a0;letter-spacing:0.5px;padding:5px 8px;border-bottom:1px solid rgba(128,144,160,0.15);white-space:nowrap;text-align:left;';
+  const tdStyle = 'font-size:11px;color:#c4d2e0;padding:5px 8px;vertical-align:middle;';
+  const inputNoteStyle = 'background:transparent;border:none;color:#8090a0;font-size:11px;font-family:var(--font);width:100%;outline:none;cursor:pointer;';
+
+  const bodyRows = rows.length ? rows.map(r => `
+    <tr style="border-bottom:1px solid rgba(128,144,160,0.06);">
+      <td style="${tdStyle}white-space:nowrap;">${r.sold_date || '—'}</td>
+      <td style="${tdStyle}font-weight:700;color:var(--cyan);">${r.symbol || '—'}</td>
+      <td style="${tdStyle}max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.security||''}">${r.security || '—'}</td>
+      <td style="${tdStyle}text-align:right;">${r.shares_sold ?? '—'}</td>
+      <td style="${tdStyle}text-align:right;">${r.sold_price != null ? '$'+Number(r.sold_price).toFixed(2) : '—'}</td>
+      <td style="${tdStyle}text-align:right;">${r.entry_price != null ? '$'+Number(r.entry_price).toFixed(2) : '—'}</td>
+      <td style="${tdStyle}text-align:right;font-weight:700;color:${pctColor(r)};">${fmtPct(r.realized_pnl_pct)}</td>
+      <td style="${tdStyle}text-align:right;color:${pctColor(r)};">${fmtDollar(r.realized_pnl_dollar)}</td>
+      <td style="${tdStyle}font-size:10px;color:#607080;">${r.source || '—'}</td>
+      <td style="${tdStyle}min-width:120px;"><input type="text" value="${(r.notes||'').replace(/"/g,'&quot;')}" placeholder="add note…" style="${inputNoteStyle}" onfocus="this.style.background='var(--bg3)'" onblur="_tlSaveNote(${r.id},this.value);this.style.background='transparent'"></td>
+      <td style="${tdStyle}text-align:center;"><button onclick="_tlDeleteRow(${r.id})" title="Delete this sale log entry" style="background:none;border:none;cursor:pointer;color:#405060;font-size:13px;padding:2px 4px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#405060'">🗑</button></td>
+    </tr>`).join('') :
+    `<tr><td colspan="11" style="padding:30px;text-align:center;color:#5a708a;font-size:12px;">No sales recorded yet.</td></tr>`;
+
+  root.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
+      <span style="font-size:13px;font-weight:700;letter-spacing:0.8px;color:#d0dae6;">SALES / TRADE LOG</span>
+      <button onclick="initTradeLog()" style="font-size:10px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:#8090a0;padding:3px 9px;cursor:pointer;margin-left:auto;">↻ Refresh</button>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:10px 16px;min-width:120px;">
+        <div style="font-size:9px;color:#8090a0;letter-spacing:0.5px;margin-bottom:4px;">TOTAL REALIZED P&amp;L</div>
+        <div style="font-size:18px;font-weight:700;color:${pnlColor};">${totalPnlDollar >= 0 ? '+' : ''}$${Math.abs(totalPnlDollar).toFixed(0)}</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:10px 16px;min-width:100px;">
+        <div style="font-size:9px;color:#8090a0;letter-spacing:0.5px;margin-bottom:4px;">WIN RATE</div>
+        <div style="font-size:18px;font-weight:700;color:${winRate >= 50 ? '#00e5b0' : '#ffb020'};">${winRate != null ? winRate + '%' : '—'}</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:10px 16px;min-width:100px;">
+        <div style="font-size:9px;color:#8090a0;letter-spacing:0.5px;margin-bottom:4px;">TOTAL SALES</div>
+        <div style="font-size:18px;font-weight:700;color:#c4d2e0;">${totalSales}</div>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;min-width:720px;">
+        <thead>
+          <tr>
+            <th style="${thStyle}">Date</th>
+            <th style="${thStyle}">Symbol</th>
+            <th style="${thStyle}">Security</th>
+            <th style="${thStyle}text-align:right;">Shares</th>
+            <th style="${thStyle}text-align:right;">Sold $</th>
+            <th style="${thStyle}text-align:right;">Entry $</th>
+            <th style="${thStyle}text-align:right;">P&amp;L %</th>
+            <th style="${thStyle}text-align:right;">P&amp;L $</th>
+            <th style="${thStyle}">Source</th>
+            <th style="${thStyle}">Notes</th>
+            <th style="${thStyle}"></th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+}
+
+async function _tlDeleteRow(id) {
+  if (!confirm('Delete this sale log entry?')) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    await supa.from('trade_sales').delete().eq('id', id);
+    _tlData = (_tlData || []).filter(r => r.id !== id);
+    renderTradeLog();
+  } catch (e) { console.warn('[TradeSales] delete failed', e.message); }
+}
+
+async function _tlSaveNote(id, val) {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    await supa.from('trade_sales').update({ notes: val || null }).eq('id', id);
+    const row = (_tlData || []).find(r => r.id === id);
+    if (row) row.notes = val || null;
+  } catch (e) { console.warn('[TradeSales] note save failed', e.message); }
+}
+
 async function _mmRecordSale(id) {
   const qtyInput = document.getElementById(`mm-sell-qty-${id}`);
   const pxInput  = document.getElementById(`mm-sell-px-${id}`);
@@ -10425,6 +10590,16 @@ async function _mmRecordSale(id) {
     row.shares_sold = newTotal;
     row.sold_price  = newAvgPx;
     row.sold_date   = today;
+    // Append this individual lot to the permanent sales log
+    await _insertTradeSaleLog(supa, {
+      symbol:      row.symbol,
+      security:    row.security,
+      shares_sold: qtySold,
+      sold_price:  soldPrice,
+      entry_price: row.entry_price != null ? +row.entry_price : null,
+      sold_date:   today,
+      source:      'market_map',
+    });
     _mmPositions = null;
     qtyInput.value = ''; pxInput.value = '';
     await _mmLoadPositions();
