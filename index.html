@@ -6608,7 +6608,8 @@ const PRED_STRONG=70;
 const PRED_MOMENTUM_BAND=15;
 let _predData=null;
 let _predTimeframe='D';
-let _fpSideFilter = 'all'; // 'all' | 'calls' | 'puts'
+let _fpSideFilter = 'all'; // 'all' | 'bullish' | 'neutral' | 'bearish'
+let _fpStrFilter  = 'all'; // 'all' | 'HIGH' | 'MEDIUM' | 'LOW'
 let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
 let _predLastDates = [];
 let _predLabelMode='both';
@@ -7374,10 +7375,17 @@ function renderFlowPredictor(){
         }).join('')}
         ${!(p1.allDates||[]).length?'<span style="font-size:10px;color:#5a708a;">No dates loaded — click ↻ Refresh</span>':''}
         <span style="margin:0 6px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>
-        <span style="font-size:10px;color:#8090a0;letter-spacing:0.5px;margin-right:2px;">FLOW:</span>
-        ${[['all','All','#00d4ff'],['calls','Calls ▲','#00e5b0'],['puts','Puts ▼','#ff3d5a']].map(([val,lbl,activeColor])=>{
+        <span style="font-size:10px;color:#8090a0;letter-spacing:0.5px;margin-right:2px;">DIR:</span>
+        ${[['all','All','#00d4ff'],['bullish','Bullish ▲','#00e5b0'],['neutral','Neutral','#ffb020'],['bearish','Bearish ▼','#ff3d5a']].map(([val,lbl,activeColor])=>{
           const active = _fpSideFilter === val;
-          return `<button onclick="setFpSideFilter('${val}')" style="background:${active?`rgba(${val==='calls'?'0,229,176':val==='puts'?'255,61,90':'0,212,255'},0.15)`:'transparent'};color:${active?activeColor:'#6080a0'};border:1px solid ${active?activeColor+'66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
+          const rgb = val==='bullish'?'0,229,176':val==='neutral'?'255,176,32':val==='bearish'?'255,61,90':'0,212,255';
+          return `<button onclick="setFpSideFilter('${val}')" style="background:${active?`rgba(${rgb},0.15)`:'transparent'};color:${active?activeColor:'#6080a0'};border:1px solid ${active?activeColor+'66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
+        }).join('')}
+        <span style="margin:0 6px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>
+        <span style="font-size:10px;color:#8090a0;letter-spacing:0.5px;margin-right:2px;">STR:</span>
+        ${[['all','All','#00d4ff'],['HIGH','High','#00e5b0'],['MEDIUM','Med','#ffb020'],['LOW','Low','#8090a0']].map(([val,lbl,activeColor])=>{
+          const active = _fpStrFilter === val;
+          return `<button onclick="setFpStrFilter('${val}')" style="background:${active?`rgba(${val==='HIGH'?'0,229,176':val==='MEDIUM'?'255,176,32':val==='LOW'?'128,144,160':'0,212,255'},0.15)`:'transparent'};color:${active?activeColor:'#6080a0'};border:1px solid ${active?activeColor+'66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
         }).join('')}
       </div>
       <div style="font-size:10px;color:#6080a0;margin-bottom:8px;padding:4px 0;">
@@ -7402,15 +7410,24 @@ function renderFlowPredictor(){
                   ${_p1FlowData === null ? 'Loading Phase 1 data…' : _p1FlowData.length === 0 ? 'No flow data — upload OMEN or SmartMoney CSVs in the Options Flow tab (re-upload existing files to add OI + spread_side columns).' : 'No symbols meet the activity floor (≥' + P1_ACTIVITY_FLOOR + ' contracts) for today.'}
                 </td></tr>` :
                 (()=>{
-                  const _sSort = rows => [...rows].sort((a,b)=>{
-                    const pa=_sectorPerf1d(a.sectorEtf); const pb=_sectorPerf1d(b.sectorEtf);
-                    if(pa==null&&pb==null)return 0; if(pa==null)return 1; if(pb==null)return -1;
-                    return pb-pa;
+                  // Sort: direction group (BULLISH→NEUTRAL→BEARISH), then strength (HIGH→MED→LOW),
+                  // then abs(convictionSkew) desc (highest conviction within each group first).
+                  const dirRank = { UP: 0, FLAT: 1, DOWN: 2 };
+                  const strRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+                  const _sSort = rows => [...rows].sort((a, b) => {
+                    const dr = (dirRank[a.direction] ?? 1) - (dirRank[b.direction] ?? 1);
+                    if (dr !== 0) return dr;
+                    const sr = (strRank[a.confidence] ?? 2) - (strRank[b.confidence] ?? 2);
+                    if (sr !== 0) return sr;
+                    return Math.abs(b.convictionSkew) - Math.abs(a.convictionSkew);
                   });
-                  // Apply Calls/Puts side filter before the per-section top-20 page cut
-                  const sideOk = r => _fpSideFilter === 'all' || (
-                    _fpSideFilter === 'calls' ? r.direction === 'UP' : r.direction === 'DOWN'
-                  );
+                  // Direction + strength filters applied before the per-section top-20 page cut
+                  const sideOk = r =>
+                    (_fpSideFilter === 'all'     ||
+                     (_fpSideFilter === 'bullish' && r.direction === 'UP')   ||
+                     (_fpSideFilter === 'neutral' && r.direction === 'FLAT') ||
+                     (_fpSideFilter === 'bearish' && r.direction === 'DOWN')) &&
+                    (_fpStrFilter  === 'all' || r.confidence === _fpStrFilter);
                   const flt = arr => (arr||[]).filter(sideOk);
                   return `${p1Section('DAY TRADE',_sSort(flt(classified.DAY_TRADE)),'#1a2040','#7fb0e8','DAY_TRADE')}
                 ${p1Section('SWING',_sSort(flt(classified.SWING)),'#201a08','#d4b070','SWING')}
@@ -7431,7 +7448,13 @@ function renderFlowPredictor(){
 
 function setFpSideFilter(val) {
   _fpSideFilter = val;
-  _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 }; // reset pagination
+  _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
+  renderFlowPredictor();
+}
+
+function setFpStrFilter(val) {
+  _fpStrFilter = val;
+  _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
   renderFlowPredictor();
 }
 
