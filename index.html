@@ -914,6 +914,13 @@ select option{background:var(--bg2);}
     <span><span style="color:#ff3d5a;">★</span><span style="color:#00e5b0;">★</span> Strong name pulling back · potential dip</span>
     <span><span style="color:#ff3d5a;">★</span> Genuinely weak · declining or flat</span>
   </div>
+  <div style="margin-bottom:12px;">
+    <input id="mom-search-input" type="search" placeholder="Search any stock…" autocomplete="off"
+      style="width:100%;max-width:360px;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 12px;font-size:12px;font-family:var(--font);outline:none;"
+      oninput="_momSearch=this.value.trim();renderMomentum()"
+      onfocus="this.style.borderColor='var(--cyan)'"
+      onblur="this.style.borderColor='var(--border2)'">
+  </div>
   <div id="mom-body" style="display:flex;flex-direction:column;gap:18px;">
     <div style="color:#6080a0;font-size:12px;padding:20px;text-align:center;">Loading...</div>
   </div>
@@ -8184,6 +8191,7 @@ function _momSection(title, baseRows, borderColor, maxRows, blockId) {
 }
 
 let _momNuggetsOnly = false;
+let _momSearch = '';
 const MOM_NUGGET_GZ_MIN = 60;
 function toggleMomNuggets(){
   _momNuggetsOnly = !_momNuggetsOnly;
@@ -8203,9 +8211,61 @@ function renderMomentum() {
   const _nugget = r => momMoveBucket(r) === 'gold' &&
     ((r.rating_greenzone_current ?? r.rating_greenzone ?? 0) >= MOM_NUGGET_GZ_MIN);
   const nf = rows => _momNuggetsOnly ? rows.filter(_nugget) : rows;
+
+  if (_momSearch) {
+    body.innerHTML = _momSearchResults(_momSearch);
+    return;
+  }
+
   body.innerHTML = _MOM_BLOCK_DEFS.map(def =>
     _momSection(def.title, nf(def.baseRows()), def.color, def.maxRows(), def.id)
   ).join('');
+}
+
+const _MOM_CAT_LABEL = { all_market: 'General Market', tech_titans: 'Tech Titans', jh: 'Momentum' };
+const _MOM_CAT_COLOR = { all_market: '#00e5b0',        tech_titans: '#00d4ff',      jh: '#ffb020' };
+
+function _momSearchResults(q) {
+  const upper = q.toUpperCase();
+  const matched = (_swingData || []).filter(r =>
+    (r.symbol || '').toUpperCase().includes(upper) ||
+    (r.security || '').toUpperCase().includes(upper)
+  );
+
+  if (!matched.length) {
+    return `<div style="padding:24px;text-align:center;color:#5a708a;font-size:12px;">No matches for "<b>${q}</b>" in any section.</div>`;
+  }
+
+  const rows = matched.map(r => {
+    const liveQ    = getQ(r.symbol);
+    const price    = liveQ?.p ?? (r.current_price != null ? Number(r.current_price) : null);
+    const openPx   = r.open_price != null ? Number(r.open_price) : null;
+    const entryPL  = (price && openPx && openPx > 0) ? ((price - openPx) / openPx * 100) : null;
+    const plColor  = entryPL == null ? '#8090a0' : entryPL >= 0 ? '#00e5b0' : '#ff3d5a';
+    const catLabel = _MOM_CAT_LABEL[r.category] || (r.category || '—');
+    const catColor = _MOM_CAT_COLOR[r.category] || '#8090a0';
+    const safeId   = String(r.id).replace(/'/g, "\\'");
+    const statusBadge = r.status === 'closed'
+      ? '<span style="font-size:9px;color:#607080;background:rgba(96,112,128,0.15);border-radius:3px;padding:1px 5px;margin-left:4px;">CLOSED</span>' : '';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(128,144,160,0.08);flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;color:var(--cyan);min-width:56px;">${r.symbol}${statusBadge}</span>
+        <span style="font-size:9px;font-weight:700;color:${catColor};background:${catColor}1a;border-radius:3px;padding:2px 6px;white-space:nowrap;">${catLabel}</span>
+        <span style="font-size:11px;color:#c4d2e0;flex:1;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.security||''}">${r.security || '—'}</span>
+        ${price != null ? `<span style="font-size:11px;color:#c4d2e0;">$${price.toFixed(2)}</span>` : ''}
+        ${r.qty != null ? `<span style="font-size:10px;color:#8090a0;">Qty ${r.qty}</span>` : ''}
+        ${openPx != null ? `<span style="font-size:10px;color:#8090a0;">@ $${openPx.toFixed(2)}</span>` : ''}
+        ${entryPL != null ? `<span style="font-size:11px;font-weight:700;color:${plColor};">${entryPL >= 0 ? '+' : ''}${entryPL.toFixed(2)}%</span>` : ''}
+        ${r.action ? `<span style="font-size:10px;font-weight:600;color:${r.action==='Buy'?'#00e5b0':r.action==='Sell'||r.action==='Sold'?'#ff3d5a':'#a0a8c0'}">${r.action}</span>` : ''}
+        <button onclick="showMomentumForm(_swingData.find(r=>String(r.id)==='${safeId}'))" title="Edit" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:13px;padding:2px 4px;margin-left:auto;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✎</button>
+      </div>`;
+  }).join('');
+
+  return `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:4px 14px 8px;">
+      <div style="font-size:9px;font-weight:700;color:#8090a0;letter-spacing:0.8px;padding:8px 0 6px;">${matched.length} RESULT${matched.length !== 1 ? 'S' : ''} FOR "${q.toUpperCase()}"</div>
+      ${rows}
+    </div>`;
 }
 
 function _gzSentiment(n){
