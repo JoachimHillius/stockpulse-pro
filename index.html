@@ -10049,7 +10049,7 @@ async function _mmLoadUniverse() {
       let from = 0;
       while (true) {
         const { data } = await supa.from('price_history')
-          .select('symbol').eq('trading_date', phDate).range(from, from + 999);
+          .select('symbol').eq('trading_date', phDate).order('symbol').range(from, from + 999);
         if (!data || !data.length) break;
         data.forEach(r => { if (r.symbol) allSyms.add(r.symbol); });
         if (data.length < 1000) break;
@@ -10222,10 +10222,29 @@ async function _mmLoadBuyWatch() {
     }
   } catch (e) { console.warn('[BW] omen', e.message); }
 
-  // 2 — candidate pool: flow symbols + watchlists, minus ETF board tickers
+  // 2 — candidate pool: flow + watchlists + ALL price_history symbols, minus ETF board tickers
   const boardSet = new Set(MM_ALL_SYMS);
   const candidates = new Set([...Object.keys(flowMap), ...Object.values(WATCHLIST).flat()]);
   boardSet.forEach(s => candidates.delete(s));
+
+  // 2b — extend with every symbol that has recent price_history so names with no omen
+  // flow (e.g. LULU, MSTR) are still pre-scored on sector tailwind
+  try {
+    const { data: lr } = await supa.from('price_history')
+      .select('trading_date').order('trading_date', { ascending: false }).limit(1);
+    const phLatest = lr?.[0]?.trading_date;
+    if (phLatest) {
+      let from = 0;
+      while (true) {
+        const { data } = await supa.from('price_history')
+          .select('symbol').eq('trading_date', phLatest).order('symbol').range(from, from + 999);
+        if (!data?.length) break;
+        data.forEach(r => { if (r.symbol && !boardSet.has(r.symbol)) candidates.add(r.symbol); });
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+    }
+  } catch (e) { console.warn('[BW] ph candidates', e.message); }
 
   const symSector = {};
   Object.entries(SECTOR_BY_SYMBOL || {}).forEach(([s, sec]) => { symSector[s] = sec; });
@@ -10977,14 +10996,14 @@ async function _mmLoadDipWatch() {
     nearestTD(7), nearestTD(30), nearestTD(91), nearestTD(182), nearestTD(365),
   ]);
 
-  // 3 — fetch all closes for each reference date (paginated)
+  // 3 — fetch all closes for each reference date (paginated, ordered for deterministic pages)
   const fetchCloses = async (date) => {
     if (!date) return {};
     const map = {};
     let from = 0;
     while (true) {
       const { data } = await supa.from('price_history')
-        .select('symbol,close').eq('trading_date', date).range(from, from + 999);
+        .select('symbol,close').eq('trading_date', date).order('symbol').range(from, from + 999);
       if (!data?.length) break;
       data.forEach(r => { if (r.symbol) map[r.symbol] = parseFloat(r.close); });
       if (data.length < 1000) break;
