@@ -2,8 +2,11 @@
 // Pipedream step: star_email   ← MUST BE THE LAST STEP
 // Workflow: Scanner – Momentum (evolutionx4u)
 //
-// Identical to the XGPT+IRIS version — see pipedream/scanner-xgpt-iris/step-4-star-email.js
-// for full setup instructions.
+// Stars every email that produced newly-written tickers in parse_and_write.
+// Uses the Schedule trigger architecture — steps.trigger.event has no email ID.
+// Instead reads emailIds from steps.parse_and_write.$return_value.newTickerDetails.
+//
+// Non-fatal: a Gmail API failure is logged and never blocks prior steps.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { axios } from '@pipedream/platform';
@@ -16,33 +19,38 @@ export default defineComponent({
     },
   },
   async run({ steps, $ }) {
-    const messageId = steps.trigger.event.id;
+    const details  = steps.parse_and_write.$return_value?.newTickerDetails || [];
+    const emailIds = [...new Set(details.map(d => d.emailId))];
 
-    if (!messageId) {
-      console.warn('[star_email] No message ID on trigger event — skipping');
-      return { starred: false, reason: 'no_message_id' };
+    if (emailIds.length === 0) {
+      console.log('[star_email] No new tickers this run — nothing to star');
+      return { starred: [] };
     }
 
-    try {
-      await axios($, {
-        method: 'POST',
-        url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
-        headers: {
-          Authorization: `Bearer ${this.gmail.$auth.oauth_access_token}`,
-          'Content-Type': 'application/json',
-        },
-        data: {
-          addLabelIds:    ['STARRED'],
-          removeLabelIds: [],
-        },
-      });
+    const token = this.gmail.$auth.oauth_access_token;
+    const starred = [];
 
-      console.log(`[star_email] Starred message ${messageId}`);
-      return { starred: true, messageId };
-
-    } catch (err) {
-      console.warn('[star_email] Failed to star email (non-fatal):', err.message);
-      return { starred: false, error: err.message, messageId };
+    for (const messageId of emailIds) {
+      try {
+        await axios($, {
+          method: 'POST',
+          url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+          headers: {
+            Authorization:  `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          data: {
+            addLabelIds:    ['STARRED'],
+            removeLabelIds: [],
+          },
+        });
+        console.log(`[star_email] Starred message ${messageId}`);
+        starred.push(messageId);
+      } catch (err) {
+        console.warn(`[star_email] Failed to star ${messageId} (non-fatal):`, err.message);
+      }
     }
+
+    return { starred };
   },
 });

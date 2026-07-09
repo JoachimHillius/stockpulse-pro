@@ -2,19 +2,11 @@
 // Pipedream step: star_email   ← MUST BE THE LAST STEP
 // Workflow: Scanner – XGPT+IRIS (4hillonline)
 //
-// REPLACES the built-in "add_label_to_email" action entirely.
-// Use a CODE step (not the pre-built Gmail action) so we can wrap in try/catch.
-// A label failure must NEVER prevent earlier steps (DB write, Telegram) from
-// completing — this step just silently logs and returns if the Gmail API call
-// fails.
+// Stars every email that produced newly-written tickers in parse_and_write.
+// Uses the Schedule trigger architecture — steps.trigger.event has no email ID.
+// Instead reads emailIds from steps.parse_and_write.$return_value.newTickerDetails.
 //
-// How to add in Pipedream:
-//   1. Delete (or disable) the existing "add_label_to_email" step.
-//   2. Click "+ Add step" → "Run custom code" → Node.js.
-//   3. In the step's "Connected accounts" section connect your Gmail account
-//      (same one already connected to the trigger).
-//   4. Paste this entire file into the code editor.
-//   5. Rename the step to "star_email" and drag it to be the LAST step.
+// Non-fatal: a Gmail API failure is logged and never blocks prior steps.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { axios } from '@pipedream/platform';
@@ -27,34 +19,38 @@ export default defineComponent({
     },
   },
   async run({ steps, $ }) {
-    const messageId = steps.trigger.event.id;
+    const details  = steps.parse_and_write.$return_value?.newTickerDetails || [];
+    const emailIds = [...new Set(details.map(d => d.emailId))];
 
-    if (!messageId) {
-      console.warn('[star_email] No message ID on trigger event — skipping');
-      return { starred: false, reason: 'no_message_id' };
+    if (emailIds.length === 0) {
+      console.log('[star_email] No new tickers this run — nothing to star');
+      return { starred: [] };
     }
 
-    try {
-      await axios($, {
-        method: 'POST',
-        url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
-        headers: {
-          Authorization: `Bearer ${this.gmail.$auth.oauth_access_token}`,
-          'Content-Type': 'application/json',
-        },
-        data: {
-          addLabelIds:    ['STARRED'],
-          removeLabelIds: [],
-        },
-      });
+    const token = this.gmail.$auth.oauth_access_token;
+    const starred = [];
 
-      console.log(`[star_email] Starred message ${messageId}`);
-      return { starred: true, messageId };
-
-    } catch (err) {
-      // Non-fatal — log and move on. The DB write already succeeded.
-      console.warn('[star_email] Failed to star email (non-fatal):', err.message);
-      return { starred: false, error: err.message, messageId };
+    for (const messageId of emailIds) {
+      try {
+        await axios($, {
+          method: 'POST',
+          url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+          headers: {
+            Authorization:  `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          data: {
+            addLabelIds:    ['STARRED'],
+            removeLabelIds: [],
+          },
+        });
+        console.log(`[star_email] Starred message ${messageId}`);
+        starred.push(messageId);
+      } catch (err) {
+        console.warn(`[star_email] Failed to star ${messageId} (non-fatal):`, err.message);
+      }
     }
+
+    return { starred };
   },
 });
