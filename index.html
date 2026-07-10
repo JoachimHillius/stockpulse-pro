@@ -8036,9 +8036,14 @@ function _momFmt(val, prefix, suffix, decimals) {
 }
 
 function _momRatingBadge(val, label) {
+  // -1 (N/A sentinel) must be checked BEFORE the null/empty guard — -1 is truthy and would
+  // fall through to a colour-coded badge if the null check ran first.
+  if (val !== null && val !== undefined && val !== '' && Number(val) === -1) {
+    return `<span title="${label} — not applicable" style="font-size:10px;color:#405060;font-style:italic;">N/A</span>`;
+  }
   if (val === null || val === undefined || val === '') return `<span style="color:#505060;font-size:10px;">—</span>`;
   const n = Number(val);
-  if (n === -1) return `<span title="${label} — not applicable" style="font-size:10px;color:#405060;font-style:italic;">N/A</span>`;
+  if (isNaN(n)) return `<span style="color:#505060;font-size:10px;">—</span>`;
   const color = n >= 80 ? '#00e5b0' : n >= 60 ? '#ffb020' : n >= 40 ? '#a0a8c0' : '#ff3d5a';
   return `<span title="${label}" style="font-size:11px;font-weight:700;color:${color};">${n}</span>`;
 }
@@ -8870,6 +8875,8 @@ let _scannerData       = [];        // all rows from scanner_watchlist
 let _scannerView       = 'xgpt_iris'; // active sub-view list_name
 let _scFilterScanner   = 'all';     // 'all' | 'xgpt' | 'iris'
 let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
+// N/A checkbox state for the edit modal — avoids DOM re-query at save time
+let _scRatingNa        = { iris: false, xgpt: false, gz: false, omen: false };
 
 // ── Per-block sort state (keyed by view id or 'positions') ────
 const _scCtl = { xgpt_iris: { sort: 'default' }, momentum: { sort: 'default' }, positions: { sort: 'default' }, money_markets: { sort: 'default' }, all: { sort: 'default' } };
@@ -9520,21 +9527,29 @@ function showScannerForm(row) {
   const safeId  = String(row.id).replace(/'/g, "\\'");
   const isMom   = row.list_name === 'momentum';
 
-  // Rating field with inline N/A checkbox. Stores -1 for N/A (distinct from null = unscored).
-  const ratingFld = (label, id, min, max, step, rawVal) => {
-    const isNa  = rawVal !== '' && rawVal !== null && rawVal !== undefined && Number(rawVal) === -1;
-    const numVal = isNa ? '' : (rawVal != null && rawVal !== '' ? rawVal : '');
+  // Rating field with N/A checkbox. -1 = not applicable; null = unscored.
+  // State is mirrored into _scRatingNa so saveScannerRow never needs a DOM lookup.
+  const _ratingIsNa = v => v !== null && v !== undefined && v !== '' && Number(v) === -1;
+  _scRatingNa = {
+    iris: _ratingIsNa(row.rating_iris),
+    xgpt: _ratingIsNa(row.rating_xgpt),
+    gz:   _ratingIsNa(row.rating_greenzone_current),
+    omen: _ratingIsNa(row.rating_omen),
+  };
+  const ratingFld = (label, naKey, inputId, min, max, step, rawVal) => {
+    const na     = _ratingIsNa(rawVal);
+    const numVal = na ? '' : (rawVal != null && rawVal !== '' ? rawVal : '');
     return `<div style="margin-bottom:10px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
         <span style="font-size:9px;color:#c4d2e0;letter-spacing:0.5px;">${label}</span>
         <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:9px;color:#6080a0;">
-          <input type="checkbox" id="sc-na-${id}" ${isNa ? 'checked' : ''}
-            onchange="var i=document.getElementById('sc-${id}');i.disabled=this.checked;if(this.checked)i.value='';i.style.opacity=this.checked?'0.35':'1';"
+          <input type="checkbox" id="sc-na-${inputId}" ${na ? 'checked' : ''}
+            onchange="_scRatingNa['${naKey}']=this.checked;var i=document.getElementById('sc-${inputId}');if(i){i.disabled=this.checked;if(this.checked)i.value='';i.style.opacity=this.checked?'0.35':'1';}"
             style="cursor:pointer;accent-color:#6080a0;">N/A</label>
       </div>
-      <input id="sc-${id}" type="number" min="${min}" max="${max}" step="${step}" value="${numVal}"
-        ${isNa ? 'disabled' : ''}
-        style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);${isNa ? 'opacity:0.35;' : ''}">
+      <input id="sc-${inputId}" type="number" min="${min}" max="${max}" step="${step}" value="${numVal}"
+        ${na ? 'disabled' : ''}
+        style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);${na ? 'opacity:0.35;' : ''}">
     </div>`;
   };
 
@@ -9573,10 +9588,10 @@ function showScannerForm(row) {
       </div>
       <div style="border-top:1px solid var(--border2);padding-top:8px;margin-bottom:6px;font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.8px;">RATINGS <span style="font-weight:400;color:#404858;">— check N/A for ETFs / indexes</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0 12px;">
-        ${ratingFld('IRIS (0-10)', 'ed-iris',   '0', '10',  '0.1', row.rating_iris)}
-        ${ratingFld('XGPT (%)',    'ed-xgpt',   '0', '100', '1',   row.rating_xgpt)}
-        ${ratingFld('GZ (0-100)', 'ed-gz-cur',  '0', '100', '1',   row.rating_greenzone_current)}
-        ${ratingFld('OMEN (1-8)', 'ed-omen',    '1', '8',   '1',   row.rating_omen)}
+        ${ratingFld('IRIS (0-10)', 'iris', 'ed-iris',   '0', '10',  '0.1', row.rating_iris)}
+        ${ratingFld('XGPT (%)',    'xgpt', 'ed-xgpt',   '0', '100', '1',   row.rating_xgpt)}
+        ${ratingFld('GZ (0-100)',  'gz',   'ed-gz-cur', '0', '100', '1',   row.rating_greenzone_current)}
+        ${ratingFld('OMEN (1-8)', 'omen',  'ed-omen',   '1', '8',   '1',   row.rating_omen)}
       </div>
       <div style="margin-bottom:10px;">
         <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
@@ -9616,13 +9631,14 @@ async function saveScannerRow(id) {
   const newExit     = g('ed-exit')     === '' ? null : Number(g('ed-exit'));
   const newStop     = g('ed-stop')     === '' ? null : Number(g('ed-stop'));
   const newQty      = g('qty')         === '' ? null : Number(g('qty'));
-  // -1 = N/A sentinel (not applicable, e.g. ETF); null = unscored
-  const isNa     = id => { const el = document.getElementById('sc-na-' + id); return el ? el.checked : false; };
-  const readRating = id => isNa(id) ? -1 : (g(id) === '' ? null : Number(g(id)));
-  const newIris     = readRating('ed-iris');
-  const newXgpt     = readRating('ed-xgpt');
-  const newGzCur    = readRating('ed-gz-cur');
-  const newOmen     = readRating('ed-omen');
+  // -1 = N/A sentinel; null = unscored. _scRatingNa is set by the modal open + checkbox onchange.
+  const readRating = (naKey, inputSuffix) =>
+    _scRatingNa[naKey] ? -1 : (g(inputSuffix) === '' ? null : Number(g(inputSuffix)));
+  const newIris  = readRating('iris', 'ed-iris');
+  const newXgpt  = readRating('xgpt', 'ed-xgpt');
+  const newGzCur = readRating('gz',   'ed-gz-cur');
+  const newOmen  = readRating('omen', 'ed-omen');
+  console.log('[saveScannerRow] ratings:', { newIris, newXgpt, newGzCur, newOmen, _scRatingNa: {..._scRatingNa} });
   const newNotes    = g('notes')       || null;
   const retireId    = g('ed-retire-id');
 
