@@ -4585,6 +4585,31 @@ async function fetchLiveAll(force, pageKey){
   setRefreshed('carousel');
 }
 
+// Lightweight single-symbol Finnhub fetch — call when a symbol is newly added
+// and can't wait for the next full fetchLiveAll cycle.
+async function _fetchPriceNow(sym) {
+  if (!sym) return;
+  // Serve from cache if still fresh
+  const cached = _fhCache.get(sym);
+  if (cached && (Date.now() - cached.fetchedAt) < FH_CACHE_TTL_MS) {
+    liveData[sym] = { p: cached.c, dp: cached.dp||0, d: cached.d||0, t: cached.t||0, loading: false, lastClose: !!cached.lastClose };
+    return;
+  }
+  const fhKey = localStorage.getItem('sp_fh');
+  if (!fhKey) return;
+  try {
+    const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${fhKey}`);
+    const d = await r.json();
+    const lastPx = (d.c && d.c !== 0) ? d.c : (d.pc && d.pc !== 0 ? d.pc : null);
+    if (lastPx != null) {
+      const isLast = !(d.c && d.c !== 0);
+      _fhCache.set(sym, { c: lastPx, d: d.d||0, dp: d.dp||0, t: d.t, fetchedAt: Date.now(), lastClose: isLast });
+      liveData[sym] = { p: lastPx, dp: d.dp||0, d: d.d||0, t: d.t||0, loading: false, lastClose: isLast };
+      if (typeof recordPriceSnapshot === 'function') recordPriceSnapshot(sym, lastPx);
+    }
+  } catch (e) { console.warn('[_fetchPriceNow]', sym, e.message); }
+}
+
 // ============================================================
 // NAVIGATION
 // ============================================================
@@ -7803,6 +7828,35 @@ async function loadSwingData() {
   _swingData = data || [];
 }
 
+// Load latest close from price_history for swing symbols so the price column
+// always has a fallback even before a live Finnhub fetch completes.
+// Called by initMomentum and also for single new symbols after save.
+async function _loadMomLatestClose(symsToLoad) {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  const syms = symsToLoad
+    ? [...new Set(symsToLoad.filter(Boolean))]
+    : [...new Set((_swingData || []).map(r => r.symbol).filter(Boolean))];
+  if (!syms.length) return;
+  try {
+    const { data: latestPH } = await supa.from('price_history')
+      .select('trading_date').order('trading_date', { ascending: false }).limit(1);
+    const phDate = latestPH?.[0]?.trading_date;
+    if (!phDate) return;
+    const BATCH = 50;
+    for (let i = 0; i < syms.length; i += BATCH) {
+      const chunk = syms.slice(i, i + BATCH);
+      const { data } = await supa.from('price_history')
+        .select('symbol,close').in('symbol', chunk).eq('trading_date', phDate).limit(500);
+      (data || []).forEach(r => {
+        if (!r.symbol || !r.close) return;
+        if (!histBaselines[r.symbol]) histBaselines[r.symbol] = {};
+        histBaselines[r.symbol].latestClose = parseFloat(r.close);
+      });
+    }
+  } catch (e) { console.warn('[MomLatestClose]', e.message); }
+}
+
 function _normalizeSector(raw){
   if(!raw) return null;
   const s = String(raw).trim(); const k = s.toLowerCase();
@@ -7953,6 +8007,7 @@ async function initMomentum() {
   renderMomentum(); // show loading state immediately
   await Promise.all(loads);
   await backfillSwingSectors();
+  await _loadMomLatestClose(); // populate latestClose fallback for all swing symbols
   renderMomentum(); // render with whatever liveData already has
   // Kick a background price refresh so swing symbols (now in _swingData) get quoted
   if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
@@ -8082,8 +8137,8 @@ function _momRow(row) {
   const m6  = perf?.m6 ?? null;
   const y1  = perf?.y1 ?? null;
 
-  // Swing-specific P/L — prefer live Finnhub quote, fall back to DB current_price
-  const currentPrice = q.p ?? (row.current_price != null ? Number(row.current_price) : null);
+  // Swing-specific P/L — prefer live quote, then DB current_price, then price_history latest close
+  const currentPrice = q.p ?? (row.current_price != null ? Number(row.current_price) : null) ?? histBaselines[sym]?.latestClose ?? null;
   const openPrice    = row.open_price != null && row.open_price !== '' ? Number(row.open_price) : null;
   const dayPL        = d1;  // today's % change (same as 1D — reinforces significance in swing context)
   const entryPL      = (currentPrice && openPrice && openPrice > 0)
@@ -8302,7 +8357,7 @@ function _momSearchResults(q) {
 
   const rows = matched.map(r => {
     const liveQ    = getQ(r.symbol);
-    const price    = liveQ?.p ?? (r.current_price != null ? Number(r.current_price) : null);
+    const price    = liveQ?.p ?? (r.current_price != null ? Number(r.current_price) : null) ?? histBaselines[r.symbol]?.latestClose ?? null;
     const openPx   = r.open_price != null ? Number(r.open_price) : null;
     const entryPL  = (price && openPx && openPx > 0) ? ((price - openPx) / openPx * 100) : null;
     const plColor  = entryPL == null ? '#8090a0' : entryPL >= 0 ? '#00e5b0' : '#ff3d5a';
@@ -8568,6 +8623,11 @@ async function saveMomentumRow(id) {
   if (id === null) {
     // Optimistic insert at top so the new row is visible right away
     _swingData = [savedRow, ...(_swingData || [])];
+    // Load latest close from price_history immediately, then upgrade with live Finnhub quote
+    _loadMomLatestClose([symbol])
+      .then(() => { renderMomentum(); return liveData[symbol]?.p ? null : _fetchPriceNow(symbol); })
+      .then(() => renderMomentum())
+      .catch(() => {});
   } else {
     // Patch in place — covers all fields the user just saved
     const idx = (_swingData || []).findIndex(r => String(r.id) === String(id));
@@ -8890,7 +8950,7 @@ function _scRow(row) {
   const safeId  = String(row.id).replace(/'/g, "\\'");
   const q       = getQ(sym);
   const perf    = row.perf || histBaselines[sym]?.perf;
-  const price   = q.p ?? row.current_price ?? null;
+  const price   = q.p ?? row.current_price ?? histBaselines[sym]?.latestClose ?? null;
 
   // Seen tooltip breakdown
   const seenTip = `XGPT ${row.xgpt_count??0} / Iris ${row.iris_count??0} / Mom ${row.momentum_count??0}`;
@@ -9004,7 +9064,7 @@ function _scRowTenx(row) {
   const safeId = String(row.id).replace(/'/g, "\\'");
   const q      = getQ(sym);
   const perf   = row.perf || histBaselines[sym]?.perf;
-  const price  = q.p ?? row.current_price ?? null;
+  const price  = q.p ?? row.current_price ?? histBaselines[sym]?.latestClose ?? null;
   const netVal = row.net_value ?? (price != null && row.qty ? price * row.qty : null);
   const DIV    = 'border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;';
 
