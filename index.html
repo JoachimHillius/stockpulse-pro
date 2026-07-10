@@ -3382,8 +3382,13 @@ async function handleMultipleCSV(files){
 
   // Save all newly-added rows to Supabase then refresh DB stats
   const allNewRows=Object.values(rawByDate).flat();
+  const omenUploadSymbols=[...new Set(allNewRows.map(r=>r.symbol).filter(Boolean))];
   saveFlowToSupabase(allNewRows)
-    .then(()=>renderDbStats())
+    .then(()=>{
+      renderDbStats();
+      // Enroll uploaded OMEN symbols immediately — don't wait up to 10 min for the cron
+      if(omenUploadSymbols.length) _scRegisterSymbols(omenUploadSymbols);
+    })
     .catch(e=>console.warn('Supabase save:',e));
 
   // Final status message
