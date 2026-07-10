@@ -610,7 +610,7 @@ select option{background:var(--bg2);}
       <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
     </div>
     <span style="margin-left:auto;font-size:10px;color:#8090a0;">Updated <span data-refresh-label="watchlist">never</span></span>
-    <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',()=>fetchLiveAll(true))">↻ Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',()=>fetchLiveAll(true,'watchlist'))">↻ Refresh</button>
     <button class="btn btn-sm" onclick="showMarketMap()" style="padding:5px 12px;background:transparent;border:1px solid rgba(0,212,255,0.4);border-radius:4px;font-family:var(--font);font-size:11px;color:#00d4ff;cursor:pointer;" title="Market Map">⊞ Map</button>
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
   </div>
@@ -899,7 +899,7 @@ select option{background:var(--bg2);}
     <button id="mom-nuggets-btn" onclick="toggleMomNuggets()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Show only gold-star, high-conviction names (Gold star + GreenZone ≥ 60)">★ Nuggets</button>
     <button onclick="showMarketMap()" style="padding:5px 12px;background:transparent;border:1px solid rgba(0,212,255,0.4);border-radius:4px;font-family:var(--font);font-size:11px;color:#00d4ff;cursor:pointer;" title="Market Map — sector ETF heat map">⊞ Market Map</button>
     <span style="margin-left:auto;font-size:10px;color:#6a7a8a;white-space:nowrap;">Updated <span data-refresh-label="momentum">never</span></span>
-    <button id="mom-refresh-btn" class="btn btn-ghost btn-sm" onclick="runRefresh(this,'momentum',()=>fetchLiveAll(true))">↻ Refresh</button>
+    <button id="mom-refresh-btn" class="btn btn-ghost btn-sm" onclick="runRefresh(this,'momentum',()=>fetchLiveAll(true,'momentum'))">↻ Refresh</button>
     <span id="mom-sync-hist-ts" style="font-size:10px;color:#6a7a8a;white-space:nowrap;">Hist <span data-refresh-label="momentum_hist">never</span></span>
     <button id="mom-sync-hist-btn" onclick="syncSwingBaselines()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Fetch 1W/1M/6M/1Y history for all positions (stored in DB)">↻ Sync Hist</button>
     <button onclick="triggerMomentumCsvImport()" style="padding:5px 12px;background:transparent;border:1px solid var(--border2);border-radius:4px;font-family:var(--font);font-size:11px;color:#8090a0;cursor:pointer;" title="Import positions from CSV">⬆ Import CSV</button>
@@ -1554,6 +1554,64 @@ async function runRefresh(btn,key,fn){
     btn.innerHTML=btn.dataset.orig||'↻ Refresh';
   }
 }
+
+// ── Shared refresh-progress indicator ────────────────────────────────────────
+// showRefreshProgress(pageKey, done, total, opts)
+//   pageKey   – 'watchlist' | 'momentum' | 'scanners' | 'mm' | any key passed
+//               to runRefresh.  Used to find the anchor button + ID the span.
+//   done      – symbols resolved so far
+//   total     – total symbols this refresh will process (0 = indeterminate)
+//   opts      – { unavailable: number, complete: boolean }
+//
+// Inserts a small inline span after the page's Refresh button.
+// Clears itself 2.5 s after complete:true.
+function showRefreshProgress(pageKey, done, total, opts = {}) {
+  const { unavailable = 0, complete = false } = opts;
+  const elemId = 'rp-' + pageKey;
+
+  // Find or create the inline span adjacent to this page's Refresh button
+  let el = document.getElementById(elemId);
+  if (!el) {
+    el = document.createElement('span');
+    el.id = elemId;
+    el.style.cssText =
+      'display:inline-flex;align-items:center;gap:6px;font-size:11px;' +
+      'color:#a0b0c8;margin-left:10px;white-space:nowrap;vertical-align:middle;';
+    // Anchor: mm uses a known id; others are found by their runRefresh key
+    const anchor = pageKey === 'mm'
+      ? document.getElementById('mm-refresh-btn')
+      : document.querySelector(`button[onclick*="'${pageKey}'"]`);
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(el, anchor.nextSibling);
+    } else {
+      return; // page not in DOM yet
+    }
+  }
+
+  if (complete) {
+    el.innerHTML = '<span style="color:#00e5b0;font-weight:600;">✓ Up to date</span>';
+    setTimeout(() => { try { el.remove(); } catch(_) {} }, 2500);
+    return;
+  }
+
+  if (!total) {
+    el.innerHTML = '<span style="color:#ffb020;">Refreshing…</span>';
+    return;
+  }
+
+  const pct   = Math.min(100, Math.round((done / total) * 100));
+  const color = pct >= 100 ? '#00e5b0' : '#00d4ff';
+  const warn  = unavailable > 0
+    ? `<span style="color:#ff7060;margin-left:2px;">(${unavailable} unavail)</span>`
+    : '';
+  el.innerHTML =
+    `<span>${done}/${total}&thinsp;(${pct}%)</span>${warn}` +
+    `<span style="display:inline-block;width:72px;height:3px;background:rgba(255,255,255,0.1);` +
+    `border-radius:2px;overflow:hidden;vertical-align:middle;">` +
+    `<span style="display:block;height:100%;width:${pct}%;background:${color};` +
+    `border-radius:2px;transition:width 0.2s ease;"></span></span>`;
+}
+
 function fmtRefreshTime(d){
   if(!d)return'never';
   const diffSec=Math.round((new Date()-d)/1000);
@@ -4459,8 +4517,8 @@ function getPriceChangePct(sym, minutes){
   if(!old)return null;
   return(cur-old)/old*100;
 }
-async function fetchLiveAll(force){
-  console.log('[fetchLiveAll] invoked, force=', force);
+async function fetchLiveAll(force, pageKey){
+  console.log('[fetchLiveAll] invoked, force=', force, 'pageKey=', pageKey);
   if(!force&&!isInTradingWindow()){console.log('[Ticker] Outside trading window (4am-8pm ET Mon-Fri) — skipping fetch, keeping last values frozen');return;}
   const fhKey=localStorage.getItem('sp_fh');
   if(!fhKey){console.warn('[Ticker] No Finnhub key — skipping live quotes');return;}
@@ -4471,6 +4529,8 @@ async function fetchLiveAll(force){
   const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms,...swingSyms,...scannerSyms])];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
   console.log('[fetchLiveAll] fetching',tickerList.length,'tickers');
+  if(pageKey) showRefreshProgress(pageKey, 0, tickerList.length);
+  let _rpUnavail = 0;
   // Mark only un-seen tickers as loading; tickers with existing data keep showing last value
   tickerList.forEach(sym=>{if(!liveData[sym])liveData[sym]={p:null,dp:null,d:null,t:null,loading:true};});
   if(typeof renderTape==='function')renderTape();
@@ -4495,14 +4555,17 @@ async function fetchLiveAll(force){
         }else{
           const prev=liveData[sym]||{};
           liveData[sym]={p:prev.p||null,dp:prev.dp||null,d:prev.d||null,t:prev.t||null,loading:false,stale:true};
+          _rpUnavail++;
         }
       }catch(e){
         console.warn('[FH]',sym,'fetch failed:',e.message);
         const prev=liveData[sym]||{};
         liveData[sym]={...prev,loading:false,error:true};
+        _rpUnavail++;
       }
       await sleep(1100);
     }
+    if(pageKey) showRefreshProgress(pageKey, i+1, tickerList.length, { unavailable: _rpUnavail });
     // Progressive render every 10 tickers so MSTR/MARA appear as they come in
     if((i+1)%10===0||i===tickerList.length-1){
       console.log('[fetchLiveAll] progress:',(i+1),'/',tickerList.length);
@@ -4513,6 +4576,7 @@ async function fetchLiveAll(force){
     }
   }
   console.log('[fetchLiveAll] COMPLETE — fetched',tickerList.length,'tickers');
+  if(pageKey) showRefreshProgress(pageKey, tickerList.length, tickerList.length, { unavailable: _rpUnavail, complete: true });
   renderWatchlist();renderMoverLists();renderTape();
   if(typeof renderMomentum==='function')renderMomentum();
   if(typeof renderScanners==='function')renderScanners();
@@ -9207,7 +9271,8 @@ async function _scRegisterSymbols(syms) {
 // Targeted Finnhub fetch for scanner symbols only.
 // Checks _fhCache (90s TTL) first; only hits the API for stale/missing entries.
 // Updates liveData so _scRow() picks up prices immediately via getQ(sym).
-async function _scFetchLivePrices(syms) {
+// pageKey (optional) drives the shared progress indicator.
+async function _scFetchLivePrices(syms, pageKey) {
   const fhKey = localStorage.getItem('sp_fh');
   if (!fhKey || !syms.length) return;
 
@@ -9228,10 +9293,13 @@ async function _scFetchLivePrices(syms) {
 
   if (!toFetch.length) {
     console.log('[ScannerPrices] all cached');
+    if (pageKey) showRefreshProgress(pageKey, syms.length, syms.length, { complete: true });
     return;
   }
 
   console.log(`[ScannerPrices] fetching ${toFetch.length} live prices (${syms.length - toFetch.length} cached)`);
+  if (pageKey) showRefreshProgress(pageKey, syms.length - toFetch.length, syms.length);
+  let unavailable = 0;
 
   for (let i = 0; i < toFetch.length; i++) {
     const sym = toFetch[i];
@@ -9246,15 +9314,20 @@ async function _scFetchLivePrices(syms) {
         recordPriceSnapshot(sym, lastPx);
       } else {
         liveData[sym] = { ...(liveData[sym]||{}), loading: false, stale: true };
+        unavailable++;
       }
     } catch (e) {
       console.warn('[ScannerPrices]', sym, e.message);
       liveData[sym] = { ...(liveData[sym]||{}), loading: false, error: true };
+      unavailable++;
     }
+    const done = (syms.length - toFetch.length) + i + 1;
+    if (pageKey) showRefreshProgress(pageKey, done, syms.length, { unavailable });
     // Progressive render every 10 so prices appear as they arrive
     if ((i + 1) % 10 === 0) renderScanners();
     await sleep(1100);
   }
+  if (pageKey) showRefreshProgress(pageKey, syms.length, syms.length, { unavailable, complete: true });
 }
 
 async function refreshScanners() {
@@ -9280,8 +9353,11 @@ async function refreshScanners() {
   renderScanners(); // show perf + price_history closes immediately
   // Step A (price): targeted Finnhub fetch; overwrites current_price with live quote when available
   if (localStorage.getItem('sp_fh')) {
-    await _scFetchLivePrices(syms);
+    await _scFetchLivePrices(syms, 'scanners'); // shows progress bar
     renderScanners();
+  } else {
+    // No Finnhub key — perf-only refresh is complete; mark done
+    showRefreshProgress('scanners', syms.length, syms.length, { complete: true });
   }
 }
 
@@ -10999,6 +11075,7 @@ async function _mmRefresh() {
   // Orange busy state — disabled so double-clicks don't stack fetches
   const btn = document.getElementById('mm-refresh-btn');
   if (btn) { btn.disabled = true; btn.style.color = '#ffb020'; btn.style.borderColor = '#ffb020'; btn.onmouseleave = null; }
+  showRefreshProgress('mm', 0, 0); // indeterminate spinner text
 
   const inner = document.getElementById('mm-inner');
   if (inner) inner.innerHTML = '<div style="text-align:center;padding:40px;color:#b8c4d4;font-size:12px;">Refreshing…</div>';
@@ -11008,8 +11085,12 @@ async function _mmRefresh() {
     _mmData = freshData;
     _mmEtf1dFromData();
     _mmRender();
+    showRefreshProgress('mm', 1, 1, { complete: true });
   } catch (e) {
     if (inner) inner.innerHTML = `<div style="padding:30px;text-align:center;color:#ff3d5a;font-size:12px;">Failed: ${e.message}</div>`;
+    // Remove progress indicator on error
+    const rp = document.getElementById('rp-mm');
+    if (rp) rp.remove();
   } finally {
     // Restore button regardless of success/error
     if (btn) {
