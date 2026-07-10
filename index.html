@@ -9200,17 +9200,71 @@ async function _scRegisterSymbols(syms) {
   }
 }
 
+// Targeted Finnhub fetch for scanner symbols only.
+// Checks _fhCache (90s TTL) first; only hits the API for stale/missing entries.
+// Updates liveData so _scRow() picks up prices immediately via getQ(sym).
+async function _scFetchLivePrices(syms) {
+  const fhKey = localStorage.getItem('sp_fh');
+  if (!fhKey || !syms.length) return;
+
+  const now = Date.now();
+  const toFetch = syms.filter(s => {
+    const c = _fhCache.get(s);
+    return !c || (now - c.fetchedAt) > FH_CACHE_TTL_MS;
+  });
+
+  // Seed liveData from cache for symbols that are already fresh
+  for (const s of syms) {
+    const c = _fhCache.get(s);
+    if (c && !toFetch.includes(s) && (!liveData[s] || liveData[s].loading)) {
+      liveData[s] = { p: c.c, dp: c.dp||0, d: c.d||0, t: c.t||0, loading: false, lastClose: !!c.lastClose };
+    }
+  }
+
+  if (!toFetch.length) {
+    console.log('[ScannerPrices] all cached');
+    return;
+  }
+
+  console.log(`[ScannerPrices] fetching ${toFetch.length} live prices (${syms.length - toFetch.length} cached)`);
+
+  for (let i = 0; i < toFetch.length; i++) {
+    const sym = toFetch[i];
+    try {
+      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${fhKey}`);
+      const d = await r.json();
+      const lastPx = (d.c && d.c !== 0) ? d.c : (d.pc && d.pc !== 0 ? d.pc : null);
+      if (lastPx != null) {
+        const isLast = !(d.c && d.c !== 0);
+        _fhCache.set(sym, { c: lastPx, d: d.d||0, dp: d.dp||0, t: d.t, fetchedAt: Date.now(), lastClose: isLast });
+        liveData[sym] = { p: lastPx, dp: d.dp||0, d: d.d||0, t: d.t||0, loading: false, lastClose: isLast };
+        recordPriceSnapshot(sym, lastPx);
+      } else {
+        liveData[sym] = { ...(liveData[sym]||{}), loading: false, stale: true };
+      }
+    } catch (e) {
+      console.warn('[ScannerPrices]', sym, e.message);
+      liveData[sym] = { ...(liveData[sym]||{}), loading: false, error: true };
+    }
+    // Progressive render every 10 so prices appear as they arrive
+    if ((i + 1) % 10 === 0) renderScanners();
+    await sleep(1100);
+  }
+}
+
 async function refreshScanners() {
   await loadScannerData();
   const syms = [...new Set(_scannerData.map(r => r.symbol).filter(Boolean))];
-  // Register any new symbols so cron tracks them
+  // Step B: register new symbols so cron builds price history for them
   await _scRegisterSymbols(syms);
-  // Hydrate perf from price_history for symbols not already cached
-  const needsPerf = syms.filter(s => !histBaselines[s]?.perf);
-  if (needsPerf.length) await _loadScannerPerfFromHistory(needsPerf);
-  renderScanners(); // show perf immediately
-  // Fetch live prices (scanner syms already in fetchLiveAll tickerList)
-  if (localStorage.getItem('sp_fh')) fetchLiveAll(true);
+  // Step A (perf): force re-fetch ALL scanner symbols — bypass stale localStorage cache
+  await _loadScannerPerfFromHistory(syms);
+  renderScanners(); // show perf immediately while prices load
+  // Step A (price): targeted fetch for scanner symbols; re-render when done
+  if (localStorage.getItem('sp_fh')) {
+    await _scFetchLivePrices(syms);
+    renderScanners();
+  }
 }
 
 async function initScanners() {
