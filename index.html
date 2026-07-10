@@ -9153,7 +9153,9 @@ function renderScanners() {
   body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
 }
 
-// Compute perf from price_history rows and store in histBaselines[sym]
+// Compute perf from price_history rows and store in histBaselines[sym].
+// Also stores latestClose + latestDate so refreshScanners can hydrate
+// row.current_price without needing a live Finnhub quote.
 async function _loadScannerPerfFromHistory(syms) {
   const supa = await getSupabaseAsync();
   if (!supa || !syms.length) return;
@@ -9171,6 +9173,8 @@ async function _loadScannerPerfFromHistory(syms) {
       const last = closes.at(-1);
       const ret = n => closes.length > n ? +((last / closes[closes.length - 1 - n] - 1) * 100).toFixed(2) : null;
       if (!histBaselines[sym]) histBaselines[sym] = {};
+      histBaselines[sym].latestClose = last;
+      histBaselines[sym].latestDate  = data[0].trading_date; // data is DESC, [0] = newest
       histBaselines[sym].perf = {
         d1: ret(1),
         w1: closes.length >= 6   ? ret(5)   : null,
@@ -9213,10 +9217,11 @@ async function _scFetchLivePrices(syms) {
     return !c || (now - c.fetchedAt) > FH_CACHE_TTL_MS;
   });
 
-  // Seed liveData from cache for symbols that are already fresh
+  // Seed liveData from cache for symbols that are already fresh.
+  // Always overwrite — stale liveData entries must not persist after Refresh.
   for (const s of syms) {
     const c = _fhCache.get(s);
-    if (c && !toFetch.includes(s) && (!liveData[s] || liveData[s].loading)) {
+    if (c && !toFetch.includes(s)) {
       liveData[s] = { p: c.c, dp: c.dp||0, d: c.d||0, t: c.t||0, loading: false, lastClose: !!c.lastClose };
     }
   }
@@ -9259,8 +9264,21 @@ async function refreshScanners() {
   await _scRegisterSymbols(syms);
   // Step A (perf): force re-fetch ALL scanner symbols — bypass stale localStorage cache
   await _loadScannerPerfFromHistory(syms);
-  renderScanners(); // show perf immediately while prices load
-  // Step A (price): targeted fetch for scanner symbols; re-render when done
+
+  // Write-back: mutate in-memory _scannerData rows so _scRow sees fresh data.
+  // row.perf (DB value) can be stale; row.current_price might be missing entirely.
+  // histBaselines was just updated above — stamp it onto every row before render.
+  let hydrated = 0;
+  for (const row of _scannerData) {
+    const bl = histBaselines[row.symbol];
+    if (!bl) continue;
+    if (bl.perf)        { row.perf          = bl.perf;        hydrated++; }
+    if (bl.latestClose) { row.current_price = bl.latestClose; }
+  }
+  console.log(`[ScannerRefresh] hydrated ${hydrated}/${_scannerData.length} rows from price_history`);
+
+  renderScanners(); // show perf + price_history closes immediately
+  // Step A (price): targeted Finnhub fetch; overwrites current_price with live quote when available
   if (localStorage.getItem('sp_fh')) {
     await _scFetchLivePrices(syms);
     renderScanners();
