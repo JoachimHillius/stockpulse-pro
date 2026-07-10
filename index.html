@@ -8038,6 +8038,7 @@ function _momFmt(val, prefix, suffix, decimals) {
 function _momRatingBadge(val, label) {
   if (val === null || val === undefined || val === '') return `<span style="color:#505060;font-size:10px;">—</span>`;
   const n = Number(val);
+  if (n === -1) return `<span title="${label} — not applicable" style="font-size:10px;color:#405060;font-style:italic;">N/A</span>`;
   const color = n >= 80 ? '#00e5b0' : n >= 60 ? '#ffb020' : n >= 40 ? '#a0a8c0' : '#ff3d5a';
   return `<span title="${label}" style="font-size:11px;font-weight:700;color:${color};">${n}</span>`;
 }
@@ -9160,10 +9161,12 @@ function _scApplySort(blockId, arr) {
     }
     if (sort === 'seen_hi') return (b.total_count ?? 0) - (a.total_count ?? 0);
     if (sort === 'first_seen_new') return (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
-    if (sort === 'iris_hi') return (b.rating_iris ?? -1) - (a.rating_iris ?? -1);
-    if (sort === 'xgpt_hi') return (b.rating_xgpt ?? -1) - (a.rating_xgpt ?? -1);
-    if (sort === 'gz_hi')   return (b.rating_greenzone_current ?? b.rating_greenzone ?? -1) - (a.rating_greenzone_current ?? a.rating_greenzone ?? -1);
-    if (sort === 'omen_hi') return (b.rating_omen ?? -1) - (a.rating_omen ?? -1);
+    // rv: null and -1 (N/A) both sort to bottom
+    const rv = v => (v == null || Number(v) === -1) ? -9999 : Number(v);
+    if (sort === 'iris_hi') return rv(b.rating_iris) - rv(a.rating_iris);
+    if (sort === 'xgpt_hi') return rv(b.rating_xgpt) - rv(a.rating_xgpt);
+    if (sort === 'gz_hi')   return rv(b.rating_greenzone_current ?? b.rating_greenzone) - rv(a.rating_greenzone_current ?? a.rating_greenzone);
+    if (sort === 'omen_hi') return rv(b.rating_omen) - rv(a.rating_omen);
     return 0;
   });
 }
@@ -9517,6 +9520,24 @@ function showScannerForm(row) {
   const safeId  = String(row.id).replace(/'/g, "\\'");
   const isMom   = row.list_name === 'momentum';
 
+  // Rating field with inline N/A checkbox. Stores -1 for N/A (distinct from null = unscored).
+  const ratingFld = (label, id, min, max, step, rawVal) => {
+    const isNa  = rawVal !== '' && rawVal !== null && rawVal !== undefined && Number(rawVal) === -1;
+    const numVal = isNa ? '' : (rawVal != null && rawVal !== '' ? rawVal : '');
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+        <span style="font-size:9px;color:#c4d2e0;letter-spacing:0.5px;">${label}</span>
+        <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:9px;color:#6080a0;">
+          <input type="checkbox" id="sc-na-${id}" ${isNa ? 'checked' : ''}
+            onchange="var i=document.getElementById('sc-${id}');i.disabled=this.checked;if(this.checked)i.value='';i.style.opacity=this.checked?'0.35':'1';"
+            style="cursor:pointer;accent-color:#6080a0;">N/A</label>
+      </div>
+      <input id="sc-${id}" type="number" min="${min}" max="${max}" step="${step}" value="${numVal}"
+        ${isNa ? 'disabled' : ''}
+        style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);${isNa ? 'opacity:0.35;' : ''}">
+    </div>`;
+  };
+
   // Retire dropdown: momentum symbols excluding this row
   const momSymbols = _scannerData
     .filter(r => r.list_name === 'momentum' && String(r.id) !== String(row.id))
@@ -9550,12 +9571,12 @@ function showScannerForm(row) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
         ${fld('QTY (SHARES)', 'qty', 'number', 'step="any"', v('qty'))}
       </div>
-      <div style="border-top:1px solid var(--border2);padding-top:8px;margin-bottom:6px;font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.8px;">RATINGS</div>
+      <div style="border-top:1px solid var(--border2);padding-top:8px;margin-bottom:6px;font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.8px;">RATINGS <span style="font-weight:400;color:#404858;">— check N/A for ETFs / indexes</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0 12px;">
-        ${fld('IRIS (0-10)', 'ed-iris', 'number', 'min="0" max="10" step="0.1"', v('rating_iris'))}
-        ${fld('XGPT (%)', 'ed-xgpt', 'number', 'min="0" max="100" step="1"', v('rating_xgpt'))}
-        ${fld('GZ (0-100)', 'ed-gz-cur', 'number', 'min="0" max="100" step="1"', v('rating_greenzone_current'))}
-        ${fld('OMEN (1-8)', 'ed-omen', 'number', 'min="1" max="8" step="1"', v('rating_omen'))}
+        ${ratingFld('IRIS (0-10)', 'ed-iris',   '0', '10',  '0.1', row.rating_iris)}
+        ${ratingFld('XGPT (%)',    'ed-xgpt',   '0', '100', '1',   row.rating_xgpt)}
+        ${ratingFld('GZ (0-100)', 'ed-gz-cur',  '0', '100', '1',   row.rating_greenzone_current)}
+        ${ratingFld('OMEN (1-8)', 'ed-omen',    '1', '8',   '1',   row.rating_omen)}
       </div>
       <div style="margin-bottom:10px;">
         <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
@@ -9595,10 +9616,13 @@ async function saveScannerRow(id) {
   const newExit     = g('ed-exit')     === '' ? null : Number(g('ed-exit'));
   const newStop     = g('ed-stop')     === '' ? null : Number(g('ed-stop'));
   const newQty      = g('qty')         === '' ? null : Number(g('qty'));
-  const newIris     = g('ed-iris')     === '' ? null : Number(g('ed-iris'));
-  const newXgpt     = g('ed-xgpt')     === '' ? null : Number(g('ed-xgpt'));
-  const newGzCur    = g('ed-gz-cur')   === '' ? null : Number(g('ed-gz-cur'));
-  const newOmen     = g('ed-omen')     === '' ? null : Number(g('ed-omen'));
+  // -1 = N/A sentinel (not applicable, e.g. ETF); null = unscored
+  const isNa     = id => { const el = document.getElementById('sc-na-' + id); return el ? el.checked : false; };
+  const readRating = id => isNa(id) ? -1 : (g(id) === '' ? null : Number(g(id)));
+  const newIris     = readRating('ed-iris');
+  const newXgpt     = readRating('ed-xgpt');
+  const newGzCur    = readRating('ed-gz-cur');
+  const newOmen     = readRating('ed-omen');
   const newNotes    = g('notes')       || null;
   const retireId    = g('ed-retire-id');
 
@@ -9625,9 +9649,6 @@ async function saveScannerRow(id) {
     rating_omen:              newOmen,
     notes:                    newNotes,
   };
-  const q = getQ(row.symbol);
-  if (q.p != null && newQty != null) updates.net_value = q.p * newQty;
-
   const { error: mainErr } = await supa.from('scanner_watchlist').update(updates).eq('id', id);
   if (mainErr) { setErr('Save failed: ' + mainErr.message); return; }
   Object.assign(row, updates);
