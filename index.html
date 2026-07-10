@@ -8873,11 +8873,11 @@ let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
 // ── Per-block sort state (keyed by view id or 'positions') ────
 const _scCtl = { xgpt_iris: { sort: 'default' }, momentum: { sort: 'default' }, positions: { sort: 'default' }, money_markets: { sort: 'default' }, all: { sort: 'default' } };
 
-// ── CSS grid for the scanner table (18 columns) ──────────────
+// ── CSS grid for the scanner table (19 columns) ──────────────
 // SYM 108 | NAME 118 | SECT 80 | PRICE 70 | QTY 50 | NET$ 68 |
 // 1H 46 | 1D 46 | 1W 50 | 1M 50 | 6M 50 | 1Y 50 |
-// IRIS 36 | XGPT 36 | GZ 36 | SEEN# 46 | NOTE 1fr | FIRST SEEN 80 | ACTIONS 60
-const SC_GRID = '108px 118px 80px 70px 50px 68px 46px 46px 50px 50px 50px 50px 36px 36px 36px 46px 1fr 80px 60px';
+// IRIS 36 | XGPT 36 | GZ 36 | OMEN 36 | SEEN# 46 | NOTE 1fr | FIRST SEEN 80 | ACTIONS 60
+const SC_GRID = '108px 118px 80px 70px 50px 68px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 46px 1fr 80px 60px';
 const SC_DIV  = 'border-right:1px solid rgba(128,144,160,0.15);padding-right:8px;';
 const SC_DIV_L = 'padding-left:8px;';
 
@@ -8942,7 +8942,8 @@ function _scColHdr() {
     ${th('1Y','right',DIV)}
     ${th('IRIS','center','padding-left:8px;')}
     ${th('XGPT','center')}
-    ${th('GZ','center',DIV)}
+    ${th('GZ','center')}
+    ${th('OMEN','center',DIV)}
     ${th('SEEN #','right','padding-left:8px;'+DIV)}
     ${th('NOTE','left','padding-left:8px;')}
     ${th('FIRST SEEN','left')}
@@ -9031,7 +9032,8 @@ function _scRow(row) {
     <span style="text-align:right;font-size:10px;font-weight:600;color:${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'#00e5b0':'#ff3d5a'):'#505060'};border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;">${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'+':'')+Number(perf.y1).toFixed(1)+'%':'—'}</span>
     <span style="text-align:center;padding-left:8px;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
-    <span style="text-align:center;border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
+    <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
+    <span style="text-align:center;border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;">${_momRatingBadge(row.rating_omen, 'OMEN')}</span>
     <span style="text-align:right;font-size:11px;color:#c4d2e0;padding-left:8px;border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;" title="${seenTip}">${row.total_count??'—'}</span>
     <span style="font-size:10px;color:#c4cedb;padding-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.notes||'').replace(/"/g,'&quot;')}">${row.notes||'—'}</span>
     <span style="font-size:10px;color:#c4cedb;">${row.first_seen_date||'—'}</span>
@@ -9158,6 +9160,10 @@ function _scApplySort(blockId, arr) {
     }
     if (sort === 'seen_hi') return (b.total_count ?? 0) - (a.total_count ?? 0);
     if (sort === 'first_seen_new') return (b.first_seen_date || '').localeCompare(a.first_seen_date || '');
+    if (sort === 'iris_hi') return (b.rating_iris ?? -1) - (a.rating_iris ?? -1);
+    if (sort === 'xgpt_hi') return (b.rating_xgpt ?? -1) - (a.rating_xgpt ?? -1);
+    if (sort === 'gz_hi')   return (b.rating_greenzone_current ?? b.rating_greenzone ?? -1) - (a.rating_greenzone_current ?? a.rating_greenzone ?? -1);
+    if (sort === 'omen_hi') return (b.rating_omen ?? -1) - (a.rating_omen ?? -1);
     return 0;
   });
 }
@@ -9205,6 +9211,10 @@ function _scSortDropdown(blockId) {
     ['d1_hi',          '1D% High→Low'],
     ['seen_hi',        'Seen# High→Low'],
     ['first_seen_new', 'First Seen Newest'],
+    ['iris_hi',        'IRIS High→Low'],
+    ['xgpt_hi',        'XGPT High→Low'],
+    ['gz_hi',          'GZ High→Low'],
+    ['omen_hi',        'OMEN High→Low'],
   ].map(([val, label]) =>
     `<option value="${val}" ${sort === val ? 'selected' : ''}>${label}</option>`
   ).join('');
@@ -9540,6 +9550,13 @@ function showScannerForm(row) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
         ${fld('QTY (SHARES)', 'qty', 'number', 'step="any"', v('qty'))}
       </div>
+      <div style="border-top:1px solid var(--border2);padding-top:8px;margin-bottom:6px;font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.8px;">RATINGS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0 12px;">
+        ${fld('IRIS (0-10)', 'ed-iris', 'number', 'min="0" max="10" step="0.1"', v('rating_iris'))}
+        ${fld('XGPT (%)', 'ed-xgpt', 'number', 'min="0" max="100" step="1"', v('rating_xgpt'))}
+        ${fld('GZ (0-100)', 'ed-gz-cur', 'number', 'min="0" max="100" step="1"', v('rating_greenzone_current'))}
+        ${fld('OMEN (1-8)', 'ed-omen', 'number', 'min="1" max="8" step="1"', v('rating_omen'))}
+      </div>
       <div style="margin-bottom:10px;">
         <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
         <textarea id="sc-notes" rows="2"
@@ -9578,6 +9595,10 @@ async function saveScannerRow(id) {
   const newExit     = g('ed-exit')     === '' ? null : Number(g('ed-exit'));
   const newStop     = g('ed-stop')     === '' ? null : Number(g('ed-stop'));
   const newQty      = g('qty')         === '' ? null : Number(g('qty'));
+  const newIris     = g('ed-iris')     === '' ? null : Number(g('ed-iris'));
+  const newXgpt     = g('ed-xgpt')     === '' ? null : Number(g('ed-xgpt'));
+  const newGzCur    = g('ed-gz-cur')   === '' ? null : Number(g('ed-gz-cur'));
+  const newOmen     = g('ed-omen')     === '' ? null : Number(g('ed-omen'));
   const newNotes    = g('notes')       || null;
   const retireId    = g('ed-retire-id');
 
@@ -9588,17 +9609,21 @@ async function saveScannerRow(id) {
   if (!supa) return;
 
   const updates = {
-    symbol:         newSym      ?? row.symbol,
-    list_name:      newListName,
-    security:       newSecurity,
-    sector:         newSector,
-    source_scanner: newScanner,
-    action:         newAction,
-    entry_price:    newEntry,
-    exit_price:     newExit,
-    stop_price:     newStop,
-    qty:            newQty,
-    notes:          newNotes,
+    symbol:                   newSym ?? row.symbol,
+    list_name:                newListName,
+    security:                 newSecurity,
+    sector:                   newSector,
+    source_scanner:           newScanner,
+    action:                   newAction,
+    entry_price:              newEntry,
+    exit_price:               newExit,
+    stop_price:               newStop,
+    qty:                      newQty,
+    rating_iris:              newIris,
+    rating_xgpt:              newXgpt,
+    rating_greenzone_current: newGzCur,
+    rating_omen:              newOmen,
+    notes:                    newNotes,
   };
   const q = getQ(row.symbol);
   if (q.p != null && newQty != null) updates.net_value = q.p * newQty;
