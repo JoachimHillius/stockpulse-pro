@@ -8137,8 +8137,12 @@ function _momRow(row) {
   const m6  = perf?.m6 ?? null;
   const y1  = perf?.y1 ?? null;
 
-  // Swing-specific P/L — prefer live quote, then DB current_price, then price_history latest close
-  const currentPrice = q.p ?? (row.current_price != null ? Number(row.current_price) : null) ?? histBaselines[sym]?.latestClose ?? null;
+  // Price precedence: live Finnhub > price_history close > (stale DB current_price never shown)
+  // Deliberately exclude row.current_price — it may be months old and would mislead.
+  const livePx   = q.p ?? null;
+  const histPx   = histBaselines[sym]?.latestClose ?? null;
+  const currentPrice = livePx ?? histPx ?? null;
+  const priceIsBuilding = !livePx && !histPx; // price_history not yet built for this symbol
   const openPrice    = row.open_price != null && row.open_price !== '' ? Number(row.open_price) : null;
   const dayPL        = d1;  // today's % change (same as 1D — reinforces significance in swing context)
   const entryPL      = (currentPrice && openPrice && openPrice > 0)
@@ -8162,7 +8166,7 @@ function _momRow(row) {
       : ''}${catBadge}<span>${sym}</span>${opBadge}${alarmBadge}${row.replace_marker ? `<span title="${(row.notes||'No note').replace(/"/g,'&quot;')}" style="color:#ffb020;font-weight:700;font-size:11px;margin-left:3px;cursor:help;">${row.replace_marker}</span>` : ''}</span>
     <span class="wl-name-cell" title="${row.security || ''}">${row.security || '—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector || ''}">${row.sector || '—'}</span>
-    <span class="wl-price-cell">${fmtPrice(sym, currentPrice)}</span>
+    <span class="wl-price-cell" title="${priceIsBuilding ? 'Price history building — will update on next sync' : ''}">${priceIsBuilding ? '<span style="color:#6080a0;font-size:10px;">⟳ syncing</span>' : fmtPrice(sym, currentPrice)}</span>
     <span style="text-align:right;font-size:11px;color:#c4d2e0;white-space:nowrap;">${row.qty != null && row.qty !== '' ? row.qty : '—'}${row.shares_sold > 0 ? ` <span style="font-size:9px;font-weight:700;color:#ffb020;background:rgba(255,176,32,0.12);border-radius:3px;padding:1px 4px;">SOLD ${row.shares_sold}</span>` : ''}</span>
     <span class="pct-cell ${netClr}" style="text-align:right;">${!hasLive || q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
     ${pctCell(h1)}
@@ -8357,7 +8361,8 @@ function _momSearchResults(q) {
 
   const rows = matched.map(r => {
     const liveQ    = getQ(r.symbol);
-    const price    = liveQ?.p ?? (r.current_price != null ? Number(r.current_price) : null) ?? histBaselines[r.symbol]?.latestClose ?? null;
+    const price    = liveQ?.p ?? histBaselines[r.symbol]?.latestClose ?? null;
+    const priceIsBuilding = !liveQ?.p && !histBaselines[r.symbol]?.latestClose;
     const openPx   = r.open_price != null ? Number(r.open_price) : null;
     const entryPL  = (price && openPx && openPx > 0) ? ((price - openPx) / openPx * 100) : null;
     const plColor  = entryPL == null ? '#8090a0' : entryPL >= 0 ? '#00e5b0' : '#ff3d5a';
@@ -8371,7 +8376,7 @@ function _momSearchResults(q) {
         <span style="font-size:12px;font-weight:700;color:var(--cyan);min-width:56px;">${r.symbol}${statusBadge}</span>
         <span style="font-size:9px;font-weight:700;color:${catColor};background:${catColor}1a;border-radius:3px;padding:2px 6px;white-space:nowrap;">${catLabel}</span>
         <span style="font-size:11px;color:#c4d2e0;flex:1;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.security||''}">${r.security || '—'}</span>
-        ${price != null ? `<span style="font-size:11px;color:#c4d2e0;">$${price.toFixed(2)}</span>` : ''}
+        ${priceIsBuilding ? `<span style="font-size:10px;color:#6080a0;" title="Price history building — will update on next sync">⟳ syncing</span>` : price != null ? `<span style="font-size:11px;color:#c4d2e0;">$${price.toFixed(2)}</span>` : ''}
         ${r.qty != null ? `<span style="font-size:10px;color:#8090a0;">Qty ${r.qty}</span>` : ''}
         ${openPx != null ? `<span style="font-size:10px;color:#8090a0;">@ $${openPx.toFixed(2)}</span>` : ''}
         ${entryPL != null ? `<span style="font-size:11px;font-weight:700;color:${plColor};">${entryPL >= 0 ? '+' : ''}${entryPL.toFixed(2)}%</span>` : ''}
@@ -8623,6 +8628,8 @@ async function saveMomentumRow(id) {
   if (id === null) {
     // Optimistic insert at top so the new row is visible right away
     _swingData = [savedRow, ...(_swingData || [])];
+    // Enroll in price_sync_status so the cron starts building price_history immediately
+    _scRegisterSymbols([symbol]);
     // Load latest close from price_history immediately, then upgrade with live Finnhub quote
     _loadMomLatestClose([symbol])
       .then(() => { renderMomentum(); return liveData[symbol]?.p ? null : _fetchPriceNow(symbol); })
@@ -8950,7 +8957,8 @@ function _scRow(row) {
   const safeId  = String(row.id).replace(/'/g, "\\'");
   const q       = getQ(sym);
   const perf    = row.perf || histBaselines[sym]?.perf;
-  const price   = q.p ?? row.current_price ?? histBaselines[sym]?.latestClose ?? null;
+  const price   = q.p ?? histBaselines[sym]?.latestClose ?? null;
+  const priceIsBuilding = !q.p && !histBaselines[sym]?.latestClose;
 
   // Seen tooltip breakdown
   const seenTip = `XGPT ${row.xgpt_count??0} / Iris ${row.iris_count??0} / Mom ${row.momentum_count??0}`;
@@ -9007,7 +9015,7 @@ function _scRow(row) {
     </span>
     <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
-    <span style="text-align:right;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">${fmtPrice(sym, price)}</span>
+    <span style="text-align:right;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;" title="${priceIsBuilding ? 'Price history building — will update on next sync' : ''}">${priceIsBuilding ? '<span style="color:#6080a0;font-size:10px;">⟳ syncing</span>' : fmtPrice(sym, price)}</span>
     <span style="text-align:right;font-size:11px;color:#c4d2e0;">${row.qty != null ? row.qty : '—'}</span>
     <span style="text-align:right;font-size:11px;color:#c4d2e0;">${netVal != null ? '$' + Number(netVal).toLocaleString(undefined,{maximumFractionDigits:0}) : '—'}</span>
     ${_scPctCell(perf?.h1)}
@@ -9064,7 +9072,8 @@ function _scRowTenx(row) {
   const safeId = String(row.id).replace(/'/g, "\\'");
   const q      = getQ(sym);
   const perf   = row.perf || histBaselines[sym]?.perf;
-  const price  = q.p ?? row.current_price ?? histBaselines[sym]?.latestClose ?? null;
+  const price  = q.p ?? histBaselines[sym]?.latestClose ?? null;
+  const priceIsBuilding = !q.p && !histBaselines[sym]?.latestClose;
   const netVal = row.net_value ?? (price != null && row.qty ? price * row.qty : null);
   const DIV    = 'border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;';
 
@@ -9083,7 +9092,7 @@ function _scRowTenx(row) {
     </span>
     <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
-    <span style="text-align:right;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">${fmtPrice(sym, price)}</span>
+    <span style="text-align:right;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;" title="${priceIsBuilding ? 'Price history building — will update on next sync' : ''}">${priceIsBuilding ? '<span style="color:#6080a0;font-size:10px;">⟳ syncing</span>' : fmtPrice(sym, price)}</span>
     <span style="text-align:right;font-size:11px;color:#c4d2e0;">${row.qty != null ? row.qty : '—'}</span>
     <span style="text-align:right;font-size:11px;color:#c4d2e0;">${netVal != null ? '$' + Number(netVal).toLocaleString(undefined,{maximumFractionDigits:0}) : '—'}</span>
     ${_scPctCell(perf?.h1)}
