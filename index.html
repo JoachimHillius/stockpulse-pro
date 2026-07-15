@@ -5074,6 +5074,7 @@ async function loadFlowFromSupabase(){
         .from('omen_flow')
         .select('*')
         .order('trading_date',{ascending:false})
+        .order('time_sort_key',{ascending:false,nullsFirst:false})
         .range(from,from+PAGE-1);
       if(error){console.error('[Flow] Supabase error:',error);break;}
       if(!data||!data.length)break;
