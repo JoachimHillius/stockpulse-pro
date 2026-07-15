@@ -3222,9 +3222,10 @@ function detectDateFromFile(filename,rows){
 // Detect source (omen/smartmoney) and snapshot_type (intraday/eod) from filename
 function detectFileMetadata(filename){
   const base=filename.replace(/\.csv$/i,'');
-  // Extract YYYYMMDD from filename prefix → "YYYY-MM-DD"
-  const dateMatch=base.match(/^(\d{4})(\d{2})(\d{2})/);
-  const trading_date=dateMatch?`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`:new Date().toISOString().slice(0,10);
+  // Support YYYYMMDD (e.g. 20260714-SMARTMONEY) and YYYYMM-DD (e.g. 202607-14-SMARTMONEY)
+  const dateMatch=base.match(/^(\d{4})(\d{2})(\d{2})/)||base.match(/^(\d{4})(\d{2})-(\d{2})/);
+  if(!dateMatch)throw new Error(`Cannot parse trading date from "${filename}" — expected YYYYMMDD or YYYYMM-DD prefix`);
+  const trading_date=`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
   const upper=base.toUpperCase();
   const source=/SMARTMONEY/.test(upper)?'smartmoney':'omen';
   // Match time patterns like "130pm", "0130pm", "330PM"
@@ -3350,7 +3351,8 @@ async function handleMultipleCSV(files){
         ids:[],
       });
     }catch(err){
-      console.warn('Skipping',file.name,':',err);
+      console.error('[Upload] Failed',file.name,':',err);
+      if(statusEl){statusEl.textContent=`✗ ${file.name} — ${err.message}`;statusEl.style.color='#ff3d5a';}
     }
   }
 
