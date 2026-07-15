@@ -8962,11 +8962,13 @@ function _scColHdr() {
   </div>`;
 }
 
-function _scPctCell(val) {
-  if (val == null || val === '') return `<span style="text-align:right;color:#505060;font-size:10px;">—</span>`;
+function _scPctCell(val, extraStyle) {
+  const xtra = extraStyle ? ';' + extraStyle : '';
+  if (val == null || val === '') return `<span style="text-align:right;color:#505060;font-size:10px${xtra}">—</span>`;
   const n = Number(val);
+  if (isNaN(n)) return `<span style="text-align:right;color:#505060;font-size:10px${xtra}">—</span>`;
   const col = n >= 0 ? '#00e5b0' : '#ff3d5a';
-  return `<span style="text-align:right;font-size:10px;font-weight:600;color:${col};">${n >= 0 ? '+' : ''}${n.toFixed(1)}%</span>`;
+  return `<span style="text-align:right;font-size:10px;font-weight:600;color:${col}${xtra}">${n >= 0 ? '+' : ''}${n.toFixed(1)}%</span>`;
 }
 
 function _scRow(row) {
@@ -9040,7 +9042,7 @@ function _scRow(row) {
     ${_scPctCell(perf?.w1)}
     ${_scPctCell(perf?.m1)}
     ${_scPctCell(perf?.m6)}
-    <span style="text-align:right;font-size:10px;font-weight:600;color:${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'#00e5b0':'#ff3d5a'):'#505060'};border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;">${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'+':'')+Number(perf.y1).toFixed(1)+'%':'—'}</span>
+    ${_scPctCell(perf?.y1, 'font-weight:600;border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;')}
     <span style="text-align:center;padding-left:8px;">${_momRatingBadge(row.rating_iris, 'IRIS')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_xgpt, 'XGPT')}</span>
     <span style="text-align:center;">${_momRatingBadge(row.rating_greenzone_current, 'GreenZone')}</span>
@@ -9118,7 +9120,7 @@ function _scRowTenx(row) {
     ${_scPctCell(perf?.w1)}
     ${_scPctCell(perf?.m1)}
     ${_scPctCell(perf?.m6)}
-    <span style="text-align:right;font-size:10px;font-weight:600;color:${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'#00e5b0':'#ff3d5a'):'#505060'};${DIV}">${(perf?.y1??null)!=null?(Number(perf.y1)>=0?'+':'')+Number(perf.y1).toFixed(1)+'%':'—'}</span>
+    ${_scPctCell(perf?.y1, 'font-weight:600;border-right:1px solid rgba(128,144,160,0.18);padding-right:8px;')}
     <span style="font-size:10px;color:#c4cedb;padding-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${noteText.replace(/"/g,'&quot;')}">${noteText}</span>
     <span style="font-size:10px;color:#c4cedb;">${row.first_seen_date||'—'}</span>
     <span style="text-align:right;white-space:nowrap;">
@@ -9240,8 +9242,18 @@ function _scSortDropdown(blockId) {
 function _scBuildMainBlock(rows) {
   const sorted = _scApplySort(_scannerView, rows);
   const isTenx = _scannerView === 'money_markets';
+  const rowFn = isTenx ? _scRowTenx : _scRow;
+  const grid  = isTenx ? SC_GRID_TENX : SC_GRID;
   const content = sorted.length
-    ? sorted.map(isTenx ? _scRowTenx : _scRow).join('')
+    ? sorted.map(row => {
+        try { return rowFn(row); }
+        catch (e) {
+          console.error('[Scanners] row render error', row?.symbol, e);
+          return `<div style="display:grid;grid-template-columns:${grid};gap:2px;padding:5px 10px;border-bottom:1px solid var(--border);">` +
+            `<span style="color:#ff3d5a;font-size:11px;font-weight:700;">${row?.symbol||'?'}</span>` +
+            `<span style="color:#6080a0;font-size:10px;grid-column:2/-1;">render error — ${e.message}</span></div>`;
+        }
+      }).join('')
     : `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows match</div>`;
   return `<div id="sc-blk-main">
     <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.10);">
@@ -9257,7 +9269,13 @@ function _scBuildPosBlock() {
     .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''));
   const sorted = _scApplySort('positions', posRows);
   const posContent = sorted.length
-    ? sorted.map(_scRow).join('')
+    ? sorted.map(row => {
+        try { return _scRow(row); }
+        catch (e) {
+          console.error('[Scanners] position row error', row?.symbol, e);
+          return `<div style="padding:4px 10px;font-size:10px;color:#ff3d5a;">${row?.symbol||'?'} — render error</div>`;
+        }
+      }).join('')
     : `<div style="padding:20px 10px;color:#404858;font-size:11px;font-style:italic;">No retired positions yet.</div>`;
   return `<div id="sc-blk-positions" style="margin-top:28px;border-top:1px solid var(--border2);padding-top:16px;">
     <div style="display:flex;align-items:center;gap:8px;padding:4px 10px 6px;">
@@ -9271,47 +9289,55 @@ function _scBuildPosBlock() {
 function renderScanners() {
   const body = document.getElementById('sc-body');
   if (!body) return;
+  try {
+    const rows = _scGetFilteredRows();
 
-  const rows = _scGetFilteredRows();
+    const btnStyle = (active) =>
+      `background:${active ? 'rgba(0,212,255,0.18)' : 'transparent'};color:${active ? '#00d4ff' : '#6080a0'};border:1px solid ${active ? '#00d4ff66' : 'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active ? '700' : '400'};cursor:pointer;font-family:var(--font);letter-spacing:0.4px;`;
 
-  const btnStyle = (active) =>
-    `background:${active ? 'rgba(0,212,255,0.18)' : 'transparent'};color:${active ? '#00d4ff' : '#6080a0'};border:1px solid ${active ? '#00d4ff66' : 'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active ? '700' : '400'};cursor:pointer;font-family:var(--font);letter-spacing:0.4px;`;
+    const scannerBar = (_scannerView === 'xgpt_iris') ? `
+      <span style="font-size:10px;color:#6080a0;margin-right:4px;">SCANNER:</span>
+      <button style="${btnStyle(_scFilterScanner==='all')}"   onclick="setScannerFilter('all')">All</button>
+      <button style="${btnStyle(_scFilterScanner==='xgpt')}"  onclick="setScannerFilter('xgpt')">XGPT</button>
+      <button style="${btnStyle(_scFilterScanner==='iris')}"  onclick="setScannerFilter('iris')">Iris</button>
+      <span style="margin:0 8px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>` : '';
 
-  const scannerBar = (_scannerView === 'xgpt_iris') ? `
-    <span style="font-size:10px;color:#6080a0;margin-right:4px;">SCANNER:</span>
-    <button style="${btnStyle(_scFilterScanner==='all')}"   onclick="setScannerFilter('all')">All</button>
-    <button style="${btnStyle(_scFilterScanner==='xgpt')}"  onclick="setScannerFilter('xgpt')">XGPT</button>
-    <button style="${btnStyle(_scFilterScanner==='iris')}"  onclick="setScannerFilter('iris')">Iris</button>
-    <span style="margin:0 8px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>` : '';
+    const dateBar = `
+      <span style="font-size:10px;color:#6080a0;margin-right:4px;">FIRST SEEN:</span>
+      <button style="${btnStyle(_scFilterDate==='all')}"   onclick="setScannerDateFilter('all')">All</button>
+      <button style="${btnStyle(_scFilterDate==='today')}" onclick="setScannerDateFilter('today')">Today</button>
+      <button style="${btnStyle(_scFilterDate==='7d')}"    onclick="setScannerDateFilter('7d')">7d</button>
+      <button style="${btnStyle(_scFilterDate==='30d')}"   onclick="setScannerDateFilter('30d')">30d</button>`;
 
-  const dateBar = `
-    <span style="font-size:10px;color:#6080a0;margin-right:4px;">FIRST SEEN:</span>
-    <button style="${btnStyle(_scFilterDate==='all')}"   onclick="setScannerDateFilter('all')">All</button>
-    <button style="${btnStyle(_scFilterDate==='today')}" onclick="setScannerDateFilter('today')">Today</button>
-    <button style="${btnStyle(_scFilterDate==='7d')}"    onclick="setScannerDateFilter('7d')">7d</button>
-    <button style="${btnStyle(_scFilterDate==='30d')}"   onclick="setScannerDateFilter('30d')">30d</button>`;
+    const legend = (_scannerView === 'xgpt_iris') ? `
+      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:10px;color:#6080a0;">
+        <span style="color:var(--text);">▪</span> Iris
+        <span style="color:#4da6ff;">▪</span> XGPT
+        <span style="color:#ffb020;">▪</span> Momentum
+      </span>` : '';
 
-  const legend = (_scannerView === 'xgpt_iris') ? `
-    <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:10px;color:#6080a0;">
-      <span style="color:var(--text);">▪</span> Iris
-      <span style="color:#4da6ff;">▪</span> XGPT
-      <span style="color:#ffb020;">▪</span> Momentum
-    </span>` : '';
+    const filterBar = `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 8px;flex-wrap:wrap;">
+      ${scannerBar}${dateBar}${legend}
+    </div>`;
 
-  const filterBar = `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 8px;flex-wrap:wrap;">
-    ${scannerBar}${dateBar}${legend}
-  </div>`;
+    const positionsBlock = _scannerView === 'momentum' ? _scBuildPosBlock() : '';
 
-  const positionsBlock = _scannerView === 'momentum' ? _scBuildPosBlock() : '';
+    // Update 10X count badge
+    const tenxCountEl = document.getElementById('sc-tenx-count');
+    if (tenxCountEl) {
+      const tenxCount = _scannerData.filter(r => r.list_name === 'money_markets').length;
+      tenxCountEl.textContent = tenxCount > 0 ? tenxCount : '';
+    }
 
-  // Update 10X count badge
-  const tenxCountEl = document.getElementById('sc-tenx-count');
-  if (tenxCountEl) {
-    const tenxCount = _scannerData.filter(r => r.list_name === 'money_markets').length;
-    tenxCountEl.textContent = tenxCount > 0 ? tenxCount : '';
+    body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
+  } catch (err) {
+    console.error('[Scanners] renderScanners error:', err);
+    body.innerHTML = `<div style="padding:40px;text-align:center;">
+      <div style="color:#ff3d5a;font-weight:700;font-size:13px;margin-bottom:8px;">Scanner failed to render</div>
+      <div style="color:#6080a0;font-size:11px;font-family:monospace;">${err.message}</div>
+      <div style="margin-top:12px;"><button onclick="renderScanners()" style="background:rgba(0,212,255,0.1);border:1px solid #00d4ff44;border-radius:4px;color:#00d4ff;padding:4px 12px;font-size:11px;cursor:pointer;">Retry</button></div>
+    </div>`;
   }
-
-  body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
 }
 
 // Compute perf from price_history rows and store in histBaselines[sym].
