@@ -4966,16 +4966,32 @@ async function loadTopContracts(tradingDate){
   const supa=await getSupabaseAsync();
   if(!supa)return;
   try{
-    const{data,error}=await supa.rpc('get_top_contracts',{p_date:tradingDate});
-    if(error)throw error;
+    const PAGE=1000;
+    let all=[],from=0;
+    while(true){
+      const{data,error}=await supa.rpc('get_top_contracts',{p_date:tradingDate}).range(from,from+PAGE-1);
+      if(error)throw error;
+      if(!data||!data.length)break;
+      all=all.concat(data);
+      if(data.length<PAGE)break;
+      from+=PAGE;
+      if(from>20000)break;
+    }
     const map={};
-    (data||[]).forEach(row=>{
+    all.forEach(row=>{
       if(!map[row.symbol])map[row.symbol]={Call:[],Put:[]};
       if(!map[row.symbol][row.cp])map[row.symbol][row.cp]=[];
-      map[row.symbol][row.cp].push(row);
+      // Normalize field names: RPC returns premium_dollars, renderTopContractCell expects prem
+      map[row.symbol][row.cp].push({prem:row.premium_dollars,strike:row.strike,expiry:row.expiry,contracts:row.contracts,rnk:row.rnk});
     });
+    // Ensure rnk=1 is at index 0, rnk=2 at index 1
+    for(const sym of Object.keys(map)){
+      for(const cp of ['Call','Put']){
+        if(map[sym][cp]&&map[sym][cp].length)map[sym][cp].sort((a,b)=>a.rnk-b.rnk);
+      }
+    }
     _topContractsByTicker=map;
-    console.log('[topContracts] loaded',Object.keys(map).length,'tickers for',tradingDate);
+    console.log('[topContracts] loaded',Object.keys(map).length,'tickers for',tradingDate,'('+all.length+' rows)');
   }catch(e){console.warn('[topContracts] load failed:',e);}
 }
 
@@ -6480,6 +6496,12 @@ function phase1BuildRows() {
       row.prices = visibleDates.map(d => { const p = sp[d]; return { date: d, open: p?.open_price || null, close: p?.close_price || null }; });
       const td = sp[todayDate];
       if (td) { row.top_calls = td.top_calls || null; row.top_puts = td.top_puts || null; row.earnings = row.earnings || td.earnings_context || null; }
+      // Fallback: use live RPC data when omen_daily_summary has no entry for today (current trading day)
+      if (!row.top_calls && _topContractsByTicker[sym]) {
+        const tc = _topContractsByTicker[sym];
+        if (tc.Call && tc.Call.length) row.top_calls = tc.Call;
+        if (tc.Put  && tc.Put.length)  row.top_puts  = tc.Put;
+      }
     }
   }
 
@@ -6615,6 +6637,7 @@ async function loadP1FlowData(targetDate = null) {
 
     console.log('[P1] Loaded', (todayRows||[]).length, 'rows for', fetchDate, '+', oiHistory.length, 'prior OI rows');
     _p1FlowData = [...(todayRows || []), ...oiHistory];
+    await loadTopContracts(fetchDate);
   } catch (e) {
     console.warn('[P1] loadP1FlowData failed:', e);
     _p1FlowData = [];
