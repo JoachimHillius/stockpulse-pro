@@ -6725,7 +6725,7 @@ let _predData=null;
 let _predTimeframe='D';
 let _fpSideFilter = 'all'; // 'all' | 'bullish' | 'neutral' | 'bearish'
 let _fpStrFilter  = 'all'; // 'all' | 'HIGH' | 'MEDIUM' | 'LOW'
-let _p1SortCol    = 'conviction'; // 'conviction' | 'callPrem' | 'putPrem' | 'dayPrem' | 'swingPrem' | 'longPrem' | 'convictionSkew' | 'skewPct'
+let _p1SortCol    = 'cleanCall';  // 'cleanCall' | 'conviction' | 'callPrem' | 'putPrem' | 'dayPrem' | 'swingPrem' | 'longPrem' | 'skewPct'
 let _p1SortDir    = -1;           // -1 = descending (largest on top), +1 = ascending
 let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
 let _predLastDates = [];
@@ -7484,8 +7484,8 @@ function renderFlowPredictor(){
     <div class="card" style="padding:14px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <div>
-          <div style="font-size:14px;font-weight:600;">PHASE 1 · SIZE-BLIND CONVICTION RANKING · ${fmtDateHeader(todayDate)}</div>
-          <div style="font-size:10px;color:#8090a0;margin-top:2px;">Ranked by ask-weighted conviction skew · Activity floor ≥${P1_ACTIVITY_FLOOR} contracts · Heuristic, not validated probability</div>
+          <div style="font-size:14px;font-weight:600;">PHASE 1 · ${_p1SortCol==='cleanCall'?'CLEAN CALL RANKING':_p1SortCol==='conviction'?'SIZE-BLIND CONVICTION RANKING':'FLOW RANKING'} · ${fmtDateHeader(todayDate)}</div>
+          <div style="font-size:10px;color:#8090a0;margin-top:2px;">${_p1SortCol==='cleanCall'?'Zero-put rows first · then CALL $ desc':_p1SortCol==='conviction'?'Ranked by ask-weighted conviction skew · Heuristic, not validated probability':'Sorted by column — click CONV.SKEW or SORT buttons to switch mode'} · Activity floor ≥${P1_ACTIVITY_FLOOR} contracts</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span id="alarm-count-badge" style="font-size:10px;font-weight:600;color:#ffb020;background:#ffb02018;border:1px solid #ffb02044;border-radius:12px;padding:3px 10px;display:${_armedCount>0?'inline':'none'};">${_armedCount>0?`🔔 ${_armedCount} armed`:''}</span>
@@ -7511,6 +7511,12 @@ function renderFlowPredictor(){
         ${[['all','All','#00d4ff'],['HIGH','High','#00e5b0'],['MEDIUM','Med','#ffb020'],['LOW','Low','#8090a0']].map(([val,lbl,activeColor])=>{
           const active = _fpStrFilter === val;
           return `<button onclick="setFpStrFilter('${val}')" style="background:${active?`rgba(${val==='HIGH'?'0,229,176':val==='MEDIUM'?'255,176,32':val==='LOW'?'128,144,160':'0,212,255'},0.15)`:'transparent'};color:${active?activeColor:'#6080a0'};border:1px solid ${active?activeColor+'66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
+        }).join('')}
+        <span style="margin:0 6px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>
+        <span style="font-size:10px;color:#8090a0;letter-spacing:0.5px;margin-right:2px;">SORT:</span>
+        ${[['cleanCall','★ Clean Call'],['conviction','Conviction']].map(([val,lbl])=>{
+          const active = _p1SortCol === val;
+          return `<button onclick="_p1SetSort('${val}')" style="background:${active?'rgba(0,212,255,0.15)':'transparent'};color:${active?'#00d4ff':'#6080a0'};border:1px solid ${active?'#00d4ff66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
         }).join('')}
       </div>
       <div style="font-size:10px;color:#6080a0;margin-bottom:8px;padding:4px 0;">
@@ -7540,6 +7546,13 @@ function renderFlowPredictor(){
                   const dirRank = { UP: 0, FLAT: 1, DOWN: 2 };
                   const strRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
                   const _sSort = rows => [...rows].sort((a, b) => {
+                    if (_p1SortCol === 'cleanCall') {
+                      // Zero-put rows first, then CALL $ desc within each group
+                      const aNoPuts = !(a.putPrem > 0);
+                      const bNoPuts = !(b.putPrem > 0);
+                      if (aNoPuts !== bNoPuts) return aNoPuts ? -1 : 1;
+                      return (b.callPrem ?? 0) - (a.callPrem ?? 0);
+                    }
                     if (_p1SortCol === 'conviction') {
                       const dr = (dirRank[a.direction] ?? 1) - (dirRank[b.direction] ?? 1);
                       if (dr !== 0) return dr;
@@ -7590,9 +7603,9 @@ function setFpStrFilter(val) {
 }
 
 function _p1SetSort(col) {
-  if (col === 'conviction') {
-    // Reset to default 3-key conviction sort
-    _p1SortCol = 'conviction';
+  if (col === 'conviction' || col === 'cleanCall') {
+    // Named sort modes — no direction toggle, just activate
+    _p1SortCol = col;
     _p1SortDir = -1;
   } else if (_p1SortCol === col) {
     // Same column — toggle direction
