@@ -6253,6 +6253,7 @@ const P1_PAGE_SIZE = 20;
 let _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
 let _p1SelectedDate = null;  // null = use latest; set by date chips
 let _p1RecentDates = [];     // last 7 actual trading dates from omen_flow (for price-strip columns)
+let _p1PriceData = {};       // symbol → date → {open, close} from price_history
 
 function p1ParsePremium(s) {
   if (!s) return 0;
@@ -6493,7 +6494,10 @@ function phase1BuildRows() {
     for (const sym of Object.keys(bySymbol)) {
       const row = bySymbol[sym];
       const sp = bySD[sym] || {};
-      row.prices = visibleDates.map(d => { const p = sp[d]; return { date: d, open: p?.open_price || null, close: p?.close_price || null }; });
+      row.prices = visibleDates.map(d => {
+        const ph = (_p1PriceData[sym] || {})[d];
+        return { date: d, open: ph?.open ?? null, close: ph?.close ?? null };
+      });
       const td = sp[todayDate];
       if (td) { row.top_calls = td.top_calls || null; row.top_puts = td.top_puts || null; row.earnings = row.earnings || td.earnings_context || null; }
       // Fallback: use live RPC data when omen_daily_summary has no entry for today (current trading day)
@@ -6639,9 +6643,50 @@ async function loadP1FlowData(targetDate = null) {
     console.log('[P1] Loaded', (todayRows||[]).length, 'rows for', fetchDate, '+', oiHistory.length, 'prior OI rows');
     _p1FlowData = [...(todayRows || []), ...oiHistory];
     await loadTopContracts(fetchDate);
+    const p1Syms = [...new Set(_p1FlowData.map(r => r.symbol).filter(Boolean))];
+    await loadP1Prices(p1Syms, _p1RecentDates);
   } catch (e) {
     console.warn('[P1] loadP1FlowData failed:', e);
     _p1FlowData = [];
+  }
+}
+
+async function loadP1Prices(symbols, dates) {
+  if (!symbols || !symbols.length || !dates || !dates.length) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    const minDate = dates[0];
+    const maxDate = dates[dates.length - 1];
+    const PAGE = 1000;
+    const result = {};
+    let from = 0;
+    while (true) {
+      const { data, error } = await supa
+        .from('price_history')
+        .select('symbol,trading_date,open,close')
+        .in('symbol', symbols)
+        .gte('trading_date', minDate)
+        .lte('trading_date', maxDate)
+        .order('symbol', { ascending: true })
+        .order('trading_date', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) { console.warn('[P1Prices] error:', error.message); break; }
+      if (!data || !data.length) break;
+      for (const r of data) {
+        if (!result[r.symbol]) result[r.symbol] = {};
+        result[r.symbol][r.trading_date] = { open: parseFloat(r.open) || null, close: parseFloat(r.close) || null };
+      }
+      console.log('[P1Prices] page from', from, 'got', data.length, 'rows');
+      if (data.length < PAGE) break;
+      from += PAGE;
+      if (from > 100000) break;
+    }
+    _p1PriceData = result;
+    console.log('[P1Prices] loaded', Object.keys(result).length, 'symbols for', dates.length, 'dates (', Object.keys(result).length > 0 ? Object.values(result)[0] : 'empty', ')');
+  } catch (e) {
+    console.warn('[P1Prices] failed:', e);
+    _p1PriceData = {};
   }
 }
 
