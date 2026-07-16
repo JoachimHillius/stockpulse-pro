@@ -6725,6 +6725,8 @@ let _predData=null;
 let _predTimeframe='D';
 let _fpSideFilter = 'all'; // 'all' | 'bullish' | 'neutral' | 'bearish'
 let _fpStrFilter  = 'all'; // 'all' | 'HIGH' | 'MEDIUM' | 'LOW'
+let _p1SortCol    = 'conviction'; // 'conviction' | 'callPrem' | 'putPrem' | 'dayPrem' | 'swingPrem' | 'longPrem' | 'convictionSkew' | 'skewPct'
+let _p1SortDir    = -1;           // -1 = descending (largest on top), +1 = ascending
 let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
 let _predLastDates = [];
 let _predLabelMode='both';
@@ -7394,17 +7396,25 @@ function renderFlowPredictor(){
       ${pageControls}`;
   }
 
+  // Sortable header helper — shows ▼/▲ on active column, pointer cursor
+  const p1Th = (col, label, style) => {
+    const active = _p1SortCol === col;
+    const ind = active ? (_p1SortDir === -1 ? ' ▼' : ' ▲') : '';
+    const hover = active ? '' : "onmouseenter=\"this.style.opacity='0.75'\" onmouseleave=\"this.style.opacity=''\"";
+    return `<th onclick="_p1SetSort('${col}')" ${hover} style="${style}cursor:pointer;user-select:none;${active?'text-decoration:underline dotted;':''}">${label}${ind}</th>`;
+  };
+
   const p1TableHead = `<thead>
     <tr style="background:var(--bg3);">
       <th style="position:sticky;left:0;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:30px;">#</th>
       <th style="position:sticky;left:30px;background:var(--bg3);padding:8px 6px;text-align:left;z-index:2;min-width:150px;">Symbol / Setup</th>
-      <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#7fd0a8;">CALL $</th>
-      <th style="padding:8px 6px;text-align:right;background:#1a3050;color:#d97f8a;">PUT $</th>
-      <th style="padding:8px 6px;text-align:right;background:#15243a;color:#7fb0e8;font-size:10px;">DAY $</th>
-      <th style="padding:8px 6px;text-align:right;background:#15243a;color:#d4b070;font-size:10px;">SWING $</th>
-      <th style="padding:8px 6px;text-align:right;background:#15243a;color:#7fd0a8;font-size:10px;">LONG $</th>
-      <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#00d4ff;font-weight:700;">CONV.SKEW</th>
-      <th style="padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;font-size:10px;">SKEW%</th>
+      ${p1Th('callPrem',  'CALL $',     'padding:8px 6px;text-align:right;background:#1a3050;color:#7fd0a8;')}
+      ${p1Th('putPrem',   'PUT $',      'padding:8px 6px;text-align:right;background:#1a3050;color:#d97f8a;')}
+      ${p1Th('dayPrem',   'DAY $',      'padding:8px 6px;text-align:right;background:#15243a;color:#7fb0e8;font-size:10px;')}
+      ${p1Th('swingPrem', 'SWING $',    'padding:8px 6px;text-align:right;background:#15243a;color:#d4b070;font-size:10px;')}
+      ${p1Th('longPrem',  'LONG $',     'padding:8px 6px;text-align:right;background:#15243a;color:#7fd0a8;font-size:10px;')}
+      ${p1Th('conviction','CONV.SKEW',  'padding:8px 6px;text-align:right;background:#0d2540;color:#00d4ff;font-weight:700;')}
+      ${p1Th('skewPct',   'SKEW%',      'padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;font-size:10px;')}
       <th style="background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;min-width:90px;">DIRECTION</th>
       <th style="padding:8px 6px;text-align:right;background:#181828;color:#8090b0;font-size:10px;letter-spacing:0.5px;min-width:80px;" title="Nearest key level in setup direction from level_history. ~ = partial history (&lt;150 days)">KEY LVL</th>
       <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #1</th>
@@ -7525,16 +7535,22 @@ function renderFlowPredictor(){
                   ${_p1FlowData === null ? 'Loading Phase 1 data…' : _p1FlowData.length === 0 ? 'No flow data — upload OMEN or SmartMoney CSVs in the Options Flow tab (re-upload existing files to add OI + spread_side columns).' : 'No symbols meet the activity floor (≥' + P1_ACTIVITY_FLOOR + ' contracts) for today.'}
                 </td></tr>` :
                 (()=>{
-                  // Sort: direction group (BULLISH→NEUTRAL→BEARISH), then strength (HIGH→MED→LOW),
-                  // then abs(convictionSkew) desc (highest conviction within each group first).
+                  // Default: direction group (UP→FLAT→DOWN), then strength (HIGH→MED→LOW),
+                  // then abs(convictionSkew) desc. Dollar/skew columns sort purely by that value.
                   const dirRank = { UP: 0, FLAT: 1, DOWN: 2 };
                   const strRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
                   const _sSort = rows => [...rows].sort((a, b) => {
-                    const dr = (dirRank[a.direction] ?? 1) - (dirRank[b.direction] ?? 1);
-                    if (dr !== 0) return dr;
-                    const sr = (strRank[a.confidence] ?? 2) - (strRank[b.confidence] ?? 2);
-                    if (sr !== 0) return sr;
-                    return Math.abs(b.convictionSkew) - Math.abs(a.convictionSkew);
+                    if (_p1SortCol === 'conviction') {
+                      const dr = (dirRank[a.direction] ?? 1) - (dirRank[b.direction] ?? 1);
+                      if (dr !== 0) return dr;
+                      const sr = (strRank[a.confidence] ?? 2) - (strRank[b.confidence] ?? 2);
+                      if (sr !== 0) return sr;
+                      return Math.abs(b.convictionSkew) - Math.abs(a.convictionSkew);
+                    }
+                    // Pure numeric sort — dir/strength grouping is intentionally bypassed
+                    const av = a[_p1SortCol] ?? 0;
+                    const bv = b[_p1SortCol] ?? 0;
+                    return _p1SortDir === -1 ? bv - av : av - bv;
                   });
                   // Direction + strength filters applied before the per-section top-20 page cut
                   const sideOk = r =>
@@ -7569,6 +7585,23 @@ function setFpSideFilter(val) {
 
 function setFpStrFilter(val) {
   _fpStrFilter = val;
+  _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
+  renderFlowPredictor();
+}
+
+function _p1SetSort(col) {
+  if (col === 'conviction') {
+    // Reset to default 3-key conviction sort
+    _p1SortCol = 'conviction';
+    _p1SortDir = -1;
+  } else if (_p1SortCol === col) {
+    // Same column — toggle direction
+    _p1SortDir = _p1SortDir === -1 ? 1 : -1;
+  } else {
+    // New column — start descending (largest on top)
+    _p1SortCol = col;
+    _p1SortDir = -1;
+  }
   _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
   renderFlowPredictor();
 }
