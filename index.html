@@ -10089,7 +10089,8 @@ function _mmPct(val, invert) {
 // vs every other scanner and is a misread risk for return columns.
 function _mmPctReturn(val) {
   if (val == null) return '<span style="color:#b8c4d4;">—</span>';
-  const color = val > 5 ? '#00e5b0' : val > 0 ? '#82c8a0' : val > -5 ? '#ffb020' : '#ff3d5a';
+  // Hue follows sign only — no amber. Magnitude splits brightness within each hue.
+  const color = val > 5 ? '#00e5b0' : val > 0 ? '#82c8a0' : val === 0 ? '#b8c4d4' : val > -5 ? '#e07080' : '#ff3d5a';
   return `<span style="color:${color};">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
 }
 
