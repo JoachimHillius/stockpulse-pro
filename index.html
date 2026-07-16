@@ -6608,6 +6608,7 @@ async function loadP1FlowData(targetDate = null) {
         .from('omen_flow')
         .select('symbol,expiry,strike,cp,spread,spread_side,premium,size,oi,alerts,trading_date,earnings_date_raw,earning_alerts_raw,earnings_context')
         .eq('trading_date', fetchDate)
+        .order('id', { ascending: true })
         .range(todayFrom, todayFrom + PAGE - 1);
       if (todayErr) { console.warn('[P1] today rows error:', todayErr.message); break; }
       if (!chunk || !chunk.length) break;
@@ -7241,11 +7242,30 @@ function getTickerDayBias(symbol,dates){
   const tickerRows=(_predData||[]).filter(r=>r.symbol===symbol);
   const byDate={};
   tickerRows.forEach(r=>{byDate[r.trading_date]=r;});
+  // Fallback: compute from raw flow rows for dates missing in _predData
+  // (covers current trading day before nightly aggregation runs, and chip-selected past dates)
+  const flowByDate={};
+  if(_p1FlowData&&_p1FlowData.length){
+    for(const r of _p1FlowData){
+      if(r.symbol!==symbol||!r.trading_date||!r.premium)continue;
+      if(!flowByDate[r.trading_date])flowByDate[r.trading_date]={c:0,p:0};
+      const prem=p1ParsePremium(r.premium);
+      if(String(r.cp||'').toLowerCase().startsWith('c'))flowByDate[r.trading_date].c+=prem;
+      else flowByDate[r.trading_date].p+=prem;
+    }
+  }
   return dates.map(d=>{
-    const row=byDate[d];
-    if(!row)return{date:d,callP:0,putP:0,bias:'—',sent:null};
-    const c=+row.call_premium||0;
-    const p=+row.put_premium||0;
+    let c=0,p=0,hasData=false;
+    if(byDate[d]){
+      c=+byDate[d].call_premium||0;
+      p=+byDate[d].put_premium||0;
+      hasData=true;
+    }else if(flowByDate[d]){
+      c=flowByDate[d].c;
+      p=flowByDate[d].p;
+      hasData=true;
+    }
+    if(!hasData)return{date:d,callP:0,putP:0,bias:'—',sent:null};
     const total=c+p;
     const sent=total>0?((c-p)/total)*100:null;
     let bias='—';
