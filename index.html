@@ -195,6 +195,8 @@ body.light-mode .mom-dense-row:hover{background:rgba(0,0,0,0.04);}
 .mom-live-toggle.on.flashing{animation:momLiveBlink 1s ease-in-out infinite;}
 @keyframes momLiveBlink{0%,100%{opacity:1;}50%{opacity:0.2;}}
 .pct-cell{font-size:12px;text-align:right;font-weight:600;white-space:nowrap;}
+.p1-sort-th{cursor:pointer;user-select:none;}
+.p1-sort-th:hover{opacity:0.75;}
 .pct-pos{color:var(--green);}
 .pct-neg{color:var(--red);}
 .pct-zero{color:#e0e0e0;font-weight:400;font-size:11px;}
@@ -7376,6 +7378,14 @@ function renderFlowPredictor(){
     return;
   }
 
+  // Diagnostic — remove once TOP #1/TOP #2 confirmed working
+  const _dbgRow = p1.allRows[0];
+  console.log('[P1 DEBUG] first row top_calls:', _dbgRow?.top_calls, '| top_puts:', _dbgRow?.top_puts, '| symbol:', _dbgRow?.symbol);
+  setTimeout(()=>{
+    const tbl = document.querySelector('#page-flowpredict table');
+    if(tbl) console.log('[P1 DEBUG] table scrollWidth:', tbl.scrollWidth, 'clientWidth:', tbl.clientWidth, '| wrap scrollWidth:', tbl.parentElement?.scrollWidth, 'clientWidth:', tbl.parentElement?.clientWidth);
+  }, 200);
+
   const tfStats = predComputeTimeframeStats();
   const tfLabel = _predTimeframe==='D'?'Today':_predTimeframe==='W'?'This Week':_predTimeframe==='M'?'This Month':'This Year';
   const colCount = 13 + displayDates.length * 2;
@@ -7397,11 +7407,12 @@ function renderFlowPredictor(){
   }
 
   // Sortable header helper — shows ▼/▲ on active column, pointer cursor
+  // Hover effect via CSS class (.p1-sort-th:hover) — NOT inline attributes,
+  // which corrupt innerHTML parsing when the value contains =''.
   const p1Th = (col, label, style) => {
     const active = _p1SortCol === col;
     const ind = active ? (_p1SortDir === -1 ? ' ▼' : ' ▲') : '';
-    const hover = active ? '' : "onmouseenter=\"this.style.opacity='0.75'\" onmouseleave=\"this.style.opacity=''\"";
-    return `<th onclick="_p1SetSort('${col}')" ${hover} style="${style}cursor:pointer;user-select:none;${active?'text-decoration:underline dotted;':''}">${label}${ind}</th>`;
+    return `<th onclick="_p1SetSort('${col}')" class="p1-sort-th" style="${style}${active?'text-decoration:underline dotted;':''}">${label}${ind}</th>`;
   };
 
   const p1TableHead = `<thead>
