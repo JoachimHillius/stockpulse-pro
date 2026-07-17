@@ -11136,7 +11136,7 @@ async function initTradeLog() {
     const supa = await getSupabaseAsync();
     if (!supa) { root.innerHTML = '<div style="color:#ff3d5a;padding:20px;">Database unavailable</div>'; return; }
     const { data, error } = await supa.from('trade_sales')
-      .select('*').order('sold_date', { ascending: false }).order('created_at', { ascending: false }).limit(500);
+      .select('*').order('sold_date', { ascending: false }).order('id', { ascending: false }).limit(500);
     if (error) throw error;
     _tlData = data || [];
   } catch (e) {
@@ -11169,14 +11169,14 @@ function renderTradeLog() {
   const actBtnStyle = 'background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;';
   const bodyRows = rows.length ? rows.map(r => `
     <tr style="border-bottom:1px solid rgba(128,144,160,0.06);">
-      <td style="${tdStyle}white-space:nowrap;">${r.sold_date || '—'}</td>
       <td style="${tdStyle}font-weight:700;color:var(--cyan);">${r.symbol || '—'}</td>
       <td style="${tdStyle}max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.security||''}">${r.security || '—'}</td>
       <td style="${tdStyle}text-align:right;">${r.shares_sold ?? '—'}</td>
-      <td style="${tdStyle}text-align:right;">${r.sold_price != null ? '$'+Number(r.sold_price).toFixed(2) : '—'}</td>
       <td style="${tdStyle}text-align:right;">${r.entry_price != null ? '$'+Number(r.entry_price).toFixed(2) : '—'}</td>
+      <td style="${tdStyle}text-align:right;">${r.sold_price != null ? '$'+Number(r.sold_price).toFixed(2) : '—'}</td>
       <td style="${tdStyle}text-align:right;font-weight:700;color:${pctColor(r)};">${fmtPct(r.realized_pnl_pct)}</td>
       <td style="${tdStyle}text-align:right;color:${pctColor(r)};">${fmtDollar(r.realized_pnl_dollar)}</td>
+      <td style="${tdStyle}white-space:nowrap;color:#8090a0;">${r.sold_date || '—'}</td>
       <td style="${tdStyle}font-size:10px;color:#607080;">${r.source || '—'}</td>
       <td style="${tdStyle}min-width:120px;"><input type="text" value="${(r.notes||'').replace(/"/g,'&quot;')}" placeholder="add note…" style="${inputNoteStyle}" onfocus="this.style.background='var(--bg3)'" onblur="_tlSaveNote(${r.id},this.value);this.style.background='transparent'"></td>
       <td style="${tdStyle}text-align:right;white-space:nowrap;">
@@ -11184,7 +11184,7 @@ function renderTradeLog() {
         <button onclick="_tlDeleteRow(${r.id})" title="Delete" style="${actBtnStyle}color:#405060;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#405060'">🗑</button>
       </td>
     </tr>`).join('') :
-    `<tr><td colspan="12" style="padding:30px;text-align:center;color:#5a708a;font-size:12px;">No sales recorded yet.</td></tr>`;
+    `<tr><td colspan="11" style="padding:30px;text-align:center;color:#5a708a;font-size:12px;">No sales recorded yet.</td></tr>`;
 
   root.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
@@ -11210,17 +11210,16 @@ function renderTradeLog() {
       <table style="width:100%;border-collapse:collapse;min-width:720px;">
         <thead>
           <tr>
-            <th style="${thStyle}">Date</th>
             <th style="${thStyle}">Symbol</th>
             <th style="${thStyle}">Security</th>
             <th style="${thStyle}text-align:right;">Shares</th>
-            <th style="${thStyle}text-align:right;">Sold $</th>
             <th style="${thStyle}text-align:right;">Entry $</th>
+            <th style="${thStyle}text-align:right;">Sold $</th>
             <th style="${thStyle}text-align:right;">P&amp;L %</th>
             <th style="${thStyle}text-align:right;">P&amp;L $</th>
+            <th style="${thStyle}">Sold Date</th>
             <th style="${thStyle}">Source</th>
             <th style="${thStyle}">Notes</th>
-            <th style="${thStyle}"></th>
             <th style="${thStyle}"></th>
           </tr>
         </thead>
