@@ -4094,11 +4094,10 @@ async function renderHistory(){
   const supa=await getSupabaseAsync(); if(!supa){body.innerHTML='<div class="empty">Supabase unavailable</div>';return;}
   body.innerHTML='<div class="empty">Loading…</div>';
   try{
-    const [sumR, typeR, feedR, outlookR] = await Promise.all([
+    const [sumR, typeR, feedR] = await Promise.all([
       supa.rpc('pattern_history_summary'),
       supa.rpc('pattern_history_by_type'),
-      supa.rpc('pattern_history_ranked',{p_symbol:window._histFilter||null,p_limit:300}),
-      supa.rpc('current_outlook',{p_symbol:window._histFilter||null,p_limit:60})
+      supa.rpc('current_feed',{p_symbol:window._histFilter||null,p_limit:80})
     ]);
     const s=(sumR.data&&sumR.data[0])||{};
     document.getElementById('h-total').textContent=s.total_predictions??0;
@@ -4149,18 +4148,17 @@ async function renderHistory(){
       }
       const volColor=r.vol_x>=3?'var(--green)':r.vol_x>=2?'var(--cyan)':'var(--text)';
       const momColor=r.mom_5d>0?'var(--green)':'var(--red)';
+      const stateColor = r.is_coiling ? 'var(--cyan)' : (r.outlook && r.outlook.startsWith('Down') ? 'var(--red)' : (r.outlook && r.outlook.startsWith('Up') ? 'var(--green)' : 'var(--text)'));
+      const trackColor = r.track_beat_spy >= 60 ? 'var(--green)' : (r.track_beat_spy < 45 ? 'var(--red)' : 'var(--text)');
       return `<div class="hist-row">
-        <span>${r.detected_date}</span>
+        <span>${r.as_of}</span>
         <span style="font-weight:600;">${r.symbol}</span>
         <span style="font-size:10px;color:var(--cyan);">${r.sector||'—'}</span>
-        <span style="color:${dirColor};text-transform:uppercase;font-size:10px;">${r.direction}</span>
-        <span style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.pattern_type.replace(/_/g,' ')}</span>
-        <span style="font-weight:600;color:${cvColor};">${cv}${lowFlag}</span>
-        <span>$${r.price_at_detection!=null?Number(r.price_at_detection).toFixed(2):'—'}</span>
-        <span>${result}</span>
-        <span style="color:${volColor};font-size:10px;">${r.vol_x!=null?r.vol_x+'x':'—'}</span>
-        <span style="color:${momColor};font-size:10px;">${r.mom_5d>0?'+':''}${r.mom_5d}%</span>
-        <span style="font-size:10px;color:${r.coil_label && r.coil_label.startsWith('Sideways') ? 'var(--cyan)' : 'var(--text)'};">${r.coil_label==='Moving' ? 'Moving' : (r.coil_label||'—')}${r.coil_trigger && r.coil_trigger!=='—' && r.coil_trigger!=='Trending, not a setup' ? ' — '+r.coil_trigger : ''}</span>
+        <span style="font-weight:600;color:${stateColor};font-size:10px;">${r.outlook}</span>
+        <span style="font-size:10px;color:var(--text);">${r.watch}</span>
+        <span>$${r.last_close!=null?Number(r.last_close).toFixed(2):'—'}</span>
+        <span style="color:${trackColor};font-weight:600;">${r.track_beat_spy}%</span>
+        <span style="font-size:10px;color:var(--text);">${r.track_signals} signals</span>
       </div>`;
     }).join('');
   }catch(e){
