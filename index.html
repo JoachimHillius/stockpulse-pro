@@ -326,7 +326,7 @@ table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th
 
 /* HISTORY */
 .hist-row{display:grid;grid-template-columns:80px 70px 60px 60px 60px 60px 1fr;gap:6px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
-.hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
+.hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--bg3);position:sticky;top:0;z-index:5;}
 .win{color:var(--green);}
 .loss{color:var(--red);}
 
@@ -978,7 +978,7 @@ select option{background:var(--bg2);}
   </div>
   <div class="card">
     <div class="card-hd"><span class="card-title">Prediction History</span></div>
-    <div class="flow-row flow-hd hist-hd">
+    <div class="hist-row hist-hd">
       <span>Date</span><span>Symbol</span><span>Direction</span><span>Score</span><span>Entry</span><span>Result</span><span>Notes</span>
     </div>
     <div id="hist-body">
@@ -4116,12 +4116,12 @@ async function renderHistory(){
       const dirColor=r.direction==='bull'?'var(--green)':'var(--red)';
       let result;
       if(!r.is_matured){
-        result=`<span style="color:#889;">pending · day ${r.days_elapsed||0}/21</span>`;
+        result=`<span style="color:#889;">pending · day ${(r.days_elapsed||0)+1}/21</span>`;
       }else{
         const rawGood=r.perf_1m>0, relGood=r.rel_1m>0;
         result=`<span style="color:${rawGood?'var(--green)':'var(--red)'}">${r.perf_1m>0?'+':''}${r.perf_1m}%</span> <span style="color:#667;font-size:9px;">(<span style="color:${relGood?'var(--green)':'var(--red)'}">${r.rel_1m>0?'+':''}${r.rel_1m}%</span> vs SPY)</span>`;
       }
-      return `<div class="flow-row hist-row">
+      return `<div class="hist-row">
         <span>${r.detected_date}</span>
         <span style="font-weight:600;">${r.symbol}</span>
         <span style="color:${dirColor};text-transform:uppercase;font-size:10px;">${r.direction}</span>
