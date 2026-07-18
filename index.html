@@ -4121,14 +4121,6 @@ async function renderHistory(){
     const rows=feedR.data||[];
     if(!rows.length){body.innerHTML='<div class="empty">No matching events</div>';return;}
     body.innerHTML=rows.map(r=>{
-      if(!r.is_matured){
-        result=`<span style="color:var(--cyan);">pending · d${(r.days_elapsed||0)+1}/21</span>`;
-      }else{
-        const rawGood=r.perf_1m>0, relGood=r.rel_1m>0;
-        result=`<span style="color:${rawGood?'var(--green)':'var(--red)'}">${r.perf_1m>0?'+':''}${r.perf_1m}%</span> <span style="color:var(--text);font-size:9px;">(<span style="color:${relGood?'var(--green)':'var(--red)'}">${r.rel_1m>0?'+':''}${r.rel_1m}%</span>)</span>`;
-      }
-      const volColor=r.vol_x>=3?'var(--green)':r.vol_x>=2?'var(--cyan)':'var(--text)';
-      const momColor=r.mom_5d>0?'var(--green)':'var(--red)';
       const stateColor = r.is_coiling ? 'var(--cyan)' : (r.outlook && r.outlook.startsWith('Down') ? 'var(--red)' : (r.outlook && r.outlook.startsWith('Up') ? 'var(--green)' : 'var(--text)'));
       const dirColorC = r.direction==='bull' ? 'var(--green)' : (r.direction==='bear' ? 'var(--red)' : 'var(--text)');
       const trackColor = r.track_beat_spy >= 60 ? 'var(--green)' : (r.track_beat_spy < 45 ? 'var(--red)' : 'var(--text)');
