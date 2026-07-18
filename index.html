@@ -986,6 +986,14 @@ select option{background:var(--bg2);}
     <div style="font-size:10px;color:var(--text);padding:2px 0 8px;line-height:1.5;">
       <b>Conv</b> = setup score 0-100 &nbsp;·&nbsp; <b>Vol</b> = volume vs 20-day avg &nbsp;·&nbsp; <b>Mom</b> = 5-day price move &nbsp;·&nbsp; <b>/yr</b> = times this pattern fired per year &nbsp;·&nbsp; <b>pending</b> = awaiting 21-day result
     </div>
+    <div style="margin:14px 0;padding:14px;background:var(--bg2,#0d1420);border:1px solid var(--border);border-radius:8px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+        <span style="font-size:14px;font-weight:600;color:var(--cyan);">⚡ Sideways Setups</span>
+        <span style="font-size:11px;color:var(--text);">— stocks coiled tight right now; watch the trigger level</span>
+        <button onclick="loadCoils()" style="margin-left:auto;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 10px;cursor:pointer;">Refresh</button>
+      </div>
+      <div id="coil-body" style="font-size:11px;color:var(--text);">Loading setups…</div>
+    </div>
     <div class="hist-row hist-hd">
       <span>Date</span><span>Symbol</span><span>Sector</span><span>Direction</span><span>Score</span><span>Conv</span><span>Entry</span><span>Result</span><span>Vol</span><span>Mom</span><span>Notes</span>
     </div>
@@ -4089,6 +4097,7 @@ function savePrediction(){
 // HISTORY
 // ============================================================
 async function renderHistory(){
+  loadCoils();
   const body=document.getElementById('hist-body');if(!body)return;
   const supa=await getSupabaseAsync(); if(!supa){body.innerHTML='<div class="empty">Supabase unavailable</div>';return;}
   body.innerHTML='<div class="empty">Loading…</div>';
@@ -4186,6 +4195,32 @@ function showHistHelp(){
     <p style="margin:0;">Trade the green patterns, verify each with Vol + Mom, ignore anything "low n". Sorted best-setup first; pending sinks to the bottom.</p>
   </div>`;
   document.body.appendChild(m);
+}
+async function loadCoils(){
+  const el=document.getElementById('coil-body');if(!el)return;
+  el.innerHTML='Loading setups…';
+  try{
+    const supa=await getSupabaseAsync();
+    if(!supa){el.innerHTML='Supabase unavailable';return;}
+    const {data,error}=await supa.rpc('coil_setups',{p_symbol:null,p_limit:25});
+    if(error)throw error;
+    if(!data||!data.length){el.innerHTML='No sideways setups right now';return;}
+    const hdr=`<div style="display:grid;grid-template-columns:70px 110px 80px 130px 1fr;gap:10px;padding:6px 4px;border-bottom:1px solid var(--border);font-weight:600;color:var(--text);">
+      <span>Symbol</span><span>Sector</span><span>Last</span><span>Setup</span><span>Trigger — what to watch</span></div>`;
+    const rows=data.map(r=>{
+      const nearRes=r.setup_type==='near resistance';
+      const nearSup=r.setup_type==='near support';
+      const setupColor=nearRes?'var(--green)':nearSup?'#f5a623':'var(--text)';
+      return `<div style="display:grid;grid-template-columns:70px 110px 80px 130px 1fr;gap:10px;padding:6px 4px;border-bottom:1px solid var(--border);align-items:center;">
+        <span style="font-weight:600;">${r.symbol}</span>
+        <span style="color:var(--cyan);">${r.sector||'—'}</span>
+        <span>$${Number(r.last_close).toFixed(2)}</span>
+        <span style="color:${setupColor};">${r.setup_type}</span>
+        <span style="color:var(--text);">${r.trigger_note}</span>
+      </div>`;
+    }).join('');
+    el.innerHTML=hdr+rows;
+  }catch(e){el.innerHTML='Error loading setups: '+e.message;}
 }
 async function runPatternScan(btn){
   const orig=btn.textContent; btn.textContent='Scanning…'; btn.disabled=true;
