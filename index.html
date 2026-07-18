@@ -986,14 +986,7 @@ select option{background:var(--bg2);}
     <div style="font-size:10px;color:var(--text);padding:2px 0 8px;line-height:1.5;">
       <b>Conv</b> = setup score 0-100 &nbsp;·&nbsp; <b>Vol</b> = volume vs 20-day avg &nbsp;·&nbsp; <b>Mom</b> = 5-day price move &nbsp;·&nbsp; <b>/yr</b> = times this pattern fired per year &nbsp;·&nbsp; <b>pending</b> = awaiting 21-day result
     </div>
-    <div style="margin:14px 0;padding:14px;background:var(--bg2,#0d1420);border:1px solid var(--border);border-radius:8px;">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-        <span style="font-size:14px;font-weight:600;color:var(--cyan);">⚡ Sideways Setups</span>
-        <span style="font-size:11px;color:var(--text);">— stocks coiled tight right now; watch the trigger level</span>
-        <button onclick="loadCoils()" style="margin-left:auto;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 10px;cursor:pointer;">Refresh</button>
-      </div>
-      <div id="coil-body" style="font-size:11px;color:var(--text);">Loading setups…</div>
-    </div>
+
     <div class="hist-row hist-hd">
       <span>Date</span><span>Symbol</span><span>Sector</span><span>Direction</span><span>Score</span><span>Conv</span><span>Entry</span><span>Result</span><span>Vol</span><span>Mom</span><span>Notes</span>
     </div>
@@ -4097,7 +4090,6 @@ function savePrediction(){
 // HISTORY
 // ============================================================
 async function renderHistory(){
-  loadCoils();
   const body=document.getElementById('hist-body');if(!body)return;
   const supa=await getSupabaseAsync(); if(!supa){body.innerHTML='<div class="empty">Supabase unavailable</div>';return;}
   body.innerHTML='<div class="empty">Loading…</div>';
@@ -4153,7 +4145,7 @@ async function renderHistory(){
         <span>${result}</span>
         <span style="color:${volColor};font-size:10px;">${r.vol_x!=null?r.vol_x+'x':'—'}</span>
         <span style="color:${momColor};font-size:10px;">${r.mom_5d>0?'+':''}${r.mom_5d}%</span>
-        <span style="font-size:11px;color:var(--text);">${r.n_for_pattern}/yr</span>
+        <span style="font-size:10px;color:${r.coil_label && r.coil_label.startsWith('Sideways') ? 'var(--cyan)' : 'var(--text)'};">${r.coil_label==='Moving' ? 'Moving' : (r.coil_label||'—')}${r.coil_trigger && r.coil_trigger!=='—' && r.coil_trigger!=='Trending, not a setup' ? ' — '+r.coil_trigger : ''}</span>
       </div>`;
     }).join('');
   }catch(e){
