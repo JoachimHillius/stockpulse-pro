@@ -4138,7 +4138,7 @@ async function renderHistory(){
         <span>${result}</span>
         <span style="color:${volColor};font-size:10px;">${r.vol_x!=null?r.vol_x+'x':'—'}</span>
         <span style="color:${momColor};font-size:10px;">${r.mom_5d>0?'+':''}${r.mom_5d}%</span>
-        <span style="font-size:11px;color:#9aa;">n ${r.n_for_pattern}</span>
+        <span style="font-size:11px;color:var(--text);">n ${r.n_for_pattern}</span>
       </div>`;
     }).join('');
   }catch(e){
