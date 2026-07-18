@@ -325,7 +325,7 @@ table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th
 .ai-box{background:var(--bg3);border-radius:3px;padding:6px 8px;margin-top:6px;border-left:2px solid var(--purple);font-size:10px;color:#e0e0e0;line-height:1.6;}
 
 /* HISTORY */
-.hist-row{display:grid;grid-template-columns:88px 64px 110px 150px 1fr 70px 72px 80px;gap:12px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
+.hist-row{display:grid;grid-template-columns:78px 54px 96px 60px 48px 66px 48px 56px 62px 62px 130px 300px;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;white-space:nowrap;}
 .hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--bg3);position:sticky;top:0;z-index:5;}
 .hist-search-input::placeholder{color:var(--text);opacity:0.9;}
 .win{color:var(--green);}
@@ -988,7 +988,7 @@ select option{background:var(--bg2);}
     </div>
 
     <div class="hist-row hist-hd">
-      <span>Date</span><span>Symbol</span><span>Sector</span><span>Outlook</span><span>What to watch</span><span>Price</span><span>Beat SPY</span><span>Signals</span>
+      <span>Date</span><span>Symbol</span><span>Sector</span><span>Direction</span><span>Conv</span><span>Price</span><span>Vol</span><span>Mom</span><span>Beat SPY</span><span>Signals</span><span>Outlook</span><span>What to watch</span>
     </div>
     <div id="hist-body">
       <div class="empty">No history yet — predictions will appear here after you save them</div>
@@ -4130,16 +4130,24 @@ async function renderHistory(){
       const volColor=r.vol_x>=3?'var(--green)':r.vol_x>=2?'var(--cyan)':'var(--text)';
       const momColor=r.mom_5d>0?'var(--green)':'var(--red)';
       const stateColor = r.is_coiling ? 'var(--cyan)' : (r.outlook && r.outlook.startsWith('Down') ? 'var(--red)' : (r.outlook && r.outlook.startsWith('Up') ? 'var(--green)' : 'var(--text)'));
+      const dirColorC = r.direction==='bull' ? 'var(--green)' : (r.direction==='bear' ? 'var(--red)' : 'var(--text)');
       const trackColor = r.track_beat_spy >= 60 ? 'var(--green)' : (r.track_beat_spy < 45 ? 'var(--red)' : 'var(--text)');
+      const volColor = r.vol_x >= 3 ? 'var(--green)' : (r.vol_x >= 2 ? 'var(--cyan)' : 'var(--text)');
+      const momColor = r.mom_5d > 0 ? 'var(--green)' : 'var(--red)';
+      const cvColor = r.conviction >= 70 ? 'var(--green)' : (r.conviction >= 50 ? 'var(--cyan)' : (r.conviction >= 35 ? '#f5a623' : 'var(--red)'));
       return `<div class="hist-row">
         <span>${r.as_of}</span>
         <span style="font-weight:600;">${r.symbol}</span>
         <span style="font-size:10px;color:var(--cyan);">${r.sector||'—'}</span>
+        <span style="color:${dirColorC};text-transform:uppercase;font-size:10px;">${r.direction}</span>
+        <span style="font-weight:600;color:${cvColor};">${r.conviction}</span>
+        <span>$${r.last_close!=null?Number(r.last_close).toFixed(2):'—'}</span>
+        <span style="color:${volColor};font-size:10px;">${r.vol_x}x</span>
+        <span style="color:${momColor};font-size:10px;">${r.mom_5d>0?'+':''}${r.mom_5d}%</span>
+        <span style="color:${trackColor};font-weight:600;">${r.track_beat_spy}%</span>
+        <span style="font-size:10px;color:var(--text);">${r.track_signals}</span>
         <span style="font-weight:600;color:${stateColor};font-size:10px;">${r.outlook}</span>
         <span style="font-size:10px;color:var(--text);">${r.watch}</span>
-        <span>$${r.last_close!=null?Number(r.last_close).toFixed(2):'—'}</span>
-        <span style="color:${trackColor};font-weight:600;">${r.track_beat_spy}%</span>
-        <span style="font-size:10px;color:var(--text);">${r.track_signals} signals</span>
       </div>`;
     }).join('');
   }catch(e){
