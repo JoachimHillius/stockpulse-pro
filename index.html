@@ -327,6 +327,7 @@ table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th
 /* HISTORY */
 .hist-row{display:grid;grid-template-columns:70px 58px 84px 52px 52px 60px 58px 88px 48px 52px 1fr;gap:5px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
 .hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--bg3);position:sticky;top:0;z-index:5;}
+.hist-search-input::placeholder{color:var(--text);opacity:0.9;}
 .win{color:var(--green);}
 .loss{color:var(--red);}
 
@@ -977,12 +978,12 @@ select option{background:var(--bg2);}
     <div class="stat-box"><div class="stat-lbl">Best Call</div><div class="stat-val" id="h-best" style="color:var(--cyan)">—</div></div>
   </div>
   <div class="card">
-    <div class="card-hd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div class="card-hd" style="display:flex;align-items:center;gap:8px;">
       <span class="card-title">Prediction History</span>
-      <input id="hist-search" type="text" placeholder="Search symbol or sector…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:150px;" />
-      <button onclick="showHistHelp()" title="What do these columns mean?" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;font-weight:600;width:24px;height:24px;cursor:pointer;">?</button>
+      <input id="hist-search" class="hist-search-input" type="text" placeholder="Search symbol or sector…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:180px;" />
+      <button onclick="showHistHelp()" title="What do these columns mean?" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;font-weight:600;width:24px;height:24px;cursor:pointer;flex-shrink:0;">?</button>
     </div>
-    <div style="font-size:10px;color:var(--text);opacity:0.75;padding:2px 0 8px;line-height:1.5;">
+    <div style="font-size:10px;color:var(--text);padding:2px 0 8px;line-height:1.5;">
       <b>Conv</b> = setup score 0-100 &nbsp;·&nbsp; <b>Vol</b> = volume vs 20-day avg &nbsp;·&nbsp; <b>Mom</b> = 5-day price move &nbsp;·&nbsp; <b>/yr</b> = times this pattern fired per year &nbsp;·&nbsp; <b>pending</b> = awaiting 21-day result
     </div>
     <div class="hist-row hist-hd">
@@ -4109,9 +4110,9 @@ async function renderHistory(){
         const good=p.sig_vs_spy>0;
         const badge=p.is_low_sample?'<span style="font-size:8px;opacity:.6;">low n</span>':(p.is_marginal?'<span style="font-size:8px;color:#f5a623;">marginal</span>':'');
         return `<div style="padding:6px 8px;border-radius:3px;background:var(--bg3);border:1px solid var(--border);min-width:120px;">
-          <div style="font-size:9px;color:#9aa;text-transform:uppercase;">${p.pattern_type.replace(/_/g,' ')} ${badge}</div>
+          <div style="font-size:9px;color:var(--text);text-transform:uppercase;">${p.pattern_type.replace(/_/g,' ')} ${badge}</div>
           <div style="font-size:14px;font-weight:600;color:${good?'var(--green)':'var(--red)'}">${p.hit_vs_spy!=null?p.hit_vs_spy+'%':'—'}</div>
-          <div style="font-size:9px;color:#778;">n(360) ${p.n} · ${good?'+':''}${p.sig_vs_spy} vs SPY</div>
+          <div style="font-size:9px;color:var(--text);">n(360) ${p.n} · ${good?'+':''}${p.sig_vs_spy} vs SPY</div>
         </div>`;
       }).join('');
     }
@@ -4130,7 +4131,7 @@ async function renderHistory(){
         const rawGood=r.perf_1m>0, relGood=r.rel_1m>0;
         result=`<span style="color:${rawGood?'var(--green)':'var(--red)'}">${r.perf_1m>0?'+':''}${r.perf_1m}%</span> <span style="color:var(--text);font-size:9px;">(<span style="color:${relGood?'var(--green)':'var(--red)'}">${r.rel_1m>0?'+':''}${r.rel_1m}%</span>)</span>`;
       }
-      const volColor=r.vol_x>=3?'var(--green)':r.vol_x>=2?'var(--cyan)':'#889';
+      const volColor=r.vol_x>=3?'var(--green)':r.vol_x>=2?'var(--cyan)':'var(--text)';
       const momColor=r.mom_5d>0?'var(--green)':'var(--red)';
       return `<div class="hist-row">
         <span>${r.detected_date}</span>
