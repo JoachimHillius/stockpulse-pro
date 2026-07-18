@@ -4082,6 +4082,7 @@ function savePrediction(){
 // ============================================================
 async function renderHistory(){
   const body=document.getElementById('hist-body');if(!body)return;
+  const supa=await getSupabaseAsync(); if(!supa){body.innerHTML='<div class="empty">Supabase unavailable</div>';return;}
   body.innerHTML='<div class="empty">Loading…</div>';
   try{
     const [sumR, typeR, feedR] = await Promise.all([
@@ -4138,6 +4139,7 @@ async function clearHistory(){ window._histFilter=null; await renderHistory(); }
 
 async function runPatternScan(btn){
   const orig=btn.textContent; btn.textContent='Scanning…'; btn.disabled=true;
+  const supa=await getSupabaseAsync(); if(!supa){btn.textContent='No client';setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},2000);return;}
   try{
     const {data,error}=await supa.rpc('run_pattern_scan',{p_source:'manual_ui',p_et_hour:null,p_lookback:5});
     if(error)throw error;
