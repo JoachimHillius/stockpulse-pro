@@ -4120,26 +4120,7 @@ async function renderHistory(){
 
     const rows=feedR.data||[];
     if(!rows.length){body.innerHTML='<div class="empty">No matching events</div>';return;}
-    const outlook=(outlookR&&outlookR.data)||[];
-    let outlookHtml='';
-    if(window._histFilter && outlook.length){
-      outlookHtml=outlook.slice(0,8).map(o=>{
-        const coilColor=o.is_coiling?'var(--cyan)':(o.outlook&&o.outlook.startsWith('Down')?'var(--red)':(o.outlook&&o.outlook.startsWith('Up')?'var(--green)':'var(--text)'));
-        return `<div style="padding:10px 12px;margin-bottom:8px;background:var(--bg2,#0d1420);border:1px solid ${coilColor};border-radius:6px;">
-          <span style="font-size:14px;font-weight:600;">${o.symbol}</span>
-          <span style="font-size:12px;color:var(--text-secondary,#8090a0);margin-left:8px;">$${Number(o.last_close).toFixed(2)} today</span>
-          <span style="font-size:13px;color:${coilColor};margin-left:10px;font-weight:500;">${o.outlook}</span>
-          <div style="font-size:12px;color:var(--text);margin-top:3px;">${o.watch}</div>
-        </div>`;
-      }).join('');
-      outlookHtml=`<div style="margin-bottom:12px;"><div style="font-size:12px;color:var(--cyan);font-weight:600;margin-bottom:6px;">CURRENT OUTLOOK — as of today</div>${outlookHtml}</div>`;
-    }
-    body.innerHTML=outlookHtml+rows.map(r=>{
-      const dirColor=r.direction==='bull'?'var(--green)':'var(--red)';
-      const cv=r.conviction||0;
-      const cvColor=cv>=70?'var(--green)':cv>=50?'var(--cyan)':cv>=35?'#f5a623':'var(--red)';
-      const lowFlag=r.low_sample?' <span style="font-size:8px;opacity:.55;">low n</span>':'';
-      let result;
+    body.innerHTML=rows.map(r=>{
       if(!r.is_matured){
         result=`<span style="color:var(--cyan);">pending · d${(r.days_elapsed||0)+1}/21</span>`;
       }else{
