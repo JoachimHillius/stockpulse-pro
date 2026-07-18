@@ -325,7 +325,7 @@ table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th
 .ai-box{background:var(--bg3);border-radius:3px;padding:6px 8px;margin-top:6px;border-left:2px solid var(--purple);font-size:10px;color:#e0e0e0;line-height:1.6;}
 
 /* HISTORY */
-.hist-row{display:grid;grid-template-columns:70px 58px 84px 52px 52px 60px 58px 88px 48px 52px 1fr;gap:5px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
+.hist-row{display:grid;grid-template-columns:78px 56px 96px 46px 96px 48px 64px 104px 52px 58px 56px;gap:8px;padding:7px 6px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;white-space:nowrap;}
 .hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--bg3);position:sticky;top:0;z-index:5;}
 .hist-search-input::placeholder{color:var(--text);opacity:0.9;}
 .win{color:var(--green);}
@@ -978,7 +978,7 @@ select option{background:var(--bg2);}
     <div class="stat-box"><div class="stat-lbl">Best Call</div><div class="stat-val" id="h-best" style="color:var(--cyan)">—</div></div>
   </div>
   <div class="card">
-    <div class="card-hd" style="display:flex;align-items:center;gap:8px;">
+    <div class="card-hd" style="display:flex;align-items:center;gap:6px;justify-content:flex-start;">
       <span class="card-title">Prediction History</span>
       <input id="hist-search" class="hist-search-input" type="text" placeholder="Search symbol or sector…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:180px;" />
       <button onclick="showHistHelp()" title="What do these columns mean?" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;font-weight:600;width:24px;height:24px;cursor:pointer;flex-shrink:0;">?</button>
@@ -4138,7 +4138,7 @@ async function renderHistory(){
         <span style="font-weight:600;">${r.symbol}</span>
         <span style="font-size:10px;color:var(--cyan);">${r.sector||'—'}</span>
         <span style="color:${dirColor};text-transform:uppercase;font-size:10px;">${r.direction}</span>
-        <span style="font-size:10px;">${r.pattern_type.replace(/_/g,' ')}</span>
+        <span style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.pattern_type.replace(/_/g,' ')}</span>
         <span style="font-weight:600;color:${cvColor};">${cv}${lowFlag}</span>
         <span>$${r.price_at_detection!=null?Number(r.price_at_detection).toFixed(2):'—'}</span>
         <span>${result}</span>
