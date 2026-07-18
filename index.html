@@ -4094,10 +4094,11 @@ async function renderHistory(){
   const supa=await getSupabaseAsync(); if(!supa){body.innerHTML='<div class="empty">Supabase unavailable</div>';return;}
   body.innerHTML='<div class="empty">Loading…</div>';
   try{
-    const [sumR, typeR, feedR] = await Promise.all([
+    const [sumR, typeR, feedR, outlookR] = await Promise.all([
       supa.rpc('pattern_history_summary'),
       supa.rpc('pattern_history_by_type'),
-      supa.rpc('pattern_history_ranked',{p_symbol:window._histFilter||null,p_limit:300})
+      supa.rpc('pattern_history_ranked',{p_symbol:window._histFilter||null,p_limit:300}),
+      supa.rpc('current_outlook',{p_symbol:window._histFilter||null,p_limit:60})
     ]);
     const s=(sumR.data&&sumR.data[0])||{};
     document.getElementById('h-total').textContent=s.total_predictions??0;
