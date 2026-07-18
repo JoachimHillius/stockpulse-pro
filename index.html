@@ -325,7 +325,7 @@ table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th
 .ai-box{background:var(--bg3);border-radius:3px;padding:6px 8px;margin-top:6px;border-left:2px solid var(--purple);font-size:10px;color:#e0e0e0;line-height:1.6;}
 
 /* HISTORY */
-.hist-row{display:grid;grid-template-columns:80px 70px 60px 60px 60px 60px 1fr;gap:6px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
+.hist-row{display:grid;grid-template-columns:74px 62px 58px 58px 66px 62px 96px 52px 56px 1fr;gap:6px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
 .hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--bg3);position:sticky;top:0;z-index:5;}
 .win{color:var(--green);}
 .loss{color:var(--red);}
@@ -977,9 +977,12 @@ select option{background:var(--bg2);}
     <div class="stat-box"><div class="stat-lbl">Best Call</div><div class="stat-val" id="h-best" style="color:var(--cyan)">—</div></div>
   </div>
   <div class="card">
-    <div class="card-hd"><span class="card-title">Prediction History</span></div>
+    <div class="card-hd" style="display:flex;align-items:center;gap:12px;">
+      <span class="card-title">Prediction History</span>
+      <input id="hist-search" type="text" placeholder="Search symbol…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:130px;" />
+    </div>
     <div class="hist-row hist-hd">
-      <span>Date</span><span>Symbol</span><span>Direction</span><span>Score</span><span>Entry</span><span>Result</span><span>Notes</span>
+      <span>Date</span><span>Symbol</span><span>Direction</span><span>Score</span><span>Conv</span><span>Entry</span><span>Result</span><span>Vol</span><span>Mom</span><span>Notes</span>
     </div>
     <div id="hist-body">
       <div class="empty">No history yet — predictions will appear here after you save them</div>
@@ -4088,7 +4091,7 @@ async function renderHistory(){
     const [sumR, typeR, feedR] = await Promise.all([
       supa.rpc('pattern_history_summary'),
       supa.rpc('pattern_history_by_type'),
-      supa.rpc('pattern_history_feed',{p_pattern:window._histFilter||null,p_limit:200})
+      supa.rpc('pattern_history_ranked',{p_symbol:window._histFilter||null,p_limit:300})
     ]);
     const s=(sumR.data&&sumR.data[0])||{};
     document.getElementById('h-total').textContent=s.total_predictions??0;
@@ -4096,13 +4099,12 @@ async function renderHistory(){
     document.getElementById('h-gain').textContent=s.median_gain_winners!=null?(s.median_gain_winners>0?'+':'')+s.median_gain_winners+'%':'—';
     document.getElementById('h-best').textContent=s.best_symbol?`${s.best_symbol} +${s.best_rel}%`:'—';
 
-    // per-pattern scorecard row (injected above the 4 cards, id=pattern-scorecard)
     const pc=document.getElementById('pattern-scorecard');
     if(pc){
       pc.innerHTML=(typeR.data||[]).map(p=>{
         const good=p.sig_vs_spy>0;
-        const badge=p.is_low_sample?'<span style="font-size:8px;opacity:.6;">low n</span>':(p.is_marginal?'<span style="font-size:8px;color:var(--amber,#f5a623);">marginal</span>':'');
-        return `<div style="padding:6px 8px;border-radius:3px;background:var(--panel,#12161c);border:1px solid var(--border);min-width:120px;">
+        const badge=p.is_low_sample?'<span style="font-size:8px;opacity:.6;">low n</span>':(p.is_marginal?'<span style="font-size:8px;color:#f5a623;">marginal</span>':'');
+        return `<div style="padding:6px 8px;border-radius:3px;background:var(--bg3);border:1px solid var(--border);min-width:120px;">
           <div style="font-size:9px;color:#9aa;text-transform:uppercase;">${p.pattern_type.replace(/_/g,' ')} ${badge}</div>
           <div style="font-size:14px;font-weight:600;color:${good?'var(--green)':'var(--red)'}">${p.hit_vs_spy!=null?p.hit_vs_spy+'%':'—'}</div>
           <div style="font-size:9px;color:#778;">n(360) ${p.n} · ${good?'+':''}${p.sig_vs_spy} vs SPY</div>
@@ -4111,23 +4113,31 @@ async function renderHistory(){
     }
 
     const rows=feedR.data||[];
-    if(!rows.length){body.innerHTML='<div class="empty">No pattern events yet</div>';return;}
+    if(!rows.length){body.innerHTML='<div class="empty">No matching events</div>';return;}
     body.innerHTML=rows.map(r=>{
       const dirColor=r.direction==='bull'?'var(--green)':'var(--red)';
+      const cv=r.conviction||0;
+      const cvColor=cv>=70?'var(--green)':cv>=50?'var(--cyan)':cv>=35?'#f5a623':'var(--red)';
+      const lowFlag=r.low_sample?' <span style="font-size:8px;opacity:.55;">low n</span>':'';
       let result;
       if(!r.is_matured){
-        result=`<span style="color:#889;">pending · day ${(r.days_elapsed||0)+1}/21</span>`;
+        result=`<span style="color:#889;">pending · d${(r.days_elapsed||0)+1}/21</span>`;
       }else{
         const rawGood=r.perf_1m>0, relGood=r.rel_1m>0;
-        result=`<span style="color:${rawGood?'var(--green)':'var(--red)'}">${r.perf_1m>0?'+':''}${r.perf_1m}%</span> <span style="color:#667;font-size:9px;">(<span style="color:${relGood?'var(--green)':'var(--red)'}">${r.rel_1m>0?'+':''}${r.rel_1m}%</span> vs SPY)</span>`;
+        result=`<span style="color:${rawGood?'var(--green)':'var(--red)'}">${r.perf_1m>0?'+':''}${r.perf_1m}%</span> <span style="color:#667;font-size:9px;">(<span style="color:${relGood?'var(--green)':'var(--red)'}">${r.rel_1m>0?'+':''}${r.rel_1m}%</span>)</span>`;
       }
+      const volColor=r.vol_x>=3?'var(--green)':r.vol_x>=2?'var(--cyan)':'#889';
+      const momColor=r.mom_5d>0?'var(--green)':'var(--red)';
       return `<div class="hist-row">
         <span>${r.detected_date}</span>
         <span style="font-weight:600;">${r.symbol}</span>
         <span style="color:${dirColor};text-transform:uppercase;font-size:10px;">${r.direction}</span>
         <span style="font-size:10px;">${r.pattern_type.replace(/_/g,' ')}</span>
+        <span style="font-weight:600;color:${cvColor};">${cv}${lowFlag}</span>
         <span>$${r.price_at_detection!=null?Number(r.price_at_detection).toFixed(2):'—'}</span>
         <span>${result}</span>
+        <span style="color:${volColor};font-size:10px;">${r.vol_x!=null?r.vol_x+'x':'—'}</span>
+        <span style="color:${momColor};font-size:10px;">${r.mom_5d>0?'+':''}${r.mom_5d}%</span>
         <span style="font-size:9px;color:#667;">n ${r.n_for_pattern}</span>
       </div>`;
     }).join('');
@@ -4136,7 +4146,12 @@ async function renderHistory(){
   }
 }
 async function clearHistory(){ window._histFilter=null; await renderHistory(); }
-
+let _histSearchTimer=null;
+function histSearch(v){
+  window._histFilter=(v||'').trim().toUpperCase()||null;
+  clearTimeout(_histSearchTimer);
+  _histSearchTimer=setTimeout(()=>renderHistory(),350);
+}
 async function runPatternScan(btn){
   const orig=btn.textContent; btn.textContent='Scanning…'; btn.disabled=true;
   const supa=await getSupabaseAsync(); if(!supa){btn.textContent='No client';setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},2000);return;}
