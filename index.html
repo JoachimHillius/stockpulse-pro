@@ -325,7 +325,7 @@ table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th
 .ai-box{background:var(--bg3);border-radius:3px;padding:6px 8px;margin-top:6px;border-left:2px solid var(--purple);font-size:10px;color:#e0e0e0;line-height:1.6;}
 
 /* HISTORY */
-.hist-row{display:grid;grid-template-columns:74px 62px 58px 58px 66px 62px 96px 52px 56px 1fr;gap:6px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
+.hist-row{display:grid;grid-template-columns:70px 58px 84px 52px 52px 60px 58px 88px 48px 52px 1fr;gap:5px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;}
 .hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--bg3);position:sticky;top:0;z-index:5;}
 .win{color:var(--green);}
 .loss{color:var(--red);}
@@ -979,10 +979,10 @@ select option{background:var(--bg2);}
   <div class="card">
     <div class="card-hd" style="display:flex;align-items:center;gap:12px;">
       <span class="card-title">Prediction History</span>
-      <input id="hist-search" type="text" placeholder="Search symbol…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:130px;" />
+      <input id="hist-search" type="text" placeholder="Search symbol or sector…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:130px;" />
     </div>
     <div class="hist-row hist-hd">
-      <span>Date</span><span>Symbol</span><span>Direction</span><span>Score</span><span>Conv</span><span>Entry</span><span>Result</span><span>Vol</span><span>Mom</span><span>Notes</span>
+      <span>Date</span><span>Symbol</span><span>Sector</span><span>Direction</span><span>Score</span><span>Conv</span><span>Entry</span><span>Result</span><span>Vol</span><span>Mom</span><span>Notes</span>
     </div>
     <div id="hist-body">
       <div class="empty">No history yet — predictions will appear here after you save them</div>
@@ -4131,6 +4131,7 @@ async function renderHistory(){
       return `<div class="hist-row">
         <span>${r.detected_date}</span>
         <span style="font-weight:600;">${r.symbol}</span>
+        <span style="font-size:10px;color:var(--cyan);">${r.sector||'—'}</span>
         <span style="color:${dirColor};text-transform:uppercase;font-size:10px;">${r.direction}</span>
         <span style="font-size:10px;">${r.pattern_type.replace(/_/g,' ')}</span>
         <span style="font-weight:600;color:${cvColor};">${cv}${lowFlag}</span>
