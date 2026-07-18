@@ -325,7 +325,7 @@ table th,.tbl-hdr,.col-hdr,.hist-tbl th,.pred-tbl th,.wl-th,[class*="-table"] th
 .ai-box{background:var(--bg3);border-radius:3px;padding:6px 8px;margin-top:6px;border-left:2px solid var(--purple);font-size:10px;color:#e0e0e0;line-height:1.6;}
 
 /* HISTORY */
-.hist-row{display:grid;grid-template-columns:82px 60px 110px 56px 96px 52px 74px 130px 60px 66px 60px;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;white-space:nowrap;}
+.hist-row{display:grid;grid-template-columns:82px 58px 104px 72px 96px 52px 72px 128px 58px 62px 58px;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;white-space:nowrap;}
 .hist-hd{font-size:12px;color:#c0c8d0;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--bg3);position:sticky;top:0;z-index:5;}
 .hist-search-input::placeholder{color:var(--text);opacity:0.9;}
 .win{color:var(--green);}
@@ -437,7 +437,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('flow',this)">Options Flow</button>
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
-    <button class="nav-btn" onclick="goPage('history',this)">History</button>
+    <button class="nav-btn" onclick="goPage('history',this)">History / Outlook</button>
     <button class="nav-btn" onclick="goPage('tradelog',this)" style="white-space:normal;line-height:1.2;padding:0 10px;font-size:10px;">Trade<br>Log</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
     <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
@@ -4121,7 +4121,21 @@ async function renderHistory(){
 
     const rows=feedR.data||[];
     if(!rows.length){body.innerHTML='<div class="empty">No matching events</div>';return;}
-    body.innerHTML=rows.map(r=>{
+    const outlook=(outlookR&&outlookR.data)||[];
+    let outlookHtml='';
+    if(window._histFilter && outlook.length){
+      outlookHtml=outlook.slice(0,8).map(o=>{
+        const coilColor=o.is_coiling?'var(--cyan)':(o.outlook&&o.outlook.startsWith('Down')?'var(--red)':(o.outlook&&o.outlook.startsWith('Up')?'var(--green)':'var(--text)'));
+        return `<div style="padding:10px 12px;margin-bottom:8px;background:var(--bg2,#0d1420);border:1px solid ${coilColor};border-radius:6px;">
+          <span style="font-size:14px;font-weight:600;">${o.symbol}</span>
+          <span style="font-size:12px;color:var(--text-secondary,#8090a0);margin-left:8px;">$${Number(o.last_close).toFixed(2)} today</span>
+          <span style="font-size:13px;color:${coilColor};margin-left:10px;font-weight:500;">${o.outlook}</span>
+          <div style="font-size:12px;color:var(--text);margin-top:3px;">${o.watch}</div>
+        </div>`;
+      }).join('');
+      outlookHtml=`<div style="margin-bottom:12px;"><div style="font-size:12px;color:var(--cyan);font-weight:600;margin-bottom:6px;">CURRENT OUTLOOK — as of today</div>${outlookHtml}</div>`;
+    }
+    body.innerHTML=outlookHtml+rows.map(r=>{
       const dirColor=r.direction==='bull'?'var(--green)':'var(--red)';
       const cv=r.conviction||0;
       const cvColor=cv>=70?'var(--green)':cv>=50?'var(--cyan)':cv>=35?'#f5a623':'var(--red)';
