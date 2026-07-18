@@ -977,9 +977,13 @@ select option{background:var(--bg2);}
     <div class="stat-box"><div class="stat-lbl">Best Call</div><div class="stat-val" id="h-best" style="color:var(--cyan)">—</div></div>
   </div>
   <div class="card">
-    <div class="card-hd" style="display:flex;align-items:center;gap:12px;">
+    <div class="card-hd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span class="card-title">Prediction History</span>
-      <input id="hist-search" type="text" placeholder="Search symbol or sector…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:130px;" />
+      <input id="hist-search" type="text" placeholder="Search symbol or sector…" oninput="histSearch(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:4px 8px;width:150px;" />
+      <button onclick="showHistHelp()" title="What do these columns mean?" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;font-weight:600;width:24px;height:24px;cursor:pointer;">?</button>
+    </div>
+    <div style="font-size:10px;color:var(--text);opacity:0.75;padding:2px 0 8px;line-height:1.5;">
+      <b>Conv</b> = setup score 0-100 &nbsp;·&nbsp; <b>Vol</b> = volume vs 20-day avg &nbsp;·&nbsp; <b>Mom</b> = 5-day price move &nbsp;·&nbsp; <b>/yr</b> = times this pattern fired per year &nbsp;·&nbsp; <b>pending</b> = awaiting 21-day result
     </div>
     <div class="hist-row hist-hd">
       <span>Date</span><span>Symbol</span><span>Sector</span><span>Direction</span><span>Score</span><span>Conv</span><span>Entry</span><span>Result</span><span>Vol</span><span>Mom</span><span>Notes</span>
@@ -4121,10 +4125,10 @@ async function renderHistory(){
       const lowFlag=r.low_sample?' <span style="font-size:8px;opacity:.55;">low n</span>':'';
       let result;
       if(!r.is_matured){
-        result=`<span style="color:#889;">pending · d${(r.days_elapsed||0)+1}/21</span>`;
+        result=`<span style="color:var(--cyan);">pending · d${(r.days_elapsed||0)+1}/21</span>`;
       }else{
         const rawGood=r.perf_1m>0, relGood=r.rel_1m>0;
-        result=`<span style="color:${rawGood?'var(--green)':'var(--red)'}">${r.perf_1m>0?'+':''}${r.perf_1m}%</span> <span style="color:#667;font-size:9px;">(<span style="color:${relGood?'var(--green)':'var(--red)'}">${r.rel_1m>0?'+':''}${r.rel_1m}%</span>)</span>`;
+        result=`<span style="color:${rawGood?'var(--green)':'var(--red)'}">${r.perf_1m>0?'+':''}${r.perf_1m}%</span> <span style="color:var(--text);font-size:9px;">(<span style="color:${relGood?'var(--green)':'var(--red)'}">${r.rel_1m>0?'+':''}${r.rel_1m}%</span>)</span>`;
       }
       const volColor=r.vol_x>=3?'var(--green)':r.vol_x>=2?'var(--cyan)':'#889';
       const momColor=r.mom_5d>0?'var(--green)':'var(--red)';
@@ -4139,7 +4143,7 @@ async function renderHistory(){
         <span>${result}</span>
         <span style="color:${volColor};font-size:10px;">${r.vol_x!=null?r.vol_x+'x':'—'}</span>
         <span style="color:${momColor};font-size:10px;">${r.mom_5d>0?'+':''}${r.mom_5d}%</span>
-        <span style="font-size:11px;color:var(--text);">n ${r.n_for_pattern}</span>
+        <span style="font-size:11px;color:var(--text);">${r.n_for_pattern}/yr</span>
       </div>`;
     }).join('');
   }catch(e){
@@ -4152,6 +4156,35 @@ function histSearch(v){
   window._histFilter=(v||'').trim().toUpperCase()||null;
   clearTimeout(_histSearchTimer);
   _histSearchTimer=setTimeout(()=>renderHistory(),350);
+}
+function showHistHelp(){
+  let m=document.getElementById('hist-help-modal');
+  if(m){m.remove();return;}
+  m=document.createElement('div');
+  m.id='hist-help-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  m.onclick=function(e){if(e.target===m)m.remove();};
+  m.innerHTML=`<div style="background:var(--bg2,#0d1420);border:1px solid var(--border);border-radius:8px;max-width:520px;width:90%;max-height:80vh;overflow:auto;padding:20px 24px;color:var(--text);font-size:13px;line-height:1.6;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <span style="font-size:16px;font-weight:600;">How to read this page</span>
+      <button onclick="document.getElementById('hist-help-modal').remove()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;">×</button>
+    </div>
+    <p style="margin:0 0 12px;">This page grades every pattern signal. It records each time a pattern fires, waits ~21 trading days, then measures what happened — so you can see which patterns actually work.</p>
+    <div style="font-weight:600;margin:12px 0 6px;color:var(--cyan);">The scorecard row (top)</div>
+    <p style="margin:0 0 6px;">Each tile is one pattern's track record over 360 days. The big % is its hit-rate vs SPY. Green = beats the market, red = worse. <b>marginal</b> = barely better than a coin flip. <b>low n</b> = too few samples to trust yet.</p>
+    <div style="font-weight:600;margin:12px 0 6px;color:var(--cyan);">The feed columns</div>
+    <ul style="margin:0 0 6px;padding-left:18px;">
+      <li><b>Conv</b> — setup score 0-100 (pattern edge + volume + momentum). High = strong setup, NOT a guarantee.</li>
+      <li><b>Entry</b> — price when the signal fired.</li>
+      <li><b>Result</b> — actual return + (vs SPY). "pending" means too new to grade.</li>
+      <li><b>Vol</b> — volume vs 20-day average. 3x+ = real conviction.</li>
+      <li><b>Mom</b> — 5-day price move going in.</li>
+      <li><b>/yr</b> — how many times this pattern fires per year. Higher = more proven.</li>
+    </ul>
+    <div style="font-weight:600;margin:12px 0 6px;color:var(--cyan);">The one rule</div>
+    <p style="margin:0;">Trade the green patterns, verify each with Vol + Mom, ignore anything "low n". Sorted best-setup first; pending sinks to the bottom.</p>
+  </div>`;
+  document.body.appendChild(m);
 }
 async function runPatternScan(btn){
   const orig=btn.textContent; btn.textContent='Scanning…'; btn.disabled=true;
