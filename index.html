@@ -4217,21 +4217,19 @@ async function runPatternScan(btn){
     if(uErr)throw uErr;
     const symbols=(universe||[]).map(r=>r.symbol);
     if(symbols.length){
-      const {error:updErr}=await supa.from('price_sync_status').update({last_status:'pending'}).in('symbol',symbols);
-      if(updErr)throw updErr;
+      const {error:syncErr}=await supa.functions.invoke('sync-price-history',{body:{tickers:symbols,force_refresh:true,max_batch:50}});
+      if(syncErr)throw syncErr;
     }
-    await supa.rpc('trigger_price_sync_batch');
 
     const today=new Date().toISOString().slice(0,10);
     let updatedCount=0;
     for(let poll=0;poll<20 && symbols.length;poll++){
-      await sleep(3000);
       const {count,error:cErr}=await supa.from('price_sync_status').select('symbol',{count:'exact',head:true}).in('symbol',symbols).eq('latest_date',today);
       if(cErr)throw cErr;
       updatedCount=count||0;
       if(updatedCount>=symbols.length)break;
       btn.textContent=`${updatedCount}/${symbols.length} updated…`;
-      await supa.rpc('trigger_price_sync_batch');
+      await sleep(3000);
     }
     btn.textContent=(symbols.length && updatedCount<symbols.length)
       ? `Refreshed ${updatedCount}/${symbols.length}, scanning available symbols`
