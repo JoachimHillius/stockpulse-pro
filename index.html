@@ -4209,9 +4209,34 @@ async function loadCoils(){
   }catch(e){el.innerHTML='Error loading setups: '+e.message;}
 }
 async function runPatternScan(btn){
-  const orig=btn.textContent; btn.textContent='Scanning…'; btn.disabled=true;
+  const orig=btn.textContent; btn.disabled=true;
   const supa=await getSupabaseAsync(); if(!supa){btn.textContent='No client';setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},2000);return;}
   try{
+    btn.textContent='Refreshing live prices…';
+    const {data:universe,error:uErr}=await supa.rpc('get_pattern_universe',{day_window:5});
+    if(uErr)throw uErr;
+    const symbols=(universe||[]).map(r=>r.symbol);
+    if(symbols.length){
+      const {error:updErr}=await supa.from('price_sync_status').update({last_status:'pending'}).in('symbol',symbols);
+      if(updErr)throw updErr;
+    }
+    await supa.rpc('trigger_price_sync_batch');
+
+    const today=new Date().toISOString().slice(0,10);
+    let updatedCount=0;
+    for(let poll=0;poll<20 && symbols.length;poll++){
+      await sleep(3000);
+      const {count,error:cErr}=await supa.from('price_sync_status').select('symbol',{count:'exact',head:true}).in('symbol',symbols).eq('latest_date',today);
+      if(cErr)throw cErr;
+      updatedCount=count||0;
+      if(updatedCount>=symbols.length)break;
+      btn.textContent=`${updatedCount}/${symbols.length} updated…`;
+      await supa.rpc('trigger_price_sync_batch');
+    }
+    btn.textContent=(symbols.length && updatedCount<symbols.length)
+      ? `Refreshed ${updatedCount}/${symbols.length}, scanning available symbols`
+      : 'Scanning…';
+
     const {data,error}=await supa.rpc('run_pattern_scan',{p_source:'manual_ui',p_et_hour:null,p_lookback:5});
     if(error)throw error;
     btn.textContent=(data||'done').slice(0,24);
