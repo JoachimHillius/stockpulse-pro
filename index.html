@@ -4215,9 +4215,10 @@ async function runPatternScan(btn){
     btn.textContent='Refreshing live prices…';
     const {data:universe,error:uErr}=await supa.rpc('get_pattern_universe',{day_window:5});
     if(uErr)throw uErr;
-    const symbols=(universe||[]).map(r=>r.symbol);
-    if(symbols.length){
-      const {error:syncErr}=await supa.functions.invoke('sync-price-history',{body:{tickers:symbols,force_refresh:true,max_batch:50}});
+    const tickers=(universe||[]).map(r=>r.symbol);
+    const symbols=tickers;
+    if(tickers.length){
+      const {error:syncErr}=await supa.functions.invoke('sync-price-history',{body:{tickers,live:true,max_batch:60}});
       if(syncErr)throw syncErr;
     }
 
