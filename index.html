@@ -4218,23 +4218,12 @@ async function runPatternScan(btn){
     const tickers=(universe||[]).map(r=>r.symbol);
     const symbols=tickers;
     if(tickers.length){
-      const {error:syncErr}=await supa.functions.invoke('sync-price-history',{body:{tickers,live:true,max_batch:60}});
+      const {data:syncData,error:syncErr}=await supa.functions.invoke('sync-price-history',{body:{tickers,live:true,max_batch:60}});
       if(syncErr)throw syncErr;
+      const done=syncData?.succeeded??0;
+      const total=tickers.length;
+      btn.textContent=`${done}/${total} updated`;
     }
-
-    const today=new Date().toISOString().slice(0,10);
-    let updatedCount=0;
-    for(let poll=0;poll<20 && symbols.length;poll++){
-      const {count,error:cErr}=await supa.from('price_sync_status').select('symbol',{count:'exact',head:true}).in('symbol',symbols).eq('latest_date',today);
-      if(cErr)throw cErr;
-      updatedCount=count||0;
-      if(updatedCount>=symbols.length)break;
-      btn.textContent=`${updatedCount}/${symbols.length} updated…`;
-      await sleep(3000);
-    }
-    btn.textContent=(symbols.length && updatedCount<symbols.length)
-      ? `Refreshed ${updatedCount}/${symbols.length}, scanning available symbols`
-      : 'Scanning…';
 
     const {data,error}=await supa.rpc('run_pattern_scan',{p_source:'manual_ui',p_et_hour:null,p_lookback:5});
     if(error)throw error;
