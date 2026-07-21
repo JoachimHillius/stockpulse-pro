@@ -4226,9 +4226,13 @@ async function runPatternScan(btn){
     }
 
     const {data,error}=await supa.rpc('run_pattern_scan',{p_source:'manual_ui',p_et_hour:null,p_lookback:5});
+    console.log('[scan] result:', data, 'error:', error);
     if(error)throw error;
     btn.textContent=(data||'done').slice(0,24);
-    await renderHistory();
+    const hb=document.getElementById('hist-body');
+    console.log('[scan] hist-body present?', !!hb);
+    try{ await renderHistory(); }
+    catch(e){ console.error('[scan] renderHistory threw:', e); }
     setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},2500);
   }catch(e){
     btn.textContent='Error'; setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},2500);
