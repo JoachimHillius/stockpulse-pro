@@ -2952,6 +2952,30 @@ function quickPatterns(sym,q){
   return p;
 }
 function closeTickerPopup(){document.getElementById('ticker-modal').classList.remove('open');}
+async function fetchAndRenderTrend(sym){
+  const el=document.getElementById('trend-'+sym);
+  if(!el)return;
+  try{
+    const supa=await getSupabaseAsync(); if(!supa)throw new Error('no client');
+    const [{data:d5,error:e5},{data:d10,error:e10}]=await Promise.all([
+      supa.rpc('get_symbol_trend',{p_symbol:sym,p_lookback:5}),
+      supa.rpc('get_symbol_trend',{p_symbol:sym,p_lookback:10})
+    ]);
+    if(e5||e10)throw e5||e10;
+    if(!d5||!d10){el.innerHTML='';return;}
+    const n5=d5.net_pct??0,n10=d10.net_pct??0;
+    const c5=n5>0?'var(--green)':'var(--red)';
+    const c10=n10>0?'var(--green)':'var(--red)';
+    el.innerHTML=`<div style="font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:6px;letter-spacing:0.5px;">PRICE TREND</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
+        <div>5d: ↓${d5.down_days} ↑${d5.up_days} <span style="color:${c5};font-weight:600;">${n5>0?'+':''}${n5.toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${d5.trend||'—'})</span></div>
+        <div>10d: ↓${d10.down_days} ↑${d10.up_days} <span style="color:${c10};font-weight:600;">${n10>0?'+':''}${n10.toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${d10.trend||'—'})</span></div>
+      </div>`;
+  }catch(e){
+    if(el)el.innerHTML='<span style="color:#506070;font-size:10px;">Trend unavailable</span>';
+  }
+}
+
 function showTickerDetail(sym){
   const modal=document.getElementById('ticker-modal');
   const content=document.getElementById('ticker-popup-content');
@@ -2959,6 +2983,7 @@ function showTickerDetail(sym){
   modal.classList.add('open');
   const {html,convScore}=buildTickerPopup(sym);
   content.innerHTML=html;
+  fetchAndRenderTrend(sym);
   // Draw speedometer after DOM is set
   setTimeout(()=>{
     const canvas=document.getElementById('spd-'+sym);
@@ -3072,28 +3097,8 @@ function buildTickerPopup(sym){
       <span style="color:${trendClr};margin-left:auto;">Conviction: ${trendIcon}</span>
     </div>`;
   }
-  // Price trend from _p1TrendData (loaded alongside P1 table)
-  let trendHtml='';
-  const td=_p1TrendData&&_p1TrendData[sym];
-  if(td){
-    const n5=td.net5??0,n10=td.net10??0;
-    const c5=n5>0?'var(--green)':'var(--red)';
-    const c10=n10>0?'var(--green)':'var(--red)';
-    const lv=td.level||'mid';
-    const lvColor=lv==='stretched-low'||lv==='near-low'?'var(--cyan)':lv==='stretched-high'||lv==='near-high'?'#f5a623':'#8090a0';
-    const rp=td.range_pos!=null?Math.round(td.range_pos)+'%':'—';
-    const z=td.z20!=null?td.z20.toFixed(2):'—';
-    trendHtml=`<div style="background:#0d1a2a;border-radius:6px;padding:10px 12px;margin:8px 0;">
-      <div style="font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:6px;letter-spacing:0.5px;">PRICE TREND</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
-        <div>5d: ↓${td.down5} ↑${td.up5} <span style="color:${c5};font-weight:600;">${n5>0?'+':''}${n5}%</span> <span style="color:#8090a0;font-size:9px;">(${td.trend5||'—'})</span></div>
-        <div>10d: ↓${td.down10} ↑${td.up10} <span style="color:${c10};font-weight:600;">${n10>0?'+':''}${n10}%</span> <span style="color:#8090a0;font-size:9px;">(${td.trend10||'—'})</span></div>
-        <div>Z-score 20d: <span style="color:${Math.abs(td.z20||0)>=2?c5:'var(--text)'};">${z}</span></div>
-        <div>Range pos: <span style="color:var(--text);">${rp}</span></div>
-      </div>
-      <div style="margin-top:6px;font-size:10px;font-weight:600;color:${lvColor};">${lv.replace(/-/g,' ').toUpperCase()}</div>
-    </div>`;
-  }
+  // Price trend — populated async after DOM insert via fetchAndRenderTrend(sym)
+  const trendHtml=`<div id="trend-${sym}" style="background:#0d1a2a;border-radius:6px;padding:10px 12px;margin:8px 0;font-size:11px;color:#8090a0;">Loading trend…</div>`;
   // Bull/bear conviction from current flowData
   const myFlows=flowData.filter(r=>r.symbol===sym);
   let convScore=50;
@@ -4969,6 +4974,7 @@ function showHoverPopup(sym, triggerEl){
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
   content.innerHTML = html + buildLevelPanel(sym);
+  fetchAndRenderTrend(sym);
 
   // FIXED lower-right corner — never tracks the hovered row
   const popW = 480;
