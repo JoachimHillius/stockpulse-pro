@@ -2962,14 +2962,16 @@ async function fetchAndRenderTrend(sym){
       supa.rpc('get_symbol_trend',{p_symbol:sym,p_lookback:10})
     ]);
     if(e5||e10)throw e5||e10;
-    if(!d5||!d10){el.innerHTML='';return;}
-    const n5=d5.net_pct??0,n10=d10.net_pct??0;
+    const r5=Array.isArray(d5)?d5[0]:d5;
+    const r10=Array.isArray(d10)?d10[0]:d10;
+    if(!r5||!r10){el.innerHTML='';return;}
+    const n5=r5.net_pct??0,n10=r10.net_pct??0;
     const c5=n5>0?'var(--green)':'var(--red)';
     const c10=n10>0?'var(--green)':'var(--red)';
     el.innerHTML=`<div style="font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:6px;letter-spacing:0.5px;">PRICE TREND</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
-        <div>5d: ↓${d5.down_days} ↑${d5.up_days} <span style="color:${c5};font-weight:600;">${n5>0?'+':''}${n5.toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${d5.trend||'—'})</span></div>
-        <div>10d: ↓${d10.down_days} ↑${d10.up_days} <span style="color:${c10};font-weight:600;">${n10>0?'+':''}${n10.toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${d10.trend||'—'})</span></div>
+        <div>5d: ↓${r5.down_days} ↑${r5.up_days} <span style="color:${c5};font-weight:600;">${n5>0?'+':''}${Number(n5).toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${r5.trend||'—'})</span></div>
+        <div>10d: ↓${r10.down_days} ↑${r10.up_days} <span style="color:${c10};font-weight:600;">${n10>0?'+':''}${Number(n10).toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${r10.trend||'—'})</span></div>
       </div>`;
   }catch(e){
     if(el)el.innerHTML='<span style="color:#506070;font-size:10px;">Trend unavailable</span>';
