@@ -3072,6 +3072,28 @@ function buildTickerPopup(sym){
       <span style="color:${trendClr};margin-left:auto;">Conviction: ${trendIcon}</span>
     </div>`;
   }
+  // Price trend from _p1TrendData (loaded alongside P1 table)
+  let trendHtml='';
+  const td=_p1TrendData&&_p1TrendData[sym];
+  if(td){
+    const n5=td.net5??0,n10=td.net10??0;
+    const c5=n5>0?'var(--green)':'var(--red)';
+    const c10=n10>0?'var(--green)':'var(--red)';
+    const lv=td.level||'mid';
+    const lvColor=lv==='stretched-low'||lv==='near-low'?'var(--cyan)':lv==='stretched-high'||lv==='near-high'?'#f5a623':'#8090a0';
+    const rp=td.range_pos!=null?Math.round(td.range_pos*100)+'%':'—';
+    const z=td.z20!=null?td.z20.toFixed(2):'—';
+    trendHtml=`<div style="background:#0d1a2a;border-radius:6px;padding:10px 12px;margin:8px 0;">
+      <div style="font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:6px;letter-spacing:0.5px;">PRICE TREND</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
+        <div>5d: ↓${td.down5} ↑${td.up5} <span style="color:${c5};font-weight:600;">${n5>0?'+':''}${n5}%</span> <span style="color:#8090a0;font-size:9px;">(${td.trend5||'—'})</span></div>
+        <div>10d: ↓${td.down10} ↑${td.up10} <span style="color:${c10};font-weight:600;">${n10>0?'+':''}${n10}%</span> <span style="color:#8090a0;font-size:9px;">(${td.trend10||'—'})</span></div>
+        <div>Z-score 20d: <span style="color:${Math.abs(td.z20||0)>=2?c5:'var(--text)'};">${z}</span></div>
+        <div>Range pos: <span style="color:var(--text);">${rp}</span></div>
+      </div>
+      <div style="margin-top:6px;font-size:10px;font-weight:600;color:${lvColor};">${lv.replace(/-/g,' ').toUpperCase()}</div>
+    </div>`;
+  }
   // Bull/bear conviction from current flowData
   const myFlows=flowData.filter(r=>r.symbol===sym);
   let convScore=50;
@@ -3136,6 +3158,7 @@ function buildTickerPopup(sym){
     </div>
     <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin-bottom:8px;">5-Day Flow History</div>
     ${flowBar}
+    ${trendHtml}
     <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:12px 0 6px;">Conviction Gauge</div>
     ${convHtml}
     <div style="font-size:9px;letter-spacing:1.5px;color:#e0e0e0;text-transform:uppercase;margin:14px 0 8px;">Options Chain ${finnhubKey?'':'<span style="color:#e0e0e0">(add Finnhub key)</span>'}</div>
@@ -6792,6 +6815,7 @@ async function loadP1FlowData(targetDate = null) {
     await loadTopContracts(fetchDate);
     const p1Syms = [...new Set(_p1FlowData.map(r => r.symbol).filter(Boolean))];
     await loadP1Prices(p1Syms, _p1RecentDates);
+    await loadP1Trends(p1Syms);
   } catch (e) {
     console.warn('[P1] loadP1FlowData failed:', e);
     _p1FlowData = [];
@@ -6850,6 +6874,18 @@ async function setP1Date(date) {
   await loadP1FlowData(date); // re-fetch trade rows + OI history for the clicked date
   renderFlowPredictor();      // render with the new date's data
   loadP3LevelData();          // refresh levels for the newly selected date (fire-and-forget)
+}
+
+async function loadP1Trends(symbols) {
+  if (!symbols || !symbols.length) { _p1TrendData = {}; return; }
+  try {
+    const supa = await getSupabaseAsync(); if (!supa) return;
+    const { data, error } = await supa.rpc('get_trends_for_symbols', { p_symbols: symbols });
+    if (error) { console.warn('[P1Trends]', error); return; }
+    const map = {};
+    (data || []).forEach(row => { map[row.symbol] = row; });
+    _p1TrendData = map;
+  } catch(e) { console.warn('[P1Trends] failed:', e); }
 }
 
 function renderP1Row(r, rank, visibleDates) {
@@ -6927,6 +6963,7 @@ function renderP1Row(r, rank, visibleDates) {
       <span style="display:inline-block;background:${confColor2}33;color:${confColor2};padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;margin-left:3px;">${r.confidence}</span>
     </td>
     ${keyLvlCell}
+    ${(()=>{const t=_p1TrendData[r.symbol];if(!t)return'<td style="padding:6px;background:#0d1a2a;color:#506070;font-size:10px;">—</td>';const n5=t.net5??0,n10=t.net10??0;const c5=n5>0?'var(--green)':'var(--red)';const c10=n10>0?'var(--green)':'var(--red)';const lv=t.level||'';let lvTag='';if(lv==='stretched-low'||lv==='near-low')lvTag=`<div style="font-size:8px;color:var(--cyan);margin-top:2px;">⤓ watch bounce</div>`;else if(lv==='stretched-high'||lv==='near-high')lvTag=`<div style="font-size:8px;color:#f5a623;margin-top:2px;">⤒ watch pullback</div>`;return`<td style="padding:6px;background:#0d1a2a;font-size:10px;white-space:nowrap;"><div>5d: ↓${t.down5} ↑${t.up5} <span style="color:${c5}">${n5>0?'+':''}${n5}%</span></div><div>10d: ↓${t.down10} ↑${t.up10} <span style="color:${c10}">${n10>0?'+':''}${n10}%</span></div>${lvTag}</td>`;})()}
     ${renderTopContractCell(r.symbol,dir,0,r)}
     ${renderTopContractCell(r.symbol,dir,1,r)}
     ${priceCols}
@@ -6946,6 +6983,7 @@ let _fpStrFilter  = 'all'; // 'all' | 'HIGH' | 'MEDIUM' | 'LOW'
 let _p1SortCol    = 'cleanCall';  // 'cleanCall' | 'conviction' | 'callPrem' | 'putPrem' | 'dayPrem' | 'swingPrem' | 'longPrem' | 'skewPct'
 let _p1SortDir    = -1;           // -1 = descending (largest on top), +1 = ascending
 let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
+let _p1TrendData = {};           // symbol → trend row from get_trends_for_symbols
 let _predLastDates = [];
 let _predLabelMode='both';
 let _predSearchTicker=null;
@@ -7663,6 +7701,7 @@ function renderFlowPredictor(){
       ${p1Th('skewPct',   'SKEW%',      'padding:8px 6px;text-align:right;background:#0d2540;color:#a0c4e8;font-size:10px;')}
       <th style="background:#0a3020;color:#8fe0b8;padding:8px 6px;text-align:center;min-width:90px;">DIRECTION</th>
       <th style="padding:8px 6px;text-align:right;background:#181828;color:#8090b0;font-size:10px;letter-spacing:0.5px;min-width:80px;" title="Nearest key level in setup direction from level_history. ~ = partial history (&lt;150 days)">KEY LVL</th>
+      <th style="padding:8px 6px;text-align:left;background:#0d1a2a;color:#00d4ff;font-size:10px;letter-spacing:0.5px;min-width:130px;" title="5-day and 10-day price trend from daily closes">TREND</th>
       <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #1</th>
       <th style="padding:8px 6px;text-align:center;background:#15243a;color:#7fb0e8;font-size:10px;letter-spacing:0.5px;min-width:90px;">TOP #2</th>
       ${displayDates.map((d,i)=>{
@@ -7678,6 +7717,7 @@ function renderFlowPredictor(){
       <th colspan="2" style="background:#0d2540;font-size:9px;color:#6080a0;text-align:center;padding:2px 4px;">ask-weighted · primary rank</th>
       <th style="background:#0a3020;"></th>
       <th style="background:#181828;"></th>
+      <th style="background:#0d1a2a;"></th>
       <th colspan="2" style="background:#15243a;"></th>
       ${displayDates.map((d,i)=>`<th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Open</th><th style="padding:4px;background:${i%2===0?'#181828':'#222236'};color:#7080a0;">Close</th>`).join('')}
     </tr>
