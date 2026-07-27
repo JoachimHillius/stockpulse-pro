@@ -6885,6 +6885,7 @@ async function loadP1Trends(symbols) {
     const map = {};
     (data || []).forEach(row => { map[row.symbol] = row; });
     _p1TrendData = map;
+    renderFlowPredictor();
   } catch(e) { console.warn('[P1Trends] failed:', e); }
 }
 
