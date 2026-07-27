@@ -6885,6 +6885,7 @@ async function loadP1Trends(symbols) {
     const map = {};
     (data || []).forEach(row => { map[row.symbol] = row; });
     _p1TrendData = map;
+    console.log('[trends] keys:', Object.keys(_p1TrendData).length, 'has TSLA?', !!_p1TrendData['TSLA'], 'has MRNA?', !!_p1TrendData['MRNA'], 'TSLA row:', _p1TrendData['TSLA']);
     renderFlowPredictor();
   } catch(e) { console.warn('[P1Trends] failed:', e); }
 }
@@ -6964,7 +6965,7 @@ function renderP1Row(r, rank, visibleDates) {
       <span style="display:inline-block;background:${confColor2}33;color:${confColor2};padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;margin-left:3px;">${r.confidence}</span>
     </td>
     ${keyLvlCell}
-    ${(()=>{const t=_p1TrendData[r.symbol];if(!t)return'<td style="padding:6px;background:#0d1a2a;color:#506070;font-size:10px;">—</td>';const n5=t.net5??0,n10=t.net10??0;const c5=n5>0?'var(--green)':'var(--red)';const c10=n10>0?'var(--green)':'var(--red)';const lv=t.level||'';let lvTag='';if(lv==='stretched-low'||lv==='near-low')lvTag=`<div style="font-size:8px;color:var(--cyan);margin-top:2px;">⤓ watch bounce</div>`;else if(lv==='stretched-high'||lv==='near-high')lvTag=`<div style="font-size:8px;color:#f5a623;margin-top:2px;">⤒ watch pullback</div>`;return`<td style="padding:6px;background:#0d1a2a;font-size:10px;white-space:nowrap;"><div>5d: ↓${t.down5} ↑${t.up5} <span style="color:${c5}">${n5>0?'+':''}${n5}%</span></div><div>10d: ↓${t.down10} ↑${t.up10} <span style="color:${c10}">${n10>0?'+':''}${n10}%</span></div>${lvTag}</td>`;})()}
+    ${(()=>{const t=_p1TrendData[r.symbol];if(!t){console.log('[trends] MISS for', JSON.stringify(r.symbol));return'<td style="padding:6px;background:#0d1a2a;color:#506070;font-size:10px;">—</td>';}const n5=t.net5??0,n10=t.net10??0;const c5=n5>0?'var(--green)':'var(--red)';const c10=n10>0?'var(--green)':'var(--red)';const lv=t.level||'';let lvTag='';if(lv==='stretched-low'||lv==='near-low')lvTag=`<div style="font-size:8px;color:var(--cyan);margin-top:2px;">⤓ watch bounce</div>`;else if(lv==='stretched-high'||lv==='near-high')lvTag=`<div style="font-size:8px;color:#f5a623;margin-top:2px;">⤒ watch pullback</div>`;return`<td style="padding:6px;background:#0d1a2a;font-size:10px;white-space:nowrap;"><div>5d: ↓${t.down5} ↑${t.up5} <span style="color:${c5}">${n5>0?'+':''}${n5}%</span></div><div>10d: ↓${t.down10} ↑${t.up10} <span style="color:${c10}">${n10>0?'+':''}${n10}%</span></div>${lvTag}</td>`;})()}
     ${renderTopContractCell(r.symbol,dir,0,r)}
     ${renderTopContractCell(r.symbol,dir,1,r)}
     ${priceCols}
