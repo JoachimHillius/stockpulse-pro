@@ -8471,6 +8471,8 @@ function _momRow(row) {
   // Category + OP badges
   const catBadge = row.category === 'all_market'
     ? `<span style="font-size:8px;font-weight:700;color:#000;background:#00e5b0;border-radius:3px;padding:1px 4px;">M</span>`
+    : row.category === 'position'
+    ? `<span style="font-size:8px;font-weight:700;color:#fff;background:#a78bfa;border-radius:3px;padding:1px 4px;">P</span>`
     : `<span style="font-size:8px;font-weight:700;color:#000;background:#00d4ff;border-radius:3px;padding:1px 4px;">TT</span>`;
   const hasOp  = _optionsSymbolsSet.size > 0 && _optionsSymbolsSet.has(sym);
   const opBadge = hasOp
@@ -8556,6 +8558,7 @@ const _momCtl = {
   all_market:  _mkCtl(),
   tech_titans: _mkCtl(),
   jh:          _mkCtl(),
+  position:    _mkCtl(),
   positions:   _mkCtl(),
 };
 
@@ -8571,6 +8574,10 @@ const _MOM_BLOCK_DEFS = [
   { id: 'jh',         title: 'JH',        color: '#ffb020',
     baseRows: () => [..._swingData.filter(r => r.category === 'jh')]
       .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || '')),
+    maxRows: () => 999 },
+  { id: 'position',   title: 'POSITION',  color: '#a78bfa',
+    baseRows: () => [..._swingData.filter(r => r.category === 'position')]
+      .sort((a, b) => (b.rating_greenzone ?? -1) - (a.rating_greenzone ?? -1)),
     maxRows: () => 999 },
   { id: 'positions',  title: 'POSITIONS', color: '#6080a0',
     baseRows: () => [..._swingData.filter(r => r.status === 'closed')]
@@ -8701,8 +8708,8 @@ function renderMomentum() {
   ).join('');
 }
 
-const _MOM_CAT_LABEL = { all_market: 'General Market', tech_titans: 'Tech Titans', jh: 'Momentum' };
-const _MOM_CAT_COLOR = { all_market: '#00e5b0',        tech_titans: '#00d4ff',      jh: '#ffb020' };
+const _MOM_CAT_LABEL = { all_market: 'General Market', tech_titans: 'Tech Titans', jh: 'Momentum', position: 'POSITION' };
+const _MOM_CAT_COLOR = { all_market: '#00e5b0',        tech_titans: '#00d4ff',      jh: '#ffb020', position: '#a78bfa' };
 
 function _momSearchResults(q) {
   const upper = q.toUpperCase();
@@ -8822,7 +8829,7 @@ function showMomentumForm(row) {
         ${fld('SYMBOL', 'symbol', 'text', isEdit ? 'readonly style="opacity:0.6"' : '', v('symbol'))}
         ${fld('SECURITY NAME', 'security', 'text', '', v('security'))}
         ${fld('SECTOR', 'sector', 'text', '', v('sector'))}
-        ${selFld('CATEGORY', 'category', ['all_market','tech_titans','jh'], v('category') || 'all_market')}
+        ${selFld('CATEGORY', 'category', ['all_market','tech_titans','jh','position'], v('category') || 'all_market')}
         ${selFld('STATUS', 'status', ['open','closed'], v('status') || 'open')}
         ${selFld('LIVE', 'is-held', ['no','yes'], (v('is_held')===true||v('is_held')==='true'||v('is_held')==='yes')?'yes':'no')}
         ${selFld('REPLACED ★', 'replace-marker', ['','*','**','***'], v('replace_marker'))}
