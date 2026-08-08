@@ -43,8 +43,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:200;height:48px;}
 .brand{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:4px;color:var(--cyan);margin-right:24px;white-space:nowrap;line-height:1;}
 .brand span{color:var(--text);font-size:18px;letter-spacing:2px;}
-.nav{display:flex;gap:0;flex:1;}
-.nav-btn{padding:0 16px;height:48px;border:none;background:transparent;color:#e0e0e0;font-family:var(--font);font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.8px;text-transform:uppercase;border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;}
+.nav{display:flex;gap:0;flex:1;overflow-x:auto;flex-wrap:nowrap;white-space:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.nav::-webkit-scrollbar{display:none;}
+.nav-btn{padding:0 16px;height:48px;border:none;background:transparent;color:#e0e0e0;font-family:var(--font);font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.8px;text-transform:uppercase;border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;flex-shrink:0;}
 .nav-btn:hover{color:var(--text);background:rgba(255,255,255,0.03);}
 .nav-btn.active{color:var(--cyan);border-bottom-color:var(--cyan);}
 .header-right{display:flex;align-items:center;gap:12px;margin-left:auto;}
