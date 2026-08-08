@@ -1096,14 +1096,17 @@ select option{background:var(--bg2);}
       <div id="earn-form-status" style="margin-top:10px;font-size:11px;min-height:16px;"></div>
     </div>
 
-    <!-- Profile cards -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-      <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Earnings Profiles</span>
+    <!-- Ticker chip row -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Earnings Watchlist</span>
       <button class="btn btn-ghost btn-sm" onclick="loadEarningsProfiles()" style="margin-left:auto;">↻ Refresh</button>
     </div>
-    <div id="earn-profiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;">
-      <div class="empty">Open this tab to load profiles…</div>
+    <div id="earn-chip-row" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;min-height:32px;">
+      <span style="color:#506070;font-size:11px;padding:6px 0;">Open this tab to load…</span>
     </div>
+
+    <!-- Detail card (shown on chip click) -->
+    <div id="earn-detail" style="display:none;"></div>
 
   </div>
 </div>
@@ -4944,6 +4947,43 @@ function goPage(name,btn){
 function _earnVal(id){ return document.getElementById(id)?.value||null; }
 function _earnNum(id){ const v=parseFloat(document.getElementById(id)?.value); return isNaN(v)?null:v; }
 
+// shared helpers used by save, chips, and detail card
+const _EARN_LEAN_MAP={
+  'strong-call':{c:'var(--green)',bg:'rgba(0,229,176,0.12)',border:'rgba(0,229,176,0.3)',t:'STRONG CALL'},
+  'lean-call':  {c:'var(--green)',bg:'rgba(0,229,176,0.08)',border:'rgba(0,229,176,0.2)',t:'LEAN CALL'},
+  'mixed-flow': {c:'var(--amber)',bg:'rgba(255,176,32,0.10)',border:'rgba(255,176,32,0.25)',t:'MIXED FLOW'},
+  'lean-put':   {c:'var(--red)',  bg:'rgba(255,61,90,0.10)', border:'rgba(255,61,90,0.25)', t:'LEAN PUT'},
+  'strong-put': {c:'var(--red)',  bg:'rgba(255,61,90,0.14)', border:'rgba(255,61,90,0.3)',  t:'STRONG PUT'},
+  'no-flow':    {c:'#8090a0',    bg:'rgba(128,144,160,0.08)',border:'rgba(128,144,160,0.2)',t:'NO FLOW'},
+};
+const _EARN_PAT_MAP={
+  'consistent-positive':{c:'var(--green)',t:'CONSISTENT +'},
+  'consistent-negative':{c:'var(--red)',t:'CONSISTENT −'},
+  'mixed':              {c:'var(--amber)',t:'MIXED'},
+  'insufficient':       {c:'#506070',t:'INSUFFICIENT DATA'},
+};
+
+function _earnFmtPct(v){
+  if(v==null)return'—';
+  const n=Number(v);
+  const c=n>0?'var(--green)':n<0?'var(--red)':'var(--text)';
+  return`<span style="color:${c};font-weight:600;">${n>0?'+':''}${n.toFixed(1)}%</span>`;
+}
+function _earnFmtDate(d){ return d?d.slice(0,10):null; }
+function _earnFmtShort(d){
+  if(!d)return null;
+  const p=d.slice(0,10).split('-');
+  return p[1]+'/'+p[2];
+}
+function _earnFmtPriceRow(arr){
+  if(!arr||!arr.length)return'—';
+  return arr.map(x=>{
+    const ds=_earnFmtShort(x.d)||x.d||'?';
+    const cs=x.c!=null?'$'+Number(x.c).toFixed(2):'—';
+    return`${ds} ${cs}`;
+  }).join(' · ');
+}
+
 async function saveEarningsEntry(){
   const btn=document.getElementById('earn-save-btn');
   const status=document.getElementById('earn-form-status');
@@ -4985,127 +5025,173 @@ async function saveEarningsEntry(){
 }
 
 async function loadEarningsProfiles(){
-  const container=document.getElementById('earn-profiles');
-  if(!container)return;
-  container.innerHTML='<div class="empty">Loading…</div>';
+  const chipRow=document.getElementById('earn-chip-row');
+  const detail=document.getElementById('earn-detail');
+  if(!chipRow)return;
+  chipRow.innerHTML='<span style="color:#506070;font-size:11px;">Loading…</span>';
+  if(detail)detail.style.display='none';
   try{
     const supa=await getSupabaseAsync(); if(!supa)throw new Error('Supabase unavailable');
     const {data:rows,error:listErr}=await supa.from('earnings_manual').select('symbol,next_date').order('next_date',{ascending:true,nullsFirst:false});
     if(listErr)throw listErr;
-    if(!rows||!rows.length){container.innerHTML='<div class="empty">No earnings data yet — use the form above to log a symbol.</div>';return;}
+    if(!rows||!rows.length){
+      chipRow.innerHTML='<span style="color:#506070;font-size:11px;">No symbols yet — use the form above.</span>';
+      return;
+    }
+    // Batch-fetch all profiles to tint chips
     const profiles=await Promise.all(rows.map(async r=>{
       const {data,error}=await supa.rpc('get_earnings_profile',{symbol:r.symbol});
       const p=Array.isArray(data)?data[0]:data;
       return {sym:r.symbol, next_date:r.next_date, profile:error?null:p};
     }));
-    container.innerHTML=profiles.map(item=>_renderEarningsCard(item.sym,item.next_date,item.profile)).join('');
+    // cache for detail reuse
+    window._earnProfiles=profiles;
+    // render chips
+    chipRow.innerHTML=profiles.map(item=>{
+      const p=item.profile;
+      const lm=p?.flow_lean?(_EARN_LEAN_MAP[p.flow_lean]||null):null;
+      const bg=lm?lm.bg:'rgba(128,144,160,0.08)';
+      const border=lm?lm.border:'rgba(128,144,160,0.2)';
+      const tc=lm?lm.c:'#c0c8d0';
+      const dateStr=item.next_date?item.next_date.slice(0,10):'—';
+      return`<button onclick="showEarnDetail('${item.sym}')" style="background:${bg};border:1px solid ${border};border-radius:6px;padding:6px 12px;cursor:pointer;font-family:var(--font);text-align:left;min-width:90px;">
+        <div style="font-size:12px;font-weight:700;color:${tc};">${item.sym}</div>
+        <div style="font-size:9px;color:#8090a0;margin-top:1px;">${dateStr}</div>
+      </button>`;
+    }).join('');
   }catch(e){
-    container.innerHTML=`<div class="empty">Error: ${e.message}</div>`;
+    chipRow.innerHTML=`<span style="color:var(--red);font-size:11px;">Error: ${e.message}</span>`;
   }
 }
 
-function _renderEarningsCard(sym, next_date, p){
-  const fmtPct = v => {
-    if(v==null)return'—';
-    const n=Number(v);
-    const c=n>0?'var(--green)':n<0?'var(--red)':'var(--text)';
-    return `<span style="color:${c};font-weight:600;">${n>0?'+':''}${n.toFixed(1)}%</span>`;
-  };
-  const fmtDate = d => d ? d.slice(0,10) : null;
-  const fmtShort = d => { // "05/12" from "2025-05-12"
-    if(!d)return null;
-    const parts=d.slice(0,10).split('-');
-    return parts[1]+'/'+parts[2];
-  };
+async function showEarnDetail(sym){
+  const detail=document.getElementById('earn-detail');
+  if(!detail)return;
+  detail.style.display='block';
+  detail.innerHTML='<div style="color:#506070;font-size:11px;padding:12px 0;">Loading…</div>';
 
-  // renders a jsonb array of {d,c} as "05/12 $35.10 · 05/13 $35.80 · 05/14 $36.00"
-  const fmtPriceRow = arr => {
-    if(!arr||!arr.length)return'—';
-    return arr.map(x=>{
-      const ds=fmtShort(x.d)||x.d||'?';
-      const cs=x.c!=null?'$'+Number(x.c).toFixed(2):'—';
-      return `${ds} ${cs}`;
-    }).join(' · ');
-  };
+  // try cache first, else re-fetch profile
+  let item=(window._earnProfiles||[]).find(x=>x.sym===sym);
+  let p=item?.profile;
+  if(!p){
+    try{
+      const supa=await getSupabaseAsync(); if(!supa)throw new Error('no client');
+      const {data}=await supa.rpc('get_earnings_profile',{symbol:sym});
+      p=Array.isArray(data)?data[0]:data;
+    }catch(e){p=null;}
+  }
 
-  // History pattern badge
-  const patMap={
-    'consistent-positive':{c:'var(--green)',t:'CONSISTENT +'},
-    'consistent-negative':{c:'var(--red)',t:'CONSISTENT −'},
-    'mixed':              {c:'var(--amber)',t:'MIXED'},
-    'insufficient':       {c:'#506070',t:'INSUFFICIENT DATA'},
-  };
-  const pm=p?.hist_pattern?(patMap[p.hist_pattern]||{c:'#8090a0',t:p.hist_pattern}):null;
-  const patBadge=pm?`<span style="background:${pm.c}22;color:${pm.c};border:1px solid ${pm.c}44;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;">${pm.t}</span>`:'';
+  // fetch trend (5d + 10d) in parallel
+  let trend5=null, trend10=null;
+  try{
+    const supa=await getSupabaseAsync();
+    if(supa){
+      const [r5,r10]=await Promise.all([
+        supa.rpc('get_symbol_trend',{p_symbol:sym,p_lookback:5}),
+        supa.rpc('get_symbol_trend',{p_symbol:sym,p_lookback:10}),
+      ]);
+      trend5 =r5.data ?(Array.isArray(r5.data) ?r5.data[0] :r5.data) :null;
+      trend10=r10.data?(Array.isArray(r10.data)?r10.data[0]:r10.data):null;
+    }
+  }catch(_){}
 
-  // Smart money lean badge
-  const leanMap={
-    'strong-call':{c:'var(--green)',t:'STRONG CALL'},
-    'lean-call':  {c:'var(--green)',t:'LEAN CALL'},
-    'mixed-flow': {c:'var(--amber)',t:'MIXED FLOW'},
-    'lean-put':   {c:'var(--red)',t:'LEAN PUT'},
-    'strong-put': {c:'var(--red)',t:'STRONG PUT'},
-    'no-flow':    {c:'#506070',t:'NO FLOW'},
-  };
-  const lm=p?.flow_lean?(leanMap[p.flow_lean]||{c:'#8090a0',t:p.flow_lean}):null;
-  const leanBadge=lm?`<span style="background:${lm.c}22;color:${lm.c};border:1px solid ${lm.c}44;border-radius:3px;padding:2px 6px;font-size:10px;font-weight:700;">${lm.t}</span>`:'—';
+  // live price
+  const q=getQ(sym);
+  const priceStr=q.p!=null?'$'+Number(q.p).toFixed(2):'—';
+  const dpStr=q.dp!=null?(q.dp>=0?'+':'')+Number(q.dp).toFixed(2)+'%':'';
+  const dpColor=q.dp!=null?(q.dp>=0?'var(--green)':'var(--red)'):'var(--text)';
 
-  // Run-up
+  // gauge value: flow_call_pct (0=bearish→100=bullish)
+  const gaugePct=p?.flow_call_pct!=null?Math.min(100,Math.max(0,Number(p.flow_call_pct))):50;
+  const lm=p?.flow_lean?(_EARN_LEAN_MAP[p.flow_lean]||null):null;
+  const leanLabel=lm?lm.t:(p?.flow_lean||'—');
+  const leanBadgeHtml=lm?`<span style="background:${lm.bg};color:${lm.c};border:1px solid ${lm.border};border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;">${lm.t}</span>`:'';
+
+  // pattern badge
+  const pm=p?.hist_pattern?(_EARN_PAT_MAP[p.hist_pattern]||{c:'#8090a0',t:p.hist_pattern}):null;
+  const patBadgeHtml=pm?`<span style="background:${pm.c}22;color:${pm.c};border:1px solid ${pm.c}44;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;">${pm.t}</span>`:'';
+
+  // run-up
   const ruNet=p?((p.runup_days_up??0)-(p.runup_days_down??0)):null;
   const ruC=ruNet==null?'var(--text)':ruNet>0?'var(--green)':'var(--red)';
   const runupHtml=p
     ?`↓${p.runup_days_down??0} ↑${p.runup_days_up??0} <span style="color:${ruC};font-weight:600;">${ruNet!=null&&ruNet>0?'+':''}${ruNet??0}d</span>${p.runup_trend?` <span style="color:#8090a0;font-size:9px;">(${p.runup_trend})</span>`:''}`
     :'—';
 
-  const nextHtml=next_date
-    ?`<span style="color:var(--cyan);font-weight:600;">${fmtDate(next_date)}</span>`
-    :'<span style="color:#506070;">not set</span>';
+  // trend
+  let trendHtml='—';
+  if(trend5&&trend10){
+    const n5=Number(trend5.net_pct??0), n10=Number(trend10.net_pct??0);
+    const c5=n5>0?'var(--green)':'var(--red)', c10=n10>0?'var(--green)':'var(--red)';
+    trendHtml=`<div>5d: ↓${trend5.down_days} ↑${trend5.up_days} <span style="color:${c5};font-weight:600;">${n5>0?'+':''}${n5.toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${trend5.trend||'—'})</span></div>
+      <div>10d: ↓${trend10.down_days} ↑${trend10.up_days} <span style="color:${c10};font-weight:600;">${n10>0?'+':''}${n10.toFixed(1)}%</span> <span style="color:#8090a0;font-size:9px;">(${trend10.trend||'—'})</span></div>`;
+  }
 
+  // smart money
   const callPrem=p?.flow_call_prem!=null?'$'+Number(p.flow_call_prem).toLocaleString():'—';
   const putPrem =p?.flow_put_prem!=null ?'$'+Number(p.flow_put_prem).toLocaleString() :'—';
   const callPct =p?.flow_call_pct!=null ?Number(p.flow_call_pct).toFixed(0)+'%':'—';
 
-  // price rows for before/after
-  const e1before=fmtPriceRow(p?.e1_before);
-  const e1after =fmtPriceRow(p?.e1_after);
-  const e2before=fmtPriceRow(p?.e2_before);
-  const e2after =fmtPriceRow(p?.e2_after);
+  const nextStr=p?.next_date?p.next_date.slice(0,10):(item?.next_date?item.next_date.slice(0,10):null);
 
-  return `<div class="card" style="font-size:11px;">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-      <span style="font-size:14px;font-weight:700;color:var(--text);">${sym}</span>
-      <span style="font-size:10px;color:#8090a0;">Next: ${nextHtml}</span>
-      <span style="margin-left:auto;">${patBadge}</span>
+  detail.innerHTML=`<div class="card" style="font-size:11px;max-width:700px;">
+    <!-- header row -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+      <span style="font-size:18px;font-weight:700;color:var(--text);">${sym}</span>
+      <span style="font-size:14px;color:var(--text);">${priceStr}</span>
+      ${dpStr?`<span style="font-size:12px;color:${dpColor};font-weight:600;">${dpStr}</span>`:''}
+      ${nextStr?`<span style="font-size:10px;color:#8090a0;margin-left:4px;">Next earnings: <span style="color:var(--cyan);font-weight:600;">${nextStr}</span></span>`:''}
+      <button onclick="document.getElementById('earn-detail').style.display='none'" style="margin-left:auto;background:transparent;border:none;color:#8090a0;font-size:18px;cursor:pointer;line-height:1;">×</button>
     </div>
 
-    <div style="margin-bottom:8px;">
-      <div style="font-size:9px;font-weight:600;color:var(--cyan);letter-spacing:0.5px;margin-bottom:4px;">LAST EARNINGS${p?.e1_date?' · '+fmtDate(p.e1_date):''} &nbsp;${fmtPct(p?.e1_move)}</div>
-      <div style="color:#8090a0;font-size:10px;line-height:1.7;">
-        <span style="color:#506070;">Before:</span> ${e1before}
-        ${(p?.e1_before?.length&&p?.e1_after?.length)?'<span style="color:#506070;"> → </span>':''}
-        <span style="color:#506070;">After:</span> ${e1after}
+    <!-- gauge + smart money detail side by side -->
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:16px;margin-bottom:14px;align-items:start;">
+      <div style="text-align:center;">
+        <canvas id="earn-spd-${sym}" width="200" height="110" style="display:block;margin:0 auto;"></canvas>
+        <div style="font-size:9px;font-weight:600;color:#8090a0;letter-spacing:0.5px;margin-top:2px;">SMART MONEY LEAN</div>
+        <div style="margin-top:4px;">${leanBadgeHtml}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;padding-top:8px;">
+        <div><span style="color:#8090a0;">Call premium:</span> <span style="color:var(--green);font-weight:600;">${callPrem}</span></div>
+        <div><span style="color:#8090a0;">Put premium:</span> <span style="color:var(--red);font-weight:600;">${putPrem}</span></div>
+        <div><span style="color:#8090a0;">Call %:</span> <span style="font-weight:600;">${callPct}</span></div>
+        ${p?.hist_avg_mag!=null?`<div><span style="color:#8090a0;">Avg magnitude:</span> <span style="color:var(--text);">${Number(p.hist_avg_mag).toFixed(1)}%</span></div>`:''}
+        <div style="margin-top:2px;">${patBadgeHtml}</div>
       </div>
     </div>
 
-    <div style="margin-bottom:8px;padding-top:6px;border-top:1px solid var(--border);">
-      <div style="font-size:9px;font-weight:600;color:#8090a0;letter-spacing:0.5px;margin-bottom:4px;">PRIOR EARNINGS${p?.e2_date?' · '+fmtDate(p.e2_date):''} &nbsp;${fmtPct(p?.e2_move)}</div>
-      <div style="color:#8090a0;font-size:10px;line-height:1.7;">
-        <span style="color:#506070;">Before:</span> ${e2before}
-        ${(p?.e2_before?.length&&p?.e2_after?.length)?'<span style="color:#506070;"> → </span>':''}
-        <span style="color:#506070;">After:</span> ${e2after}
+    <!-- earnings history -->
+    <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px;">
+      <div style="font-size:9px;font-weight:600;color:var(--cyan);letter-spacing:0.5px;margin-bottom:6px;">LAST EARNINGS${p?.e1_date?' · '+_earnFmtDate(p.e1_date):''} &nbsp;${_earnFmtPct(p?.e1_move)}</div>
+      <div style="color:#8090a0;font-size:10px;line-height:1.8;word-break:break-word;">
+        <span style="color:#506070;">Before:</span> ${_earnFmtPriceRow(p?.e1_before)}&nbsp;&nbsp;<span style="color:#506070;">→ After:</span> ${_earnFmtPriceRow(p?.e1_after)}
+      </div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px;">
+      <div style="font-size:9px;font-weight:600;color:#8090a0;letter-spacing:0.5px;margin-bottom:6px;">PRIOR EARNINGS${p?.e2_date?' · '+_earnFmtDate(p.e2_date):''} &nbsp;${_earnFmtPct(p?.e2_move)}</div>
+      <div style="color:#8090a0;font-size:10px;line-height:1.8;word-break:break-word;">
+        <span style="color:#506070;">Before:</span> ${_earnFmtPriceRow(p?.e2_before)}&nbsp;&nbsp;<span style="color:#506070;">→ After:</span> ${_earnFmtPriceRow(p?.e2_after)}
       </div>
     </div>
 
-    <div style="border-top:1px solid var(--border);padding-top:6px;display:flex;flex-direction:column;gap:4px;">
-      ${p?.hist_avg_mag!=null?`<div><span style="color:#8090a0;">Avg magnitude:</span> <span style="color:var(--text);">${Number(p.hist_avg_mag).toFixed(1)}%</span></div>`:''}
-      <div><span style="color:#8090a0;">Run-up 5d:</span> ${runupHtml}</div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="color:#8090a0;">Smart money:</span>
-        <span>C:${callPrem} P:${putPrem} (${callPct} call)</span>
-        ${leanBadge}
+    <!-- trend / run-up -->
+    <div style="border-top:1px solid var(--border);padding-top:10px;display:flex;gap:24px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:9px;font-weight:600;color:#8090a0;letter-spacing:0.5px;margin-bottom:4px;">PRICE TREND</div>
+        <div style="font-size:11px;">${trendHtml}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;font-weight:600;color:#8090a0;letter-spacing:0.5px;margin-bottom:4px;">RUN-UP 5D</div>
+        <div style="font-size:11px;">${runupHtml}</div>
       </div>
     </div>
   </div>`;
+
+  // draw gauge after DOM paint
+  setTimeout(()=>{
+    const canvas=document.getElementById('earn-spd-'+sym);
+    if(canvas) drawSpeedometer(canvas, gaugePct);
+  },0);
 }
 
 // ============================================================
