@@ -1096,16 +1096,21 @@ select option{background:var(--bg2);}
       <div id="earn-form-status" style="margin-top:10px;font-size:11px;min-height:16px;"></div>
     </div>
 
-    <!-- Ticker chip row -->
+    <!-- Earnings list -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
       <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Earnings Watchlist</span>
       <button class="btn btn-ghost btn-sm" onclick="loadEarningsProfiles()" style="margin-left:auto;">↻ Refresh</button>
     </div>
-    <div id="earn-chip-row" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;min-height:32px;">
-      <span style="color:#506070;font-size:11px;padding:6px 0;">Open this tab to load…</span>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
+      <div class="hist-row hist-hd" style="grid-template-columns:60px 100px 120px 120px 140px 58px 80px 55px 150px 90px;">
+        <span>Symbol</span><span>Next Date</span><span>Last Earn</span><span>Prior Earn</span><span>Pattern</span><span>Avg Mag</span><span>Run-up</span><span>Call%</span><span>Lean</span><span>Price</span>
+      </div>
+      <div id="earn-list-body">
+        <div class="empty">Open this tab to load…</div>
+      </div>
     </div>
 
-    <!-- Detail card (shown on chip click) -->
+    <!-- Detail card (shown on row click) -->
     <div id="earn-detail" style="display:none;"></div>
 
   </div>
@@ -5025,42 +5030,92 @@ async function saveEarningsEntry(){
 }
 
 async function loadEarningsProfiles(){
-  const chipRow=document.getElementById('earn-chip-row');
+  const listBody=document.getElementById('earn-list-body');
   const detail=document.getElementById('earn-detail');
-  if(!chipRow)return;
-  chipRow.innerHTML='<span style="color:#506070;font-size:11px;">Loading…</span>';
+  if(!listBody)return;
+  listBody.innerHTML='<div class="empty">Loading…</div>';
   if(detail)detail.style.display='none';
   try{
     const supa=await getSupabaseAsync(); if(!supa)throw new Error('Supabase unavailable');
     const {data:rows,error:listErr}=await supa.from('earnings_manual').select('symbol,next_date').order('next_date',{ascending:true,nullsFirst:false});
     if(listErr)throw listErr;
     if(!rows||!rows.length){
-      chipRow.innerHTML='<span style="color:#506070;font-size:11px;">No symbols yet — use the form above.</span>';
+      listBody.innerHTML='<div class="empty">No symbols yet — use the form above.</div>';
       return;
     }
-    // Batch-fetch all profiles to tint chips
+    // Batch-fetch all profiles
     const profiles=await Promise.all(rows.map(async r=>{
       const {data,error}=await supa.rpc('get_earnings_profile',{symbol:r.symbol});
       const p=Array.isArray(data)?data[0]:data;
       return {sym:r.symbol, next_date:r.next_date, profile:error?null:p};
     }));
-    // cache for detail reuse
     window._earnProfiles=profiles;
-    // render chips
-    chipRow.innerHTML=profiles.map(item=>{
+
+    const COL_STYLE='grid-template-columns:60px 100px 120px 120px 140px 58px 80px 55px 150px 90px;cursor:pointer;';
+    listBody.innerHTML=profiles.map(item=>{
       const p=item.profile;
+      const sym=item.sym;
+
+      // symbol
+      const symHtml=`<span style="font-weight:600;">${sym}</span>`;
+
+      // next date
+      const nd=item.next_date?item.next_date.slice(0,10):'—';
+      const ndHtml=item.next_date
+        ?`<span style="color:var(--cyan);">${nd}</span>`
+        :`<span style="color:#506070;">—</span>`;
+
+      // last earn: date + move
+      const e1d=p?.e1_date?p.e1_date.slice(0,10):'—';
+      const e1mHtml=_earnFmtPct(p?.e1_move);
+      const lastHtml=`<span style="font-size:10px;"><span style="color:#8090a0;">${e1d}</span> ${e1mHtml}</span>`;
+
+      // prior earn: date + move
+      const e2d=p?.e2_date?p.e2_date.slice(0,10):'—';
+      const e2mHtml=_earnFmtPct(p?.e2_move);
+      const priorHtml=`<span style="font-size:10px;"><span style="color:#8090a0;">${e2d}</span> ${e2mHtml}</span>`;
+
+      // pattern badge (short)
+      const patMap2={'consistent-positive':{c:'var(--green)',s:'CONSIST +'},'consistent-negative':{c:'var(--red)',s:'CONSIST −'},'mixed':{c:'var(--amber)',s:'MIXED'},'insufficient':{c:'#506070',s:'INSUF'}};
+      const pm=p?.hist_pattern?(patMap2[p.hist_pattern]||{c:'#8090a0',s:p.hist_pattern}):null;
+      const patHtml=pm?`<span style="color:${pm.c};font-size:10px;font-weight:600;">${pm.s}</span>`:`<span style="color:#506070;">—</span>`;
+
+      // avg mag
+      const magHtml=p?.hist_avg_mag!=null
+        ?`<span style="color:var(--text);">${Number(p.hist_avg_mag).toFixed(1)}%</span>`
+        :`<span style="color:#506070;">—</span>`;
+
+      // run-up
+      const ruNet=p?((p.runup_days_up??0)-(p.runup_days_down??0)):null;
+      const ruC=ruNet==null?'var(--text)':ruNet>0?'var(--green)':'var(--red)';
+      const ruHtml=p
+        ?`<span style="font-size:10px;">↓${p.runup_days_down??0} ↑${p.runup_days_up??0} <span style="color:${ruC};">${ruNet>0?'+':''}${ruNet}d</span></span>`
+        :`<span style="color:#506070;">—</span>`;
+
+      // call%
+      const callPctHtml=p?.flow_call_pct!=null
+        ?`<span style="font-weight:600;color:${Number(p.flow_call_pct)>=60?'var(--green)':Number(p.flow_call_pct)<=40?'var(--red)':'var(--amber)'};">${Number(p.flow_call_pct).toFixed(0)}%</span>`
+        :`<span style="color:#506070;">—</span>`;
+
+      // lean
       const lm=p?.flow_lean?(_EARN_LEAN_MAP[p.flow_lean]||null):null;
-      const bg=lm?lm.bg:'rgba(128,144,160,0.08)';
-      const border=lm?lm.border:'rgba(128,144,160,0.2)';
-      const tc=lm?lm.c:'#c0c8d0';
-      const dateStr=item.next_date?item.next_date.slice(0,10):'—';
-      return`<button onclick="showEarnDetail('${item.sym}')" style="background:${bg};border:1px solid ${border};border-radius:6px;padding:6px 12px;cursor:pointer;font-family:var(--font);text-align:left;min-width:90px;">
-        <div style="font-size:12px;font-weight:700;color:${tc};">${item.sym}</div>
-        <div style="font-size:9px;color:#8090a0;margin-top:1px;">${dateStr}</div>
-      </button>`;
+      const leanHtml=lm
+        ?`<span style="color:${lm.c};font-size:10px;font-weight:600;">${lm.t}</span>`
+        :`<span style="color:#506070;">—</span>`;
+
+      // live price
+      const q=getQ(sym);
+      const priceHtml=q.p!=null
+        ?`<span>$${Number(q.p).toFixed(2)} <span style="color:${(q.dp||0)>=0?'var(--green)':'var(--red)'};font-size:10px;">${(q.dp||0)>=0?'+':''}${Number(q.dp||0).toFixed(1)}%</span></span>`
+        :`<span style="color:#506070;">—</span>`;
+
+      return`<div class="hist-row" style="${COL_STYLE}" onclick="showEarnDetail('${sym}')"
+        onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
+        ${symHtml}${ndHtml}${lastHtml}${priorHtml}${patHtml}${magHtml}${ruHtml}${callPctHtml}${leanHtml}${priceHtml}
+      </div>`;
     }).join('');
   }catch(e){
-    chipRow.innerHTML=`<span style="color:var(--red);font-size:11px;">Error: ${e.message}</span>`;
+    listBody.innerHTML=`<div class="empty">Error: ${e.message}</div>`;
   }
 }
 
