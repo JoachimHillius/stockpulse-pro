@@ -438,6 +438,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('predictor',this)" style="display:none;">Predictor</button>
     <button class="nav-btn" data-page="flowpredict" onclick="goPage('flowpredict',this)">Flow Predictor</button>
     <button class="nav-btn" onclick="goPage('history',this)">History / Outlook</button>
+    <button class="nav-btn" onclick="goPage('earnings',this)">Earnings</button>
     <button class="nav-btn" onclick="goPage('tradelog',this)" style="white-space:normal;line-height:1.2;padding:0 10px;font-size:10px;">Trade<br>Log</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
     <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
@@ -993,6 +994,71 @@ select option{background:var(--bg2);}
     <div id="hist-body">
       <div class="empty">No history yet — predictions will appear here after you save them</div>
     </div>
+  </div>
+</div>
+
+<!-- ============ PAGE: EARNINGS ============ -->
+<div id="page-earnings" class="page">
+  <div style="max-width:1100px;">
+
+    <!-- Entry form card -->
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-hd">
+        <span class="card-title">Log Earnings Data</span>
+        <button id="earn-save-btn" class="btn btn-cyan btn-sm" onclick="saveEarningsEntry()">Save</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;align-items:end;">
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">SYMBOL</div>
+          <input id="earn-symbol" type="text" placeholder="e.g. SMCI" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()" />
+        </div>
+        <div style="grid-column:1/-1;font-size:10px;font-weight:600;color:#8090a0;letter-spacing:0.5px;margin-top:4px;">LAST EARNINGS</div>
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">DATE</div>
+          <input id="earn-e1-date" type="date" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">CLOSE 3D BEFORE</div>
+          <input id="earn-e1-before" type="number" step="0.01" placeholder="price" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">CLOSE 3D AFTER</div>
+          <input id="earn-e1-after" type="number" step="0.01" placeholder="price" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+        <div style="grid-column:1/-1;font-size:10px;font-weight:600;color:#8090a0;letter-spacing:0.5px;margin-top:4px;">PRIOR EARNINGS</div>
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">DATE</div>
+          <input id="earn-e2-date" type="date" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">CLOSE 3D BEFORE</div>
+          <input id="earn-e2-before" type="number" step="0.01" placeholder="price" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">CLOSE 3D AFTER</div>
+          <input id="earn-e2-after" type="number" step="0.01" placeholder="price" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+        <div>
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NEXT EARNINGS DATE (optional)</div>
+          <input id="earn-next-date" type="date" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+        <div style="grid-column:2/-1;">
+          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NOTES</div>
+          <input id="earn-notes" type="text" placeholder="optional" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
+        </div>
+      </div>
+      <div id="earn-form-status" style="margin-top:8px;font-size:11px;min-height:16px;"></div>
+    </div>
+
+    <!-- Profile cards -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Earnings Profiles</span>
+      <button class="btn btn-ghost btn-sm" onclick="loadEarningsProfiles()" style="margin-left:auto;">↻ Refresh</button>
+    </div>
+    <div id="earn-profiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;">
+      <div class="empty">Open this tab to load profiles…</div>
+    </div>
+
   </div>
 </div>
 
@@ -4820,6 +4886,143 @@ function goPage(name,btn){
   if(name==='tradelog'){
     setTimeout(initTradeLog,50);
   }
+  if(name==='earnings'){
+    setTimeout(loadEarningsProfiles,50);
+  }
+}
+
+// ============================================================
+// EARNINGS PAGE
+// ============================================================
+
+async function saveEarningsEntry(){
+  const btn=document.getElementById('earn-save-btn');
+  const status=document.getElementById('earn-form-status');
+  const sym=(document.getElementById('earn-symbol').value||'').trim().toUpperCase();
+  if(!sym){status.style.color='var(--red)';status.textContent='Symbol is required.';return;}
+  const row={
+    symbol:      sym,
+    earn1_date:  document.getElementById('earn-e1-date').value||null,
+    earn1_before:parseFloat(document.getElementById('earn-e1-before').value)||null,
+    earn1_after: parseFloat(document.getElementById('earn-e1-after').value)||null,
+    earn2_date:  document.getElementById('earn-e2-date').value||null,
+    earn2_before:parseFloat(document.getElementById('earn-e2-before').value)||null,
+    earn2_after: parseFloat(document.getElementById('earn-e2-after').value)||null,
+    next_date:   document.getElementById('earn-next-date').value||null,
+    notes:       document.getElementById('earn-notes').value.trim()||null,
+  };
+  const orig=btn.textContent; btn.disabled=true; btn.textContent='Saving…';
+  status.textContent='';
+  try{
+    const supa=await getSupabaseAsync(); if(!supa)throw new Error('Supabase unavailable');
+    const {error}=await supa.from('earnings_manual').upsert(row,{onConflict:'symbol'});
+    if(error)throw error;
+    status.style.color='var(--green)'; status.textContent='Saved '+sym;
+    // clear symbol field, leave dates for quick re-entry
+    document.getElementById('earn-symbol').value='';
+    loadEarningsProfiles();
+  }catch(e){
+    status.style.color='var(--red)'; status.textContent='Error: '+e.message;
+  }finally{
+    btn.disabled=false; btn.textContent=orig;
+  }
+}
+
+async function loadEarningsProfiles(){
+  const container=document.getElementById('earn-profiles');
+  if(!container)return;
+  container.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    const supa=await getSupabaseAsync(); if(!supa)throw new Error('Supabase unavailable');
+    const {data:rows,error:listErr}=await supa.from('earnings_manual').select('symbol,next_date').order('next_date',{ascending:true,nullsFirst:false});
+    if(listErr)throw listErr;
+    if(!rows||!rows.length){container.innerHTML='<div class="empty">No earnings data yet — use the form above to log a symbol.</div>';return;}
+    // fetch profiles in parallel
+    const profiles=await Promise.all(rows.map(async r=>{
+      const {data,error}=await supa.rpc('get_earnings_profile',{symbol:r.symbol});
+      const p=Array.isArray(data)?data[0]:data;
+      return {sym:r.symbol, next_date:r.next_date, profile:error?null:p};
+    }));
+    container.innerHTML=profiles.map(item=>_renderEarningsCard(item.sym,item.next_date,item.profile)).join('');
+  }catch(e){
+    container.innerHTML=`<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+
+function _renderEarningsCard(sym, next_date, p){
+  const fmtPct = v => {
+    if(v==null)return'—';
+    const n=Number(v);
+    const c=n>0?'var(--green)':n<0?'var(--red)':'var(--text)';
+    return `<span style="color:${c};font-weight:600;">${n>0?'+':''}${n.toFixed(1)}%</span>`;
+  };
+  const fmtDate = d => d ? d.slice(0,10) : '—';
+
+  // History pattern badge
+  let patBadge='—';
+  if(p?.hist_pattern){
+    const patMap={
+      'consistent-positive':{c:'var(--green)',t:'CONSISTENT +'},
+      'consistent-negative':{c:'var(--red)',t:'CONSISTENT −'},
+      'mixed':              {c:'var(--amber)',t:'MIXED'},
+      'insufficient':       {c:'#506070',t:'INSUFFICIENT DATA'},
+    };
+    const pm=patMap[p.hist_pattern]||{c:'#8090a0',t:p.hist_pattern};
+    patBadge=`<span style="background:${pm.c}22;color:${pm.c};border:1px solid ${pm.c}44;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;">${pm.t}</span>`;
+  }
+
+  // Smart money lean badge
+  let leanBadge='—';
+  if(p?.flow_lean){
+    const leanMap={
+      'strong-call':{c:'var(--green)',t:'STRONG CALL'},
+      'lean-call':  {c:'var(--green)',t:'LEAN CALL'},
+      'mixed-flow': {c:'var(--amber)',t:'MIXED FLOW'},
+      'lean-put':   {c:'var(--red)',t:'LEAN PUT'},
+      'strong-put': {c:'var(--red)',t:'STRONG PUT'},
+      'no-flow':    {c:'#506070',t:'NO FLOW'},
+    };
+    const lm=leanMap[p.flow_lean]||{c:'#8090a0',t:p.flow_lean};
+    leanBadge=`<span style="background:${lm.c}22;color:${lm.c};border:1px solid ${lm.c}44;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;">${lm.t}</span>`;
+  }
+
+  // Run-up net
+  const ruNet=p?(p.runup_days_up??0)-(p.runup_days_down??0):null;
+  const ruC=ruNet==null?'var(--text)':ruNet>0?'var(--green)':'var(--red)';
+  const runupHtml=p
+    ?`↓${p.runup_days_down??0} ↑${p.runup_days_up??0} <span style="color:${ruC};font-weight:600;">${ruNet!=null&&ruNet>0?'+':''}${ruNet??0}d</span>${p.runup_trend?` <span style="color:#8090a0;font-size:9px;">(${p.runup_trend})</span>`:''}`
+    :'—';
+
+  // Next earnings
+  const nextHtml=next_date
+    ?`<span style="color:var(--cyan);font-weight:600;">${fmtDate(next_date)}</span>`
+    :'<span style="color:#506070;">not set</span>';
+
+  // Smart money numbers
+  const callPrem=p?.flow_call_prem!=null?'$'+Number(p.flow_call_prem).toLocaleString():'—';
+  const putPrem =p?.flow_put_prem!=null ?'$'+Number(p.flow_put_prem).toLocaleString() :'—';
+  const callPct =p?.flow_call_pct!=null ?Number(p.flow_call_pct).toFixed(0)+'% call':'—';
+
+  return `<div class="card" style="font-size:11px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <span style="font-size:14px;font-weight:700;color:var(--text);">${sym}</span>
+      <span style="font-size:10px;color:#8090a0;">Next: ${nextHtml}</span>
+      <span style="margin-left:auto;">${patBadge}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;color:#c0c8d0;">
+      <div><span style="color:#8090a0;">Last move</span>&nbsp;${fmtPct(p?.earn1_move)}<span style="color:#506070;font-size:9px;margin-left:4px;">${fmtDate(p?.earn1_date)}</span></div>
+      <div><span style="color:#8090a0;">Prior move</span>&nbsp;${fmtPct(p?.earn2_move)}<span style="color:#506070;font-size:9px;margin-left:4px;">${fmtDate(p?.earn2_date)}</span></div>
+      ${p?.hist_avg_mag!=null?`<div style="grid-column:1/-1;color:#8090a0;">Avg magnitude: <span style="color:var(--text);">${Number(p.hist_avg_mag).toFixed(1)}%</span></div>`:''}
+      <div style="grid-column:1/-1;margin-top:2px;"><span style="color:#8090a0;">Run-up 5d</span>&nbsp;${runupHtml}</div>
+      <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:6px;margin-top:2px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="color:#8090a0;">Smart money:</span>
+          <span>C:${callPrem} P:${putPrem} (${callPct})</span>
+          ${leanBadge}
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ============================================================
