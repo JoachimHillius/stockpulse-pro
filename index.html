@@ -5046,7 +5046,7 @@ async function loadEarningsProfiles(){
     }
     // Batch-fetch all profiles
     const profiles=await Promise.all(rows.map(async r=>{
-      const {data,error}=await supa.rpc('get_earnings_profile',{symbol:r.symbol});
+      const {data,error}=await supa.rpc('get_earnings_profile',{p_symbol:r.symbol});
       const p=Array.isArray(data)?data[0]:data;
       return {sym:r.symbol, next_date:r.next_date, profile:error?null:p};
     }));
@@ -5132,7 +5132,7 @@ async function showEarnDetail(sym){
   if(!p){
     try{
       const supa=await getSupabaseAsync(); if(!supa)throw new Error('no client');
-      const {data}=await supa.rpc('get_earnings_profile',{symbol:sym});
+      const {data}=await supa.rpc('get_earnings_profile',{p_symbol:sym});
       p=Array.isArray(data)?data[0]:data;
     }catch(e){p=null;}
   }
