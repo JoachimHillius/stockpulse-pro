@@ -411,6 +411,10 @@ select option{background:var(--bg2);}
   .sector-grid{grid-template-columns:repeat(3,1fr);}
   .flow-row{grid-template-columns:50px 70px 80px 80px 60px 44px 70px 90px;}
 }
+.earn-form-body { display:block; }
+.earn-form-collapsed .earn-form-body { display:none; }
+.earn-form-hint { display:none; font-size:11px; color:#506070; margin-top:6px; }
+.earn-form-collapsed .earn-form-hint { display:block; }
 </style>
 </head>
 <body>
@@ -1002,18 +1006,22 @@ select option{background:var(--bg2);}
   <div style="max-width:1100px;">
 
     <!-- Entry form card -->
-    <div class="card" style="margin-bottom:18px;">
+    <div id="earn-form-card" class="card earn-form-collapsed" style="margin-bottom:18px;">
       <div class="card-hd">
         <span class="card-title">Log Earnings Data</span>
-        <button id="earn-save-btn" class="btn btn-cyan btn-sm" onclick="saveEarningsEntry()">Save</button>
+        <button onclick="_earnFormToggle()" style="background:none;border:none;color:#8090a0;font-size:16px;cursor:pointer;padding:0 4px;line-height:1;margin-left:8px;" id="earn-form-chevron" title="Toggle form">▸</button>
       </div>
 
-      <!-- top row: symbol / next date / notes -->
-      <div style="display:grid;grid-template-columns:120px 160px 1fr;gap:10px 16px;margin-bottom:14px;">
-        <div>
-          <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">SYMBOL</div>
-          <input id="earn-symbol" type="text" placeholder="e.g. SMCI" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()" />
-        </div>
+      <!-- symbol — always visible -->
+      <div style="margin-top:8px;width:130px;">
+        <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">SYMBOL</div>
+        <input id="earn-symbol" type="text" placeholder="e.g. SMCI" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);text-transform:uppercase;" oninput="this.value=this.value.toUpperCase();_earnFormOnInput(this.value)" />
+      </div>
+      <div class="earn-form-hint">Enter a symbol to add earnings data</div>
+
+      <div id="earn-form-body" class="earn-form-body">
+      <!-- next date / notes row -->
+      <div style="display:grid;grid-template-columns:160px 1fr;gap:10px 16px;margin-bottom:14px;margin-top:10px;">
         <div>
           <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">NEXT EARNINGS DATE</div>
           <input id="earn-next-date" type="date" style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" />
@@ -1094,6 +1102,10 @@ select option{background:var(--bg2);}
       </div>
 
       <div id="earn-form-status" style="margin-top:10px;font-size:11px;min-height:16px;"></div>
+      <div style="margin-top:12px;">
+        <button id="earn-save-btn" class="btn btn-cyan btn-sm" onclick="saveEarningsEntry()">Save</button>
+      </div>
+      </div><!-- /earn-form-body -->
     </div>
 
     <!-- Earnings list -->
@@ -5036,6 +5048,28 @@ function goPage(name,btn){
 }
 
 // ============================================================
+// EARNINGS PAGE — form collapse helpers
+function _earnFormSetState(expanded){
+  const card = document.getElementById('earn-form-card');
+  const chevron = document.getElementById('earn-form-chevron');
+  if(!card) return;
+  if(expanded){
+    card.classList.remove('earn-form-collapsed');
+    if(chevron) chevron.textContent = '▾';
+  } else {
+    card.classList.add('earn-form-collapsed');
+    if(chevron) chevron.textContent = '▸';
+  }
+}
+function _earnFormToggle(){
+  const card = document.getElementById('earn-form-card');
+  if(!card) return;
+  _earnFormSetState(card.classList.contains('earn-form-collapsed'));
+}
+function _earnFormOnInput(val){
+  _earnFormSetState(val.trim().length > 0);
+}
+
 // EARNINGS PAGE
 // ============================================================
 
@@ -5111,6 +5145,7 @@ async function saveEarningsEntry(){
     if(error)throw error;
     status.style.color='var(--green)'; status.textContent='Saved '+sym;
     document.getElementById('earn-symbol').value='';
+    _earnFormSetState(false);
     loadEarningsProfiles();
   }catch(e){
     status.style.color='var(--red)'; status.textContent='Error: '+e.message;
