@@ -3652,7 +3652,8 @@ function parseCsvLine(line){
   return out.map(s=>s.trim());
 }
 
-function parseOMENcsv(text){
+function parseOMENcsv(text, opts){
+  const forceSym=(opts&&opts.forceSymbol)?String(opts.forceSymbol).toUpperCase().trim():'';
   if(!text)return[];
   const lines=text.trim().split(/\r?\n/);
   if(lines.length<2)return[];
@@ -3684,6 +3685,7 @@ function parseOMENcsv(text){
       earnings_date_raw: obj['earningsdate']||'',
       earning_alerts_raw: (obj['earningalerts']||obj['earningalert']||'').trim(),
     };
+    if(forceSym) row.symbol=forceSym;
     const rawEa=row.earning_alerts_raw;
     const eaMap={'approaching':'Approaching','today':'Today','post-earnings':'Post-Earnings','postearnings':'Post-Earnings','next5days':'Approaching','next 5 days':'Approaching'};
     row.earnings_context=eaMap[rawEa.toLowerCase()]||null;
@@ -5517,16 +5519,24 @@ async function uploadSymbolFlow(){
   }
 
   if(statusEl){statusEl.textContent='Parsing CSV…';statusEl.style.color='#8090a0';}
-  let rows;
+  let rows, rawText;
   try{
-    rows = await readFileAsCSV(fi.files[0]);
+    rawText = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Read error: '+fi.files[0].name));
+      reader.onload = ev => resolve(ev.target.result);
+      reader.readAsText(fi.files[0]);
+    });
+    rows = parseOMENcsv(rawText, { forceSymbol: sym });
   }catch(err){
     console.error('[SymbolFlow] CSV parse error:', err);
     if(statusEl){statusEl.textContent='CSV parse failed — '+err.message;statusEl.style.color='var(--red)';}
     return;
   }
   if(!rows.length){
-    if(statusEl){statusEl.textContent='No valid rows parsed — check CSV has Symbol and Call/Put columns';statusEl.style.color='var(--amber)';}
+    const normHeaders=parseCsvLine((rawText||'').trim().split(/\r?\n/)[0]||'').map(h=>h.toLowerCase().replace(/[^a-z]/g,''));
+    console.log('[SymbolFlow] normalised headers:', normHeaders);
+    if(statusEl){statusEl.textContent='No valid rows — CSV needs a Call/Put column (accepted headers: Call/Put, CP, or Type). Found headers: '+normHeaders.join(', ');statusEl.style.color='var(--amber)';}
     return;
   }
 
@@ -5604,6 +5614,18 @@ async function uploadSymbolFlow(){
   }
 
   if(statusEl){statusEl.textContent='Uploaded '+totalInserted+' rows for '+sym+' — '+today;statusEl.style.color='var(--green)';}
+
+  const {error:emErr} = await supa
+    .from('earnings_manual')
+    .upsert({symbol: sym}, {onConflict:'symbol', ignoreDuplicates:true});
+  if(emErr){
+    console.error('[SymbolFlow] earnings_manual upsert error:', emErr);
+    if(statusEl) statusEl.textContent += ' · watchlist add failed';
+  } else {
+    if(statusEl) statusEl.textContent += ' · added to watchlist';
+    loadEarningsProfiles();
+  }
+
   renderSymbolExpiry(sym);
 }
 
