@@ -5588,11 +5588,16 @@ async function uploadSymbolFlow(){
       earnings_date_raw:  r.earnings_date_raw||null,
       earning_alerts_raw: r.earning_alerts_raw||null,
     }));
+    const chunkNum = Math.floor(i/CHUNK)+1;
+    const totalChunks = Math.ceil(rows.length/CHUNK);
     if(statusEl){statusEl.textContent='Inserting rows '+(i+1)+'–'+Math.min(i+CHUNK,rows.length)+' of '+rows.length+'…';statusEl.style.color='#8090a0';}
-    const {error:insErr} = await supa.from('omen_flow').insert(payload);
+    const {data:insData, error:insErr} = await supa.from('omen_flow').upsert(payload, {
+      onConflict: 'trading_date,symbol,time,strike,expiry,cp,premium,size,stocklast,source',
+      ignoreDuplicates: false
+    });
     if(insErr){
-      console.error('[SymbolFlow] insert error at row '+(i+1)+':', insErr);
-      if(statusEl){statusEl.textContent='Insert failed at row '+(i+1)+' — '+insErr.message;statusEl.style.color='var(--red)';}
+      console.error('[SymbolFlow] upsert error at chunk '+chunkNum+' of '+totalChunks+':', insErr);
+      if(statusEl){statusEl.textContent='Upload failed at chunk '+chunkNum+' of '+totalChunks+' — see console';statusEl.style.color='var(--red)';}
       return;
     }
     totalInserted += chunk.length;
