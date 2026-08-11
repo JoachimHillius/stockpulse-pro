@@ -1102,8 +1102,8 @@ select option{background:var(--bg2);}
       <button class="btn btn-ghost btn-sm" onclick="loadEarningsProfiles()" style="margin-left:auto;">↻ Refresh</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
-      <div class="hist-row hist-hd" style="grid-template-columns:60px 100px 120px 120px 140px 58px 80px 55px 150px 90px;">
-        <span>Symbol</span><span>Next Date</span><span>Last Earn</span><span>Prior Earn</span><span>Pattern</span><span>Avg Mag</span><span>Run-up</span><span>Call%</span><span>Lean</span><span>Price</span>
+      <div class="hist-row hist-hd" style="grid-template-columns:60px 100px 120px 120px 140px 58px 80px 80px 80px 55px 150px 90px;">
+        <span>Symbol</span><span>Next Date</span><span>Last Earn</span><span>Prior Earn</span><span>Pattern</span><span>Avg Mag</span><span>Run-up</span><span>Call $</span><span>Put $</span><span>Call%</span><span>Lean</span><span>Price</span>
       </div>
       <div id="earn-list-body">
         <div class="empty">Open this tab to load…</div>
@@ -1148,10 +1148,12 @@ select option{background:var(--bg2);}
         <button id="eflow-chip-STALE"       onclick="setEarnFlowFilter('STALE')"       style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">STALE</button>
       </div>
       <div id="eflow-range" style="font-size:10px;color:#8090a0;padding:4px 10px;display:none;border-bottom:1px solid var(--border);"></div>
-      <div id="eflow-hd" class="hist-row hist-hd" style="grid-template-columns:60px 80px 100px 58px 90px 60px 90px 120px 30px;cursor:default;">
+      <div id="eflow-hd" class="hist-row hist-hd" style="grid-template-columns:60px 80px 100px 80px 80px 58px 90px 60px 90px 120px 30px;cursor:default;">
         <span>Symbol</span>
         <span>When</span>
         <span onclick="earnFlowSort('total_prem')"    style="cursor:pointer;" title="Sort by Total Prem">Total Prem ⇅</span>
+        <span>Call $</span>
+        <span>Put $</span>
         <span onclick="earnFlowSort('call_pct')"      style="cursor:pointer;" title="Sort by Call%">Call% ⇅</span>
         <span onclick="earnFlowSort('sweep_call_pct')" style="cursor:pointer;" title="Sort by Sweep Call%">Sweep Call% ⇅</span>
         <span>Sweeps</span>
@@ -5099,13 +5101,13 @@ async function loadEarningsProfiles(){
     }
     // Batch-fetch all profiles
     const profiles=await Promise.all(rows.map(async r=>{
-      const {data,error}=await supa.rpc('get_earnings_profile',{p_symbol:r.symbol});
+      const {data,error}=await supa.rpc('get_earnings_profile',{p_symbol:r.symbol,p_flow_days:5});
       const p=Array.isArray(data)?data[0]:data;
       return {sym:r.symbol, next_date:r.next_date, profile:error?null:p};
     }));
     window._earnProfiles=profiles;
 
-    const COL_STYLE='grid-template-columns:60px 100px 120px 120px 140px 58px 80px 55px 150px 90px;cursor:pointer;';
+    const COL_STYLE='grid-template-columns:60px 100px 120px 120px 140px 58px 80px 80px 80px 55px 150px 90px;cursor:pointer;';
     listBody.innerHTML=profiles.map(item=>{
       const p=item.profile;
       const sym=item.sym;
@@ -5146,9 +5148,16 @@ async function loadEarningsProfiles(){
         ?`<span style="font-size:10px;">↓${p.runup_days_down??0} ↑${p.runup_days_up??0} <span style="color:${ruC};">${ruNet>0?'+':''}${ruNet}d</span></span>`
         :`<span style="color:#506070;">—</span>`;
 
+      // call $ / put $
+      const callDolFmt=_earnFlowFmtPrem(p?.flow_call_prem);
+      const putDolFmt =_earnFlowFmtPrem(p?.flow_put_prem);
+      const callDolHtml=callDolFmt==='—'?`<span style="color:#506070;">—</span>`:`<span style="color:var(--green);">${callDolFmt}</span>`;
+      const putDolHtml =putDolFmt==='—' ?`<span style="color:#506070;">—</span>`:`<span style="color:var(--red);">${putDolFmt}</span>`;
+
       // call%
+      const flowTip=(p?.flow_from&&p?.flow_to)?` title="Flow ${p.flow_from} → ${p.flow_to} (${p.flow_days_covered??'?'}d)"`:'';
       const callPctHtml=p?.flow_call_pct!=null
-        ?`<span style="font-weight:600;color:${Number(p.flow_call_pct)>=60?'var(--green)':Number(p.flow_call_pct)<=40?'var(--red)':'var(--amber)'};">${Number(p.flow_call_pct).toFixed(0)}%</span>`
+        ?`<span style="font-weight:600;color:${Number(p.flow_call_pct)>=60?'var(--green)':Number(p.flow_call_pct)<=40?'var(--red)':'var(--amber)'};${flowTip}">${Number(p.flow_call_pct).toFixed(0)}%</span>`
         :`<span style="color:#506070;">—</span>`;
 
       // lean
@@ -5165,7 +5174,7 @@ async function loadEarningsProfiles(){
 
       return`<div class="hist-row" style="${COL_STYLE}" onclick="showEarnDetail('${sym}')"
         onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
-        ${symHtml}${ndHtml}${lastHtml}${priorHtml}${patHtml}${magHtml}${ruHtml}${callPctHtml}${leanHtml}${priceHtml}
+        ${symHtml}${ndHtml}${lastHtml}${priorHtml}${patHtml}${magHtml}${ruHtml}${callDolHtml}${putDolHtml}${callPctHtml}${leanHtml}${priceHtml}
       </div>`;
     }).join('');
   }catch(e){
@@ -5334,6 +5343,7 @@ function earnFlowSort(col){
 function _earnFlowFmtPrem(v){
   if(v==null) return '—';
   const n = Number(v);
+  if(n===0) return '—';
   if(n >= 1e9)  return '$' + (n/1e9).toFixed(1) + 'B';
   if(n >= 1e6)  return '$' + (n/1e6).toFixed(1) + 'M';
   if(n >= 1e3)  return '$' + (n/1e3).toFixed(1) + 'K';
@@ -5410,13 +5420,20 @@ function _earnFlowRender(rows){
     return _earnFlowSortAsc ? cmp : -cmp;
   });
 
-  const COL = 'grid-template-columns:60px 80px 100px 58px 90px 60px 90px 120px 30px;';
+  const COL = 'grid-template-columns:60px 80px 100px 80px 80px 58px 90px 60px 90px 120px 30px;';
   body.innerHTML = sorted.map(r => {
     const symHtml = `<span style="font-weight:600;">${r.symbol||'—'}</span>`;
     const whenHtml = _earnFlowWhenHtml(r.when_status);
     const viewHtml = `<span><button onclick="event.stopPropagation();_viewSymExpiry('${r.symbol}')" style="background:none;border:none;color:#506070;cursor:pointer;font-size:11px;padding:0;" title="View expiry breakdown for ${r.symbol}">↗</button></span>`;
 
     const premHtml = `<span>${_earnFlowFmtPrem(r.total_prem)}</span>`;
+
+    const callDollars = (Number(r.call_sweep_prem)||0) + (Number(r.call_block_prem)||0);
+    const putDollars  = (Number(r.put_sweep_prem)||0)  + (Number(r.put_block_prem)||0);
+    const callDolFmt2 = _earnFlowFmtPrem(callDollars||null);
+    const putDolFmt2  = _earnFlowFmtPrem(putDollars||null);
+    const callDolHtml2 = callDolFmt2==='—'?`<span style="color:#506070;">—</span>`:`<span style="color:var(--green);">${callDolFmt2}</span>`;
+    const putDolHtml2  = putDolFmt2==='—' ?`<span style="color:#506070;">—</span>`:`<span style="color:var(--red);">${putDolFmt2}</span>`;
 
     const cp = r.call_pct != null ? Number(r.call_pct) : null;
     const cpColor = cp==null ? '#8090a0' : cp>=58 ? 'var(--green)' : cp<=42 ? 'var(--red)' : '#8090a0';
@@ -5443,7 +5460,7 @@ function _earnFlowRender(rows){
 
     return `<div class="hist-row" style="${COL}cursor:pointer;"
       onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
-      ${symHtml}${whenHtml}${premHtml}${callPctHtml}${sweepCallHtml}${sweepsHtml}${ssHtml}${leanHtml}${viewHtml}
+      ${symHtml}${whenHtml}${premHtml}${callDolHtml2}${putDolHtml2}${callPctHtml}${sweepCallHtml}${sweepsHtml}${ssHtml}${leanHtml}${viewHtml}
     </div>`;
   }).join('');
 }
