@@ -1113,6 +1113,24 @@ select option{background:var(--bg2);}
     <!-- Detail card (shown on row click) -->
     <div id="earn-detail" style="display:none;"></div>
 
+    <!-- EARNINGS FLOW — SYMBOL UPLOAD panel -->
+    <div style="display:flex;align-items:center;gap:10px;margin-top:24px;margin-bottom:10px;">
+      <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Earnings Flow — Symbol Upload</span>
+      <button id="esym-1d" onclick="setEsymDays(1)" style="background:none;border:1px solid var(--cyan);color:var(--cyan);padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">1D</button>
+      <button id="esym-5d" onclick="setEsymDays(5)" style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">5D</button>
+    </div>
+    <div class="card" style="padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="esym-input" type="text" placeholder="Symbol e.g. HIMS"
+          oninput="this.value=this.value.toUpperCase()"
+          style="background:var(--bg);border:1px solid var(--border2);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 10px;border-radius:3px;width:130px;letter-spacing:1px;outline:none;" />
+        <input id="esym-file" type="file" accept=".csv" style="display:none;" onchange="uploadSymbolFlow()" />
+        <button class="btn btn-ghost btn-sm" onclick="uploadSymbolFlow()">Upload &amp; Analyze</button>
+      </div>
+      <div id="esym-status" style="font-size:11px;color:#8090a0;margin-top:8px;">Enter a symbol and upload a CSV to see expiry breakdown.</div>
+    </div>
+    <div id="esym-body" style="margin-bottom:16px;"></div>
+
     <!-- EARNINGS FLOW panel -->
     <div style="display:flex;align-items:center;gap:10px;margin-top:24px;margin-bottom:10px;">
       <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Earnings Flow</span>
@@ -1130,7 +1148,7 @@ select option{background:var(--bg2);}
         <button id="eflow-chip-STALE"       onclick="setEarnFlowFilter('STALE')"       style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">STALE</button>
       </div>
       <div id="eflow-range" style="font-size:10px;color:#8090a0;padding:4px 10px;display:none;border-bottom:1px solid var(--border);"></div>
-      <div id="eflow-hd" class="hist-row hist-hd" style="grid-template-columns:60px 80px 100px 58px 90px 60px 90px 120px;cursor:default;">
+      <div id="eflow-hd" class="hist-row hist-hd" style="grid-template-columns:60px 80px 100px 58px 90px 60px 90px 120px 30px;cursor:default;">
         <span>Symbol</span>
         <span>When</span>
         <span onclick="earnFlowSort('total_prem')"    style="cursor:pointer;" title="Sort by Total Prem">Total Prem ⇅</span>
@@ -1139,6 +1157,7 @@ select option{background:var(--bg2);}
         <span>Sweeps</span>
         <span>Sweep Share</span>
         <span>Lean</span>
+        <span></span>
       </div>
       <div id="eflow-body">
         <div class="empty">Open this tab to load…</div>
@@ -5389,10 +5408,11 @@ function _earnFlowRender(rows){
     return _earnFlowSortAsc ? cmp : -cmp;
   });
 
-  const COL = 'grid-template-columns:60px 80px 100px 58px 90px 60px 90px 120px;';
+  const COL = 'grid-template-columns:60px 80px 100px 58px 90px 60px 90px 120px 30px;';
   body.innerHTML = sorted.map(r => {
     const symHtml = `<span style="font-weight:600;">${r.symbol||'—'}</span>`;
     const whenHtml = _earnFlowWhenHtml(r.when_status);
+    const viewHtml = `<span><button onclick="event.stopPropagation();_viewSymExpiry('${r.symbol}')" style="background:none;border:none;color:#506070;cursor:pointer;font-size:11px;padding:0;" title="View expiry breakdown for ${r.symbol}">↗</button></span>`;
 
     const premHtml = `<span>${_earnFlowFmtPrem(r.total_prem)}</span>`;
 
@@ -5421,7 +5441,7 @@ function _earnFlowRender(rows){
 
     return `<div class="hist-row" style="${COL}cursor:pointer;"
       onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
-      ${symHtml}${whenHtml}${premHtml}${callPctHtml}${sweepCallHtml}${sweepsHtml}${ssHtml}${leanHtml}
+      ${symHtml}${whenHtml}${premHtml}${callPctHtml}${sweepCallHtml}${sweepsHtml}${ssHtml}${leanHtml}${viewHtml}
     </div>`;
   }).join('');
 }
@@ -5455,6 +5475,207 @@ async function loadEarningsFlow(){
   }
 
   _earnFlowRender(_earnFlowRows);
+}
+
+// ============================================================
+// EARNINGS FLOW — SYMBOL UPLOAD
+// ============================================================
+let _esymDays = 1;
+
+function setEsymDays(d){
+  _esymDays = d;
+  ['1','5'].forEach(n=>{
+    const el = document.getElementById('esym-'+n+'d');
+    if(!el)return;
+    el.style.color = n===String(d) ? 'var(--cyan)' : '#8090a0';
+    el.style.borderColor = n===String(d) ? 'var(--cyan)' : 'var(--border2)';
+  });
+  const sym = (document.getElementById('esym-input')?.value||'').trim().toUpperCase();
+  if(sym) renderSymbolExpiry(sym);
+}
+
+function _viewSymExpiry(sym){
+  const inp = document.getElementById('esym-input');
+  if(inp) inp.value = sym;
+  const esymBody = document.getElementById('esym-body');
+  if(esymBody) esymBody.scrollIntoView({behavior:'smooth', block:'start'});
+  renderSymbolExpiry(sym, 5);
+}
+
+async function uploadSymbolFlow(){
+  const sym = (document.getElementById('esym-input')?.value||'').trim().toUpperCase();
+  const statusEl = document.getElementById('esym-status');
+  if(!sym){
+    if(statusEl){statusEl.textContent='Enter a symbol first';statusEl.style.color='var(--amber)';}
+    return;
+  }
+  const fi = document.getElementById('esym-file');
+  if(!fi?.files?.length){
+    fi.value='';
+    fi.click();
+    return;
+  }
+
+  if(statusEl){statusEl.textContent='Parsing CSV…';statusEl.style.color='#8090a0';}
+  let rows;
+  try{
+    rows = await readFileAsCSV(fi.files[0]);
+  }catch(err){
+    console.error('[SymbolFlow] CSV parse error:', err);
+    if(statusEl){statusEl.textContent='CSV parse failed — '+err.message;statusEl.style.color='var(--red)';}
+    return;
+  }
+  if(!rows.length){
+    if(statusEl){statusEl.textContent='No valid rows parsed — check CSV has Symbol and Call/Put columns';statusEl.style.color='var(--amber)';}
+    return;
+  }
+
+  const nd = new Date();
+  const today = nd.getFullYear()+'-'+(String(nd.getMonth()+1).padStart(2,'0'))+'-'+(String(nd.getDate()).padStart(2,'0'));
+
+  rows.forEach(r=>{
+    r.symbol        = sym;
+    r.snapshot_type = 'intraday';
+    r.source        = 'smartmoney';
+    r.trading_date  = today;
+  });
+
+  const supa = await getSupabaseAsync();
+  if(!supa){
+    if(statusEl){statusEl.textContent='Supabase unavailable';statusEl.style.color='var(--red)';}
+    return;
+  }
+
+  if(statusEl){statusEl.textContent='Removing prior intraday rows for '+sym+' on '+today+'…';statusEl.style.color='#8090a0';}
+  const {error:delErr, count:delCount} = await supa.from('omen_flow')
+    .delete()
+    .eq('symbol', sym)
+    .eq('trading_date', today)
+    .eq('snapshot_type','intraday');
+  if(delErr){
+    console.error('[SymbolFlow] delete error:', delErr);
+    if(statusEl){statusEl.textContent='Delete failed — '+delErr.message;statusEl.style.color='var(--red)';}
+    return;
+  }
+  console.log('[SymbolFlow] deleted', delCount??0, 'prior intraday rows for', sym, today);
+
+  const CHUNK = 500;
+  const uploadDate = new Date().toISOString();
+  let totalInserted = 0;
+  for(let i=0;i<rows.length;i+=CHUNK){
+    const chunk = rows.slice(i, i+CHUNK);
+    const payload = chunk.map(r=>({
+      upload_date:        uploadDate,
+      symbol:             r.symbol,
+      expiry:             r.expiry,
+      strike:             r.strike,
+      cp:                 r.cp,
+      flag:               r.flag,
+      time:               r.time,
+      spread:             r.spread,
+      premium:            r.premium,
+      stocklast:          r.stocklast,
+      size:               r.size,
+      score:              r.score,
+      iv:                 r.iv,
+      source:             r.source,
+      trading_date:       r.trading_date,
+      snapshot_type:      r.snapshot_type,
+      earnings_context:   r.earnings_context||null,
+      oi:                 r.oi ? (parseInt(String(r.oi).replace(/,/g,''),10)||null) : null,
+      alerts:             r.alerts||null,
+      spread_side:        r.spread_side||null,
+      earnings_date_raw:  r.earnings_date_raw||null,
+      earning_alerts_raw: r.earning_alerts_raw||null,
+    }));
+    if(statusEl){statusEl.textContent='Inserting rows '+(i+1)+'–'+Math.min(i+CHUNK,rows.length)+' of '+rows.length+'…';statusEl.style.color='#8090a0';}
+    const {error:insErr} = await supa.from('omen_flow').insert(payload);
+    if(insErr){
+      console.error('[SymbolFlow] insert error at row '+(i+1)+':', insErr);
+      if(statusEl){statusEl.textContent='Insert failed at row '+(i+1)+' — '+insErr.message;statusEl.style.color='var(--red)';}
+      return;
+    }
+    totalInserted += chunk.length;
+  }
+
+  if(statusEl){statusEl.textContent='Uploaded '+totalInserted+' rows for '+sym+' — '+today;statusEl.style.color='var(--green)';}
+  renderSymbolExpiry(sym);
+}
+
+async function renderSymbolExpiry(sym, pDays){
+  const body = document.getElementById('esym-body');
+  const statusEl = document.getElementById('esym-status');
+  if(!body) return;
+  const days = (pDays != null) ? pDays : _esymDays;
+  body.innerHTML = '<div class="empty">Loading expiry breakdown for '+sym+'…</div>';
+
+  const supa = await getSupabaseAsync();
+  if(!supa){
+    body.innerHTML = '<div class="empty">Supabase unavailable</div>';
+    return;
+  }
+
+  const {data, error} = await supa.rpc('get_symbol_flow_by_expiry', {p_symbol: sym, p_days: days, p_min_prem: 0});
+  if(error){
+    console.error('[SymbolExpiry] get_symbol_flow_by_expiry error:', error);
+    if(statusEl){statusEl.textContent='RPC error — '+error.message;statusEl.style.color='var(--red)';}
+    body.innerHTML = '<div class="empty" style="color:var(--red);">Failed to load expiry data — see console</div>';
+    return;
+  }
+
+  const rows = data || [];
+  if(!rows.length){
+    body.innerHTML = '<div class="empty">No expiry data found for '+sym+'.</div>';
+    return;
+  }
+
+  const r0 = rows[0];
+  const snapshotLine = (r0.latest_snapshot || r0.flow_to)
+    ? '<div style="font-size:10px;color:#8090a0;padding:6px 10px;border-bottom:1px solid var(--border);">Snapshot: '+(r0.latest_snapshot||'—')+' · '+(r0.flow_to||'')+'</div>'
+    : '';
+
+  const maxPrem = Math.max(...rows.map(r=>Number(r.total_prem)||0));
+  const COL_EX = 'grid-template-columns:80px 36px 80px 80px 46px 68px 46px 46px 56px 76px 76px;';
+
+  const hd = '<div class="hist-row hist-hd" style="'+COL_EX+'cursor:default;">'
+    +'<span>EXPIRY</span><span>DTE</span><span>CALL $</span><span>PUT $</span>'
+    +'<span>CALL%</span><span>C/P RATIO</span><span>CALLS</span><span>PUTS</span>'
+    +'<span>SWEEPS</span><span>TOP CALL</span><span>TOP PUT</span>'
+    +'</div>';
+
+  const bodyRows = rows.map(r=>{
+    const dte = r.dte != null ? Number(r.dte) : null;
+    const expired = dte != null && dte < 0;
+    const isMax = maxPrem > 0 && (Number(r.total_prem)||0) === maxPrem;
+    const boldStyle = isMax ? 'font-weight:700;' : '';
+
+    const dteHtml     = dte==null ? '<span>—</span>' : '<span style="'+(expired?'color:#506070;':'')+'">'+dte+'</span>';
+    const callDolHtml = '<span>'+_earnFlowFmtPrem(r.call_prem)+'</span>';
+    const putDolHtml  = '<span>'+_earnFlowFmtPrem(r.put_prem)+'</span>';
+
+    const cp = r.call_pct != null ? Number(r.call_pct) : null;
+    const cpColor = cp==null ? '#8090a0' : cp>=58 ? 'var(--green)' : cp<=42 ? 'var(--red)' : '#8090a0';
+    const callPctHtml = cp!=null
+      ? '<span style="color:'+cpColor+';font-weight:600;">'+cp.toFixed(0)+'%</span>'
+      : '<span style="color:#506070;">—</span>';
+
+    const cpRatioHtml  = r.cp_ratio!=null ? '<span>'+Number(r.cp_ratio).toFixed(2)+':1</span>' : '<span style="color:#506070;">—</span>';
+    const callsHtml    = '<span style="color:#8090a0;">'+(r.call_ct??'—')+'</span>';
+    const putsHtml     = '<span style="color:#8090a0;">'+(r.put_ct??'—')+'</span>';
+    const sweepsHtml   = '<span style="color:#8090a0;">'+(r.sweep_ct??'—')+'</span>';
+    const topCallHtml  = r.top_call_strike!=null ? '<span>'+r.top_call_strike+'</span>' : '<span style="color:#506070;">—</span>';
+    const topPutHtml   = r.top_put_strike !=null ? '<span>'+r.top_put_strike+'</span>'  : '<span style="color:#506070;">—</span>';
+
+    return '<div class="hist-row" style="'+COL_EX+boldStyle+'"'
+      +' onmouseenter="this.style.background=\'var(--bg3)\'" onmouseleave="this.style.background=\'\'"><'
+      +'span style="'+(expired?'color:#506070;':'')+boldStyle+'">'+(r.expiry_txt||r.expiry||'—')+'</span>'
+      +dteHtml+callDolHtml+putDolHtml+callPctHtml+cpRatioHtml
+      +callsHtml+putsHtml+sweepsHtml+topCallHtml+topPutHtml
+      +'</div>';
+  }).join('');
+
+  body.innerHTML = '<div class="card" style="padding:0;overflow:hidden;">'
+    +snapshotLine+hd+bodyRows+'</div>';
 }
 
 // ============================================================
