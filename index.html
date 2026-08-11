@@ -5483,6 +5483,7 @@ async function loadEarningsFlow(){
 // EARNINGS FLOW — SYMBOL UPLOAD
 // ============================================================
 let _esymDays = 1;
+let _esymFileName = '';
 
 function setEsymDays(d){
   _esymDays = d;
@@ -5518,115 +5519,142 @@ async function uploadSymbolFlow(){
     return;
   }
 
-  if(statusEl){statusEl.textContent='Parsing CSV…';statusEl.style.color='#8090a0';}
-  let rows, rawText;
-  try{
-    rawText = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error('Read error: '+fi.files[0].name));
-      reader.onload = ev => resolve(ev.target.result);
-      reader.readAsText(fi.files[0]);
-    });
-    rows = parseOMENcsv(rawText, { forceSymbol: sym });
-  }catch(err){
-    console.error('[SymbolFlow] CSV parse error:', err);
-    if(statusEl){statusEl.textContent='CSV parse failed — '+err.message;statusEl.style.color='var(--red)';}
-    return;
-  }
-  if(!rows.length){
-    const normHeaders=parseCsvLine((rawText||'').trim().split(/\r?\n/)[0]||'').map(h=>h.toLowerCase().replace(/[^a-z]/g,''));
-    console.log('[SymbolFlow] normalised headers:', normHeaders);
-    if(statusEl){statusEl.textContent='No valid rows — CSV needs a Call/Put column (accepted headers: Call/Put, CP, or Type). Found headers: '+normHeaders.join(', ');statusEl.style.color='var(--amber)';}
-    return;
-  }
+  // Reset results from any prior run
+  const esymBody = document.getElementById('esym-body');
+  if(esymBody) esymBody.innerHTML = '';
 
-  const nd = new Date();
-  const today = nd.getFullYear()+'-'+(String(nd.getMonth()+1).padStart(2,'0'))+'-'+(String(nd.getDate()).padStart(2,'0'));
+  _esymFileName = fi.files[0].name;
 
-  rows.forEach(r=>{
-    r.symbol        = sym;
-    r.snapshot_type = 'intraday';
-    r.source        = 'smartmoney';
-    r.trading_date  = today;
-  });
+  // try/finally guarantees file input is cleared on success AND every error/return path
+  try {
+    if(statusEl){statusEl.textContent='Parsing CSV…';statusEl.style.color='#8090a0';}
 
-  const supa = await getSupabaseAsync();
-  if(!supa){
-    if(statusEl){statusEl.textContent='Supabase unavailable';statusEl.style.color='var(--red)';}
-    return;
-  }
-
-  if(statusEl){statusEl.textContent='Removing prior intraday rows for '+sym+' on '+today+'…';statusEl.style.color='#8090a0';}
-  const {error:delErr, count:delCount} = await supa.from('omen_flow')
-    .delete()
-    .eq('symbol', sym)
-    .eq('trading_date', today)
-    .eq('snapshot_type','intraday');
-  if(delErr){
-    console.error('[SymbolFlow] delete error:', delErr);
-    if(statusEl){statusEl.textContent='Delete failed — '+delErr.message;statusEl.style.color='var(--red)';}
-    return;
-  }
-  console.log('[SymbolFlow] deleted', delCount??0, 'prior intraday rows for', sym, today);
-
-  const CHUNK = 500;
-  const uploadDate = new Date().toISOString();
-  let totalInserted = 0;
-  for(let i=0;i<rows.length;i+=CHUNK){
-    const chunk = rows.slice(i, i+CHUNK);
-    const payload = chunk.map(r=>({
-      upload_date:        uploadDate,
-      symbol:             r.symbol,
-      expiry:             r.expiry,
-      strike:             r.strike,
-      cp:                 r.cp,
-      flag:               r.flag,
-      time:               r.time,
-      spread:             r.spread,
-      premium:            r.premium,
-      stocklast:          r.stocklast,
-      size:               r.size,
-      score:              r.score,
-      iv:                 r.iv,
-      source:             r.source,
-      trading_date:       r.trading_date,
-      snapshot_type:      r.snapshot_type,
-      earnings_context:   r.earnings_context||null,
-      oi:                 r.oi ? (parseInt(String(r.oi).replace(/,/g,''),10)||null) : null,
-      alerts:             r.alerts||null,
-      spread_side:        r.spread_side||null,
-      earnings_date_raw:  r.earnings_date_raw||null,
-      earning_alerts_raw: r.earning_alerts_raw||null,
-    }));
-    const chunkNum = Math.floor(i/CHUNK)+1;
-    const totalChunks = Math.ceil(rows.length/CHUNK);
-    if(statusEl){statusEl.textContent='Inserting rows '+(i+1)+'–'+Math.min(i+CHUNK,rows.length)+' of '+rows.length+'…';statusEl.style.color='#8090a0';}
-    const {data:insData, error:insErr} = await supa.from('omen_flow').upsert(payload, {
-      onConflict: 'trading_date,symbol,time,strike,expiry,cp,premium,size,stocklast,source',
-      ignoreDuplicates: false
-    });
-    if(insErr){
-      console.error('[SymbolFlow] upsert error at chunk '+chunkNum+' of '+totalChunks+':', insErr);
-      if(statusEl){statusEl.textContent='Upload failed at chunk '+chunkNum+' of '+totalChunks+' — see console';statusEl.style.color='var(--red)';}
+    // Read raw text
+    let rawText;
+    try{
+      rawText = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Read error: '+_esymFileName));
+        reader.onload = ev => resolve(ev.target.result);
+        reader.readAsText(fi.files[0]);
+      });
+    }catch(err){
+      console.error('[SymbolFlow] file read error:', err);
+      if(statusEl){statusEl.textContent='CSV read failed — '+err.message;statusEl.style.color='var(--red)';}
       return;
     }
-    totalInserted += chunk.length;
+
+    // Parse once WITHOUT forceSymbol to collect pre-stamp symbols for mismatch guard
+    const rawRows = parseOMENcsv(rawText);
+    const rawSymbols = new Set(rawRows.map(r=>r.symbol).filter(Boolean));
+    console.log('[SymbolFlow] symbols in file:', [...rawSymbols]);
+    if(rawSymbols.size > 0 && !rawSymbols.has(sym)){
+      if(statusEl){statusEl.textContent='File contains '+[...rawSymbols].join(', ')+' but you typed '+sym+' — upload cancelled. Pick the correct file.';statusEl.style.color='var(--red)';}
+      return;
+    }
+
+    // Parse again WITH forceSymbol (stamps sym on rows that had no/wrong Symbol column)
+    const rows = parseOMENcsv(rawText, { forceSymbol: sym });
+    if(!rows.length){
+      const normHeaders=parseCsvLine((rawText||'').trim().split(/\r?\n/)[0]||'').map(h=>h.toLowerCase().replace(/[^a-z]/g,''));
+      console.log('[SymbolFlow] normalised headers:', normHeaders);
+      if(statusEl){statusEl.textContent='No valid rows — CSV needs a Call/Put column (accepted headers: Call/Put, CP, or Type). Found headers: '+normHeaders.join(', ');statusEl.style.color='var(--amber)';}
+      return;
+    }
+
+    if(statusEl){statusEl.textContent='File: '+_esymFileName+' → '+sym;statusEl.style.color='#8090a0';}
+
+    const nd = new Date();
+    const today = nd.getFullYear()+'-'+(String(nd.getMonth()+1).padStart(2,'0'))+'-'+(String(nd.getDate()).padStart(2,'0'));
+
+    rows.forEach(r=>{
+      r.symbol        = sym;
+      r.snapshot_type = 'intraday';
+      r.source        = 'smartmoney';
+      r.trading_date  = today;
+    });
+
+    const supa = await getSupabaseAsync();
+    if(!supa){
+      if(statusEl){statusEl.textContent='Supabase unavailable';statusEl.style.color='var(--red)';}
+      return;
+    }
+
+    const {error:delErr, count:delCount} = await supa.from('omen_flow')
+      .delete()
+      .eq('symbol', sym)
+      .eq('trading_date', today)
+      .eq('snapshot_type','intraday');
+    if(delErr){
+      console.error('[SymbolFlow] delete error:', delErr);
+      if(statusEl){statusEl.textContent='Delete failed — '+delErr.message;statusEl.style.color='var(--red)';}
+      return;
+    }
+    console.log('[SymbolFlow] deleted', delCount??0, 'prior intraday rows for', sym, today);
+
+    const CHUNK = 500;
+    const uploadDate = new Date().toISOString();
+    let totalInserted = 0;
+    for(let i=0;i<rows.length;i+=CHUNK){
+      const chunk = rows.slice(i, i+CHUNK);
+      const payload = chunk.map(r=>({
+        upload_date:        uploadDate,
+        symbol:             r.symbol,
+        expiry:             r.expiry,
+        strike:             r.strike,
+        cp:                 r.cp,
+        flag:               r.flag,
+        time:               r.time,
+        spread:             r.spread,
+        premium:            r.premium,
+        stocklast:          r.stocklast,
+        size:               r.size,
+        score:              r.score,
+        iv:                 r.iv,
+        source:             r.source,
+        trading_date:       r.trading_date,
+        snapshot_type:      r.snapshot_type,
+        earnings_context:   r.earnings_context||null,
+        oi:                 r.oi ? (parseInt(String(r.oi).replace(/,/g,''),10)||null) : null,
+        alerts:             r.alerts||null,
+        spread_side:        r.spread_side||null,
+        earnings_date_raw:  r.earnings_date_raw||null,
+        earning_alerts_raw: r.earning_alerts_raw||null,
+      }));
+      const chunkNum = Math.floor(i/CHUNK)+1;
+      const totalChunks = Math.ceil(rows.length/CHUNK);
+      if(statusEl){statusEl.textContent='Inserting rows '+(i+1)+'–'+Math.min(i+CHUNK,rows.length)+' of '+rows.length+'…';statusEl.style.color='#8090a0';}
+      const {data:insData, error:insErr} = await supa.from('omen_flow').upsert(payload, {
+        onConflict: 'trading_date,symbol,time,strike,expiry,cp,premium,size,stocklast,source',
+        ignoreDuplicates: false
+      });
+      if(insErr){
+        console.error('[SymbolFlow] upsert error at chunk '+chunkNum+' of '+totalChunks+':', insErr);
+        if(statusEl){statusEl.textContent='Upload failed at chunk '+chunkNum+' of '+totalChunks+' — see console';statusEl.style.color='var(--red)';}
+        return;
+      }
+      totalInserted += chunk.length;
+    }
+
+    if(statusEl){statusEl.textContent='Uploaded '+totalInserted+' rows for '+sym+' — '+today;statusEl.style.color='var(--green)';}
+
+    const {error:emErr} = await supa
+      .from('earnings_manual')
+      .upsert({symbol: sym}, {onConflict:'symbol', ignoreDuplicates:true});
+    if(emErr){
+      console.error('[SymbolFlow] earnings_manual upsert error:', emErr);
+      if(statusEl) statusEl.textContent += ' · watchlist add failed';
+    } else {
+      if(statusEl) statusEl.textContent += ' · added to watchlist';
+      loadEarningsProfiles();
+    }
+
+    renderSymbolExpiry(sym);
+
+  } finally {
+    const fEl = document.getElementById('esym-file');
+    if(fEl) fEl.value = '';
   }
-
-  if(statusEl){statusEl.textContent='Uploaded '+totalInserted+' rows for '+sym+' — '+today;statusEl.style.color='var(--green)';}
-
-  const {error:emErr} = await supa
-    .from('earnings_manual')
-    .upsert({symbol: sym}, {onConflict:'symbol', ignoreDuplicates:true});
-  if(emErr){
-    console.error('[SymbolFlow] earnings_manual upsert error:', emErr);
-    if(statusEl) statusEl.textContent += ' · watchlist add failed';
-  } else {
-    if(statusEl) statusEl.textContent += ' · added to watchlist';
-    loadEarningsProfiles();
-  }
-
-  renderSymbolExpiry(sym);
 }
 
 async function renderSymbolExpiry(sym, pDays){
