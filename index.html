@@ -1166,6 +1166,39 @@ select option{background:var(--bg2);}
       </div>
     </div>
 
+    <!-- EARNINGS CALENDAR panel -->
+    <div style="display:flex;align-items:center;gap:10px;margin-top:24px;margin-bottom:10px;">
+      <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:#e0e0e0;text-transform:uppercase;">Earnings Calendar</span>
+      <button id="ecal-5d"  onclick="setEcalDays(5)"  style="background:none;border:1px solid var(--cyan);color:var(--cyan);padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">5D</button>
+      <button id="ecal-10d" onclick="setEcalDays(10)" style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">10D</button>
+      <button class="btn btn-ghost btn-sm" onclick="loadEarningsCalendar()" style="margin-left:auto;">↻ Refresh</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;">
+      <div id="ecal-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 8px;border-bottom:1px solid var(--border);">
+        <button id="ecal-chip-TODAY"    onclick="setEcalBucket('TODAY')"    style="background:none;border:1px solid var(--cyan);color:var(--cyan);padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">TODAY</button>
+        <button id="ecal-chip-TOMORROW" onclick="setEcalBucket('TOMORROW')" style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">TOMORROW</button>
+        <button id="ecal-chip-NEXT5"    onclick="setEcalBucket('NEXT5')"    style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">NEXT 5 DAYS</button>
+        <button id="ecal-chip-LATER"    onclick="setEcalBucket('LATER')"    style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">LATER</button>
+        <button id="ecal-chip-REPORTED" onclick="setEcalBucket('REPORTED')" style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">REPORTED</button>
+        <button id="ecal-chip-ALL"      onclick="setEcalBucket('ALL')"      style="background:none;border:1px solid var(--border2);color:#8090a0;padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;letter-spacing:0.5px;">ALL</button>
+      </div>
+      <div id="ecal-range" style="font-size:10px;color:#8090a0;padding:4px 10px;display:none;border-bottom:1px solid var(--border);"></div>
+      <div id="ecal-hd" class="hist-row hist-hd" style="grid-template-columns:60px 130px 80px 80px 58px 90px 60px 120px 100px;cursor:default;">
+        <span>Symbol</span>
+        <span>When</span>
+        <span>Call $</span>
+        <span>Put $</span>
+        <span onclick="ecalSort('call_pct')" style="cursor:pointer;" title="Sort by Call%">Call% ⇅</span>
+        <span onclick="ecalSort('sweep_call_pct')" style="cursor:pointer;" title="Sort by Sweep Call%">Sweep Call% ⇅</span>
+        <span>Sweeps</span>
+        <span>Lean</span>
+        <span onclick="ecalSort('total_prem')" style="cursor:pointer;" title="Sort by Total">Total ⇅</span>
+      </div>
+      <div id="ecal-body">
+        <div class="empty">Open this tab to load…</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -4998,6 +5031,7 @@ function goPage(name,btn){
   if(name==='earnings'){
     setTimeout(loadEarningsProfiles,50);
     setTimeout(loadEarningsFlow,80);
+    setTimeout(loadEarningsCalendar,110);
   }
 }
 
@@ -5494,6 +5528,146 @@ async function loadEarningsFlow(){
   }
 
   _earnFlowRender(_earnFlowRows);
+}
+
+// ============================================================
+// EARNINGS CALENDAR
+// ============================================================
+let _ecalDays = 5;
+let _ecalChipActive = 'TODAY';
+let _ecalSortCol = 'total_prem';
+let _ecalSortAsc = false;
+let _ecalRows = [];
+
+const _ECAL_BUCKET_MAP = {
+  TODAY:    'Today',
+  TOMORROW: 'Tomorrow',
+  NEXT5:    'Next 5 Days',
+  LATER:    'Later',
+  REPORTED: 'Reported',
+  ALL:      null,
+};
+
+function setEcalDays(d){
+  _ecalDays = d;
+  const b5  = document.getElementById('ecal-5d');
+  const b10 = document.getElementById('ecal-10d');
+  if(b5) { b5.style.color = d===5 ? 'var(--cyan)' : '#8090a0'; b5.style.borderColor = d===5 ? 'var(--cyan)' : 'var(--border2)'; }
+  if(b10){ b10.style.color = d===10 ? 'var(--cyan)' : '#8090a0'; b10.style.borderColor = d===10 ? 'var(--cyan)' : 'var(--border2)'; }
+  loadEarningsCalendar();
+}
+
+function setEcalBucket(chipId){
+  _ecalChipActive = chipId;
+  Object.keys(_ECAL_BUCKET_MAP).forEach(k => {
+    const el = document.getElementById('ecal-chip-'+k);
+    if(!el) return;
+    el.style.color = k===chipId ? 'var(--cyan)' : '#8090a0';
+    el.style.borderColor = k===chipId ? 'var(--cyan)' : 'var(--border2)';
+  });
+  loadEarningsCalendar();
+}
+
+function ecalSort(col){
+  if(_ecalSortCol === col){
+    _ecalSortAsc = !_ecalSortAsc;
+  } else {
+    _ecalSortCol = col;
+    _ecalSortAsc = false;
+  }
+  _ecalRender(_ecalRows);
+}
+
+function _ecalWhenHtml(r){
+  const bucket = r.bucket || '';
+  let col, fw = '';
+  if(bucket === 'Today')          { col = 'var(--amber)'; fw = 'font-weight:700;'; }
+  else if(bucket === 'Tomorrow')  { col = 'var(--amber)'; }
+  else if(bucket === 'Next 5 Days'){ col = 'var(--cyan)'; }
+  else if(bucket === 'Later')     { col = '#8090a0'; }
+  else if(bucket === 'Reported')  { col = '#506070'; }
+  else                            { col = '#8090a0'; }
+  let text = bucket;
+  if(r.when_session) text += ` (${r.when_session})`;
+  if(r.est_date)     text += ` · ${r.est_date}`;
+  return `<span style="color:${col};font-size:10px;${fw}">${text||'—'}</span>`;
+}
+
+function _ecalRender(rows){
+  const body = document.getElementById('ecal-body');
+  if(!body) return;
+  if(!rows.length){
+    body.innerHTML = '<div class="empty">No names in this bucket.</div>';
+    return;
+  }
+  const sorted = [...rows].sort((a,b) => {
+    const av = a[_ecalSortCol] ?? -Infinity;
+    const bv = b[_ecalSortCol] ?? -Infinity;
+    const cmp = typeof av==='number' ? av-bv : String(av).localeCompare(String(bv));
+    return _ecalSortAsc ? cmp : -cmp;
+  });
+  const COL = 'grid-template-columns:60px 130px 80px 80px 58px 90px 60px 120px 100px;';
+  body.innerHTML = sorted.map(r => {
+    const symHtml = `<span style="font-weight:600;">${r.symbol||'—'}</span>`;
+    const whenHtml = _ecalWhenHtml(r);
+    const callDolFmt = _earnFlowFmtPrem(r.call_prem);
+    const putDolFmt  = _earnFlowFmtPrem(r.put_prem);
+    const callDolHtml = callDolFmt==='—'?`<span style="color:#506070;">—</span>`:`<span style="color:var(--green);">${callDolFmt}</span>`;
+    const putDolHtml  = putDolFmt==='—' ?`<span style="color:#506070;">—</span>`:`<span style="color:var(--red);">${putDolFmt}</span>`;
+    const cp = r.call_pct != null ? Number(r.call_pct) : null;
+    const cpColor = cp==null ? '#8090a0' : cp>=58 ? 'var(--green)' : cp<=42 ? 'var(--red)' : '#8090a0';
+    const callPctHtml = cp!=null
+      ? `<span style="color:${cpColor};font-weight:600;">${cp.toFixed(0)}%</span>`
+      : `<span style="color:#506070;">—</span>`;
+    const scp = r.sweep_call_pct != null ? Number(r.sweep_call_pct) : null;
+    const thinSample = (r.sweep_ct_total ?? 0) < 5;
+    let sweepCallHtml;
+    if(scp==null){ sweepCallHtml=`<span style="color:#506070;">—</span>`; }
+    else if(thinSample){ sweepCallHtml=`<span style="color:#8090a0;" title="thin sample — under 5 sweeps">${scp.toFixed(0)}%*</span>`; }
+    else { const scColor=scp>=58?'var(--green)':scp<=42?'var(--red)':'#8090a0'; sweepCallHtml=`<span style="color:${scColor};font-weight:600;">${scp.toFixed(0)}%</span>`; }
+    const sweepsHtml = `<span style="color:#8090a0;font-size:10px;">${r.sweep_ct_total??'—'}</span>`;
+    const lm = r.lean ? (_EFLOW_LEAN_MAP[r.lean]||{c:'#8090a0',t:r.lean}) : null;
+    const leanHtml = lm
+      ? `<span style="color:${lm.c};font-size:10px;font-weight:600;">${lm.t}</span>`
+      : `<span style="color:#506070;">—</span>`;
+    const totalFmt = _earnFlowFmtPrem(r.total_prem);
+    const totalHtml = totalFmt==='—'?`<span style="color:#506070;">—</span>`:`<span>${totalFmt}</span>`;
+    return `<div class="hist-row" style="${COL}">
+      ${symHtml}${whenHtml}${callDolHtml}${putDolHtml}${callPctHtml}${sweepCallHtml}${sweepsHtml}${leanHtml}${totalHtml}
+    </div>`;
+  }).join('');
+}
+
+async function loadEarningsCalendar(){
+  const body = document.getElementById('ecal-body');
+  if(!body) return;
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  const supa = await getSupabaseAsync();
+  if(!supa){ body.innerHTML = '<div class="empty">Supabase unavailable</div>'; return; }
+  const p_bucket = _ECAL_BUCKET_MAP[_ecalChipActive];
+  const { data, error } = await supa.rpc('get_earnings_calendar_flow', {
+    p_days: _ecalDays,
+    p_min_prem: 500000,
+    p_limit: 20,
+    p_bucket: p_bucket
+  });
+  if(error){
+    console.error('[EarningsCalendar] get_earnings_calendar_flow error:', error);
+    body.innerHTML = `<div class="empty" style="color:var(--red);">Load failed — ${error.message||'see console'}</div>`;
+    return;
+  }
+  _ecalRows = data || [];
+  const rangeEl = document.getElementById('ecal-range');
+  if(rangeEl){
+    const r0 = _ecalRows[0];
+    if(r0 && r0.flow_from && r0.flow_to){
+      rangeEl.textContent = `Flow ${r0.flow_from} → ${r0.flow_to}`;
+      rangeEl.style.display = '';
+    } else {
+      rangeEl.style.display = 'none';
+    }
+  }
+  _ecalRender(_ecalRows);
 }
 
 // ============================================================
