@@ -13412,16 +13412,18 @@ function _tosRender() {
   const putCols   = _tosHasPrev ? 5 : 4;
   const totalCols = 1 + callCols + 1 + putCols + 1; // bandL + calls + strike + puts + bandR
 
-  // STEP C: tighter cell styles; Cum columns muted + smaller
-  const cellBase = 'padding:2px 4px;text-align:right;font-variant-numeric:tabular-nums;';
-  const cellC    = 'color:var(--blue);';
-  const cellP    = 'color:var(--amber);';
-  const cellCumC = 'color:rgba(61,158,255,0.55);font-size:10px;';
-  const cellCumP = 'color:rgba(255,176,32,0.55);font-size:10px;';
+  // cell styles — looser padding, readable font sizes
+  const cellBase  = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px;';
+  const cellC     = 'color:var(--blue);';
+  const cellP     = 'color:var(--amber);';
+  const cellCumC  = 'color:rgba(61,158,255,0.55);font-size:11px;';
+  const cellCumP  = 'color:rgba(255,176,32,0.55);font-size:11px;';
+  // vertical rule between CALLS / STRIKE / PUTS zones
+  const strikeSep = 'border-left:1px solid rgba(255,255,255,0.13);border-right:1px solid rgba(255,255,255,0.13);';
 
-  // STEP B: band column helpers
-  const bandSt  = 'width:22px;max-width:22px;min-width:22px;text-align:center;vertical-align:middle;padding:0;';
-  const bandTxt = 'font-size:8px;letter-spacing:1.5px;text-transform:uppercase;writing-mode:vertical-lr;';
+  // STEP A: wider band columns, bottom-to-top text, boosted opacity
+  const bandSt  = 'width:34px;max-width:34px;min-width:34px;text-align:center;vertical-align:middle;padding:0;';
+  const bandTxt = 'font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;';
   const mkBand  = (label, rowspan, side, borderCol, bgCol, txtCol) =>
     `<td rowspan="${rowspan}" style="${bandSt};border-${side}:2px solid ${borderCol};background:${bgCol};color:${txtCol};">
        <span style="${bandTxt}">${label}</span>
@@ -13434,14 +13436,14 @@ function _tosRender() {
     const putDelta = _tosHasPrev
       ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'put_oi', r.put_oi)}</td>`
       : '';
-    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
       ${bL}
       <td style="${cellBase}${cellCumC}">${_tosFmtN(cumCV)}</td>
       <td style="${cellBase}${cellC}">${_tosFmtN(r.call_volume)}</td>
       ${callDelta}
       <td style="${cellBase}${cellC}">${_tosFmtN(r.call_oi)}</td>
       <td style="${cellBase}${cellCumC}">${_tosFmtN(cumCOI)}</td>
-      <td style="text-align:center;font-weight:700;padding:2px 8px;color:#e0e0e0;white-space:nowrap;font-variant-numeric:tabular-nums;">${r.strike}</td>
+      <td style="text-align:center;font-weight:700;padding:5px 14px;color:#e0e0e0;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:12.5px;${strikeSep}">${r.strike}</td>
       <td style="${cellBase}${cellCumP}">${_tosFmtN(cumPOI)}</td>
       <td style="${cellBase}${cellP}">${_tosFmtN(r.put_oi)}</td>
       ${putDelta}
@@ -13451,7 +13453,7 @@ function _tosRender() {
     </tr>`;
   };
 
-  const thBase   = 'padding:3px 4px;font-size:9px;font-weight:500;letter-spacing:0.3px;white-space:nowrap;';
+  const thBase    = 'padding:5px 8px;font-size:9px;font-weight:500;letter-spacing:0.3px;white-space:nowrap;';
   const hdrDeltaC = _tosHasPrev ? `<th style="${thBase}text-align:right;color:var(--blue);">Δ OI</th>` : '';
   const hdrDeltaP = _tosHasPrev ? `<th style="${thBase}text-align:right;color:var(--amber);">Δ OI</th>` : '';
 
@@ -13488,61 +13490,65 @@ function _tosRender() {
     const cpR  = tPV > 0 ? (tCV / tPV).toFixed(2) : '—';
     const dteStr = expData.dte != null ? ` · ${expData.dte} DTE` : '';
 
-    // STEP B: ITM/OTM band cells — below: calls=ITM left, puts=OTM right
+    // STEP A: higher-opacity bands so regions are obvious at a glance
+    // below: call-ITM (blue) left, put-OTM (amber) right
     const belowHtml = below.map((r, i) => {
-      const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'rgba(61,158,255,0.35)', 'rgba(61,158,255,0.05)', 'rgba(61,158,255,0.55)') : '';
-      const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'rgba(255,176,32,0.25)',  'rgba(255,176,32,0.04)',  'rgba(255,176,32,0.45)')  : '';
+      const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'rgba(61,158,255,0.5)',  'rgba(61,158,255,0.13)', 'rgba(61,158,255,0.85)') : '';
+      const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'rgba(255,176,32,0.4)',  'rgba(255,176,32,0.08)', 'rgba(255,176,32,0.75)') : '';
       return mkRow(r, bCV[i], bCOI[i], bPV[i], bPOI[i], bL, bR);
     }).join('');
 
-    // STEP B: above: calls=OTM left, puts=ITM right
+    // above: call-OTM (blue) left, put-ITM (amber) right
     const aboveHtml = above.map((r, i) => {
-      const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'rgba(61,158,255,0.2)',  'rgba(61,158,255,0.03)', 'rgba(61,158,255,0.4)') : '';
-      const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'rgba(255,176,32,0.35)', 'rgba(255,176,32,0.05)', 'rgba(255,176,32,0.55)') : '';
+      const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'rgba(61,158,255,0.3)',  'rgba(61,158,255,0.06)', 'rgba(61,158,255,0.6)') : '';
+      const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'rgba(255,176,32,0.5)',  'rgba(255,176,32,0.13)', 'rgba(255,176,32,0.85)') : '';
       return mkRow(r, aCV[i], aCOI[i], aPV[i], aPOI[i], bL, bR);
     }).join('');
 
     const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:12px;">${spot} ← spot</span></td></tr>`;
 
+    // STEP C: wrapper shrinks to table width; card border hugs table
     return `
-    <div style="margin-bottom:24px;">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
-        <span style="font-size:13px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">${expLabel}${dteStr}</span>
-        <span style="font-size:10px;color:#8090a0;">
-          Calls ${_tosFmtN(tCV)} vol / ${_tosFmtN(tCOI)} OI &nbsp;·&nbsp;
-          Puts ${_tosFmtN(tPV)} vol / ${_tosFmtN(tPOI)} OI &nbsp;·&nbsp;
-          C/P ${cpR}
-          &nbsp;<span style="color:#506070;">(${disp.length} strikes)</span>
-        </span>
-      </div>
-      <div class="card" style="padding:0;overflow-x:auto;">
-        <table style="border-collapse:collapse;font-size:11px;font-family:var(--font);max-width:1000px;margin:0 auto;">
-          <thead>
-            <tr style="background:var(--bg3);border-bottom:1px solid var(--border);">
-              <th style="width:22px;padding:0;"></th>
-              <th colspan="${callCols}" style="text-align:center;color:var(--blue);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">CALLS</th>
-              <th style="padding:4px;"></th>
-              <th colspan="${putCols}" style="text-align:center;color:var(--amber);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">PUTS</th>
-              <th style="width:22px;padding:0;"></th>
-            </tr>
-            <tr style="background:var(--bg2);border-bottom:1px solid var(--border);">
-              <th style="width:22px;padding:0;"></th>
-              <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM VOL</th>
-              <th style="${thBase}text-align:right;color:var(--blue);">VOL</th>
-              ${hdrDeltaC}
-              <th style="${thBase}text-align:right;color:var(--blue);">OI</th>
-              <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM OI</th>
-              <th style="${thBase}text-align:center;color:#e0e0e0;font-weight:600;">STRIKE</th>
-              <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM OI</th>
-              <th style="${thBase}text-align:right;color:var(--amber);">OI</th>
-              ${hdrDeltaP}
-              <th style="${thBase}text-align:right;color:var(--amber);">VOL</th>
-              <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM VOL</th>
-              <th style="width:22px;padding:0;"></th>
-            </tr>
-          </thead>
-          <tbody>${belowHtml}${divider}${aboveHtml}</tbody>
-        </table>
+    <div style="margin-bottom:28px;">
+      <div style="width:max-content;max-width:100%;margin:0 auto;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+          <span style="font-size:13px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">${expLabel}${dteStr}</span>
+          <span style="font-size:10px;color:#8090a0;">
+            Calls ${_tosFmtN(tCV)} vol / ${_tosFmtN(tCOI)} OI &nbsp;·&nbsp;
+            Puts ${_tosFmtN(tPV)} vol / ${_tosFmtN(tPOI)} OI &nbsp;·&nbsp;
+            C/P ${cpR}
+            &nbsp;<span style="color:#506070;">(${disp.length} strikes)</span>
+          </span>
+        </div>
+        <div class="card" style="padding:0;overflow-x:auto;width:max-content;max-width:100%;">
+          <table style="border-collapse:collapse;font-family:var(--font);max-width:1150px;">
+            <thead>
+              <tr style="background:var(--bg3);border-bottom:1px solid var(--border);">
+                <th style="width:34px;padding:0;"></th>
+                <th colspan="${callCols}" style="text-align:center;color:var(--blue);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">CALLS</th>
+                <th style="padding:4px;${strikeSep}"></th>
+                <th colspan="${putCols}" style="text-align:center;color:var(--amber);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">PUTS</th>
+                <th style="width:34px;padding:0;"></th>
+              </tr>
+              <tr style="background:var(--bg2);border-bottom:1px solid var(--border);">
+                <th style="width:34px;padding:0;"></th>
+                <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM VOL</th>
+                <th style="${thBase}text-align:right;color:var(--blue);">VOL</th>
+                ${hdrDeltaC}
+                <th style="${thBase}text-align:right;color:var(--blue);">OI</th>
+                <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM OI</th>
+                <th style="${thBase}text-align:center;color:#e0e0e0;font-weight:600;${strikeSep}">STRIKE</th>
+                <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM OI</th>
+                <th style="${thBase}text-align:right;color:var(--amber);">OI</th>
+                ${hdrDeltaP}
+                <th style="${thBase}text-align:right;color:var(--amber);">VOL</th>
+                <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM VOL</th>
+                <th style="width:34px;padding:0;"></th>
+              </tr>
+            </thead>
+            <tbody>${belowHtml}${divider}${aboveHtml}</tbody>
+          </table>
+        </div>
       </div>
     </div>`;
   }).filter(Boolean);
