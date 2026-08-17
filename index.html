@@ -13258,6 +13258,7 @@ function parseTosOptionsCsv(text) {
   let spot         = null;
   let grabNextSpot = false;
   let hdrMap       = null;   // re-read from each column-header row
+  let col5Type     = null;   // 'pctChange' | 'implVol' | null — set on first hdrMap that has either
 
   for (let i = 1; i < lines.length; i++) {
     const raw = lines[i];
@@ -13291,6 +13292,10 @@ function parseTosOptionsCsv(text) {
     const sIdx = cols.indexOf('Strike');
     if (eIdx !== -1 && sIdx !== -1 && sIdx > eIdx) {
       hdrMap = buildHdrMap(cols);
+      if (col5Type === null && hdrMap) {
+        if (hdrMap['c_%Change'] !== -1) col5Type = 'pctChange';
+        else if (hdrMap['c_Impl Vol'] !== -1) col5Type = 'implVol';
+      }
       continue;
     }
 
@@ -13309,11 +13314,13 @@ function parseTosOptionsCsv(text) {
       call_volume:     getN(cols,   hdrMap['c_Volume']),
       call_oi:         getN(cols,   hdrMap['c_Open.Int']),
       call_pct_change: getNul(cols, hdrMap['c_%Change']),
+      call_impl_vol:   getNul(cols, hdrMap['c_Impl Vol']),
       call_delta:      getNul(cols, hdrMap['c_Delta']),
       call_theta:      getNul(cols, hdrMap['c_Theta']),
       put_volume:      getN(cols,   hdrMap['p_Volume']),
       put_oi:          getN(cols,   hdrMap['p_Open.Int']),
       put_pct_change:  getNul(cols, hdrMap['p_%Change']),
+      put_impl_vol:    getNul(cols, hdrMap['p_Impl Vol']),
       put_delta:       getNul(cols, hdrMap['p_Delta']),
       put_theta:       getNul(cols, hdrMap['p_Theta']),
     });
@@ -13322,7 +13329,7 @@ function parseTosOptionsCsv(text) {
   const rows          = allExpLabels.flatMap(l => rowsByExp[l] || []);
   const collapsedExps = allExpLabels.filter(l => !rowsByExp[l] || rowsByExp[l].length === 0);
 
-  return { ticker, capturedAt, snapshotDate, spot, rows, collapsedExps };
+  return { ticker, capturedAt, snapshotDate, spot, rows, collapsedExps, col5Type };
 }
 
 function _tosFmtN(n) {
@@ -13482,26 +13489,36 @@ function _tosRender() {
   const Wb = 30;   // band
   const Wc = 62;   // cum vol / cum oi  (muted secondary)
   const Wv = 72;   // vol / oi          (primary)
-  const Wp = 58;   // % chg
+  const Wp = 58;   // % chg / IV (col5, omitted when neither is in file)
   const Wd = 56;   // delta (greek)
   const Wt = 56;   // theta
   const Wo = 60;   // oi Δ1D (only when _tosHasPrev)
   const Ws = 76;   // strike
 
-  // STEP C: 8 call cols + 8 put cols when OI Δ1D shown; 7 each otherwise
-  const callCols  = _tosHasPrev ? 8 : 7;
-  const putCols   = _tosHasPrev ? 8 : 7;
+  const col5Type = _tosParsed.col5Type;  // 'pctChange' | 'implVol' | null
+  const hasCol5  = col5Type !== null;
+
+  // STEP C: col count adjusts for OI Δ1D presence AND col5 presence
+  const sideBaseCols = hasCol5 ? 7 : 6;
+  const callCols  = _tosHasPrev ? sideBaseCols + 1 : sideBaseCols;
+  const putCols   = callCols;
   const totalCols = 1 + callCols + 1 + putCols + 1;
 
   // STEP D: fixed identical width for every expiration block
-  const sideW  = Wc + Wv + Wp + Wd + Wt + (_tosHasPrev ? Wo : 0) + Wv + Wc;
+  const col5W  = hasCol5 ? Wp : 0;
+  const sideW  = Wc + Wv + col5W + Wd + Wt + (_tosHasPrev ? Wo : 0) + Wv + Wc;
   const tableW = Wb + sideW + Ws + sideW + Wb;
 
   // colgroup for table-layout:fixed column ordering
-  // calls L→R: CumVol|Vol|%Chg|Delta|Theta|[OIΔ]|OI|CumOI  puts L→R: CumOI|OI|[OIΔ]|Theta|Delta|%Chg|Vol|CumVol
-  const colWidths = _tosHasPrev
-    ? [Wb, Wc, Wv, Wp, Wd, Wt, Wo, Wv, Wc, Ws, Wc, Wv, Wo, Wt, Wd, Wp, Wv, Wc, Wb]
-    : [Wb, Wc, Wv, Wp, Wd, Wt, Wv, Wc, Ws, Wc, Wv, Wt, Wd, Wp, Wv, Wc, Wb];
+  // calls L→R: CumVol|Vol|[Col5]|Delta|Theta|[OIΔ]|OI|CumOI  puts mirror
+  const _cg = (hasPrev, has5) => {
+    const mid = has5 ? [Wc, Wv, Wp, Wd, Wt] : [Wc, Wv, Wd, Wt];
+    const oid = hasPrev ? [Wo] : [];
+    const callSide = [Wb, ...mid, ...oid, Wv, Wc];
+    const putSide  = [Wc, Wv, ...oid, ...mid.slice().reverse(), Wb];
+    return [...callSide, Ws, ...putSide];
+  };
+  const colWidths = _cg(_tosHasPrev, hasCol5);
   const colgroup = `<colgroup>${colWidths.map(w => `<col style="width:${w}px;">`).join('')}</colgroup>`;
 
   // cell styles
@@ -13520,8 +13537,13 @@ function _tosRender() {
        <span style="${bandTxt}">${label}</span>
      </td>`;
 
-  // STEP C: column order — calls: CumVol|Vol|%Chg|Delta|Theta|[OIΔ1D]|OI|CumOI
-  //                         puts:  CumOI|OI|[OIΔ1D]|Theta|Delta|%Chg|Vol|CumVol
+  // column order — calls: CumVol|Vol|[Col5]|Delta|Theta|[OIΔ1D]|OI|CumOI
+  //                puts:  CumOI|OI|[OIΔ1D]|Theta|Delta|[Col5]|Vol|CumVol
+  const _fmtCol5 = (pct, iv) => {
+    if (col5Type === 'pctChange') return _tosFmtPct(pct);
+    if (col5Type === 'implVol')   return _tosFmtG(iv);
+    return '';
+  };
   const mkRow = (r, cumCV, cumCOI, cumPV, cumPOI, bL, bR) => {
     const callOIDelta = _tosHasPrev
       ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'call_oi', r.call_oi)}</td>`
@@ -13529,11 +13551,13 @@ function _tosRender() {
     const putOIDelta = _tosHasPrev
       ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'put_oi', r.put_oi)}</td>`
       : '';
+    const callCol5 = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.call_pct_change, r.call_impl_vol)}</td>` : '';
+    const putCol5  = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.put_pct_change,  r.put_impl_vol)}</td>`  : '';
     return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
       ${bL}
       <td style="${cellBase}${cellCumC}">${_tosFmtN(cumCV)}</td>
       <td style="${cellBase}${cellC}">${_tosFmtN(r.call_volume)}</td>
-      <td style="${cellBase}">${_tosFmtPct(r.call_pct_change)}</td>
+      ${callCol5}
       <td style="${cellBase}">${_tosFmtG(r.call_delta)}</td>
       <td style="${cellBase}">${_tosFmtG(r.call_theta)}</td>
       ${callOIDelta}
@@ -13545,7 +13569,7 @@ function _tosRender() {
       ${putOIDelta}
       <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
       <td style="${cellBase}">${_tosFmtG(r.put_delta)}</td>
-      <td style="${cellBase}">${_tosFmtPct(r.put_pct_change)}</td>
+      ${putCol5}
       <td style="${cellBase}${cellP}">${_tosFmtN(r.put_volume)}</td>
       <td style="${cellBase}${cellCumP}">${_tosFmtN(cumPV)}</td>
       ${bR}
@@ -13562,6 +13586,9 @@ function _tosRender() {
   const thStrike    = `${thBase}text-align:center;color:#e0e0e0;font-weight:600;${strikeSep}`;
   const hdrOIDeltaC = _tosHasPrev ? `<th style="${thC}">OI Δ1D</th>` : '';
   const hdrOIDeltaP = _tosHasPrev ? `<th style="${thP}">OI Δ1D</th>` : '';
+  const hdrCol5Label = col5Type === 'pctChange' ? '% CHG' : col5Type === 'implVol' ? 'IV' : '';
+  const hdrCol5C = hasCol5 ? `<th style="${thMuted}">${hdrCol5Label}</th>` : '';
+  const hdrCol5P = hasCol5 ? `<th style="${thMuted}">${hdrCol5Label}</th>` : '';
 
   const blocks = exps.map(([expLabel, expData]) => {
     const all   = [...expData.rows].sort((a, b) => a.strike - b.strike);
@@ -13642,7 +13669,7 @@ function _tosRender() {
                 <th style="padding:0;"></th>
                 <th style="${thCumC}">CUM VOL</th>
                 <th style="${thC}">VOL</th>
-                <th style="${thMuted}">% CHG</th>
+                ${hdrCol5C}
                 <th style="${thMuted}">DELTA</th>
                 <th style="${thMuted}">THETA</th>
                 ${hdrOIDeltaC}
@@ -13654,7 +13681,7 @@ function _tosRender() {
                 ${hdrOIDeltaP}
                 <th style="${thMuted}">THETA</th>
                 <th style="${thMuted}">DELTA</th>
-                <th style="${thMuted}">% CHG</th>
+                ${hdrCol5P}
                 <th style="${thP}">VOL</th>
                 <th style="${thCumP}">CUM VOL</th>
                 <th style="padding:0;"></th>
