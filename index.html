@@ -1376,9 +1376,13 @@ select option{background:var(--bg2);}
           <div style="font-size:9px;color:#c4d2e0;margin-bottom:3px;letter-spacing:0.5px;">SNAPSHOT DATE</div>
           <input id="tos-date" type="date" style="width:150px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);"/>
         </div>
-        <button id="tos-save-btn" class="btn btn-cyan btn-sm" onclick="tosSaveSnapshot()" disabled style="align-self:flex-end;">Save snapshot</button>
+        <div style="align-self:flex-end;">
+          <button id="tos-save-btn" class="btn btn-cyan btn-sm" onclick="tosSaveSnapshot()" disabled>Save snapshot</button>
+          <div style="font-size:9px;color:#506070;margin-top:3px;white-space:nowrap;">saves all expirations in file</div>
+        </div>
       </div>
       <div id="tos-status" style="font-size:11px;color:#8090a0;min-height:16px;"></div>
+      <div id="tos-picker" style="display:none;margin-top:10px;"></div>
     </div>
     <div id="tos-body"></div>
   </div>
@@ -13176,6 +13180,7 @@ async function showMarketMap() {
 let _tosParsed = null;
 let _tosPrevMap = new Map();
 let _tosHasPrev = false;
+let _tosSelectedExps = new Set();
 
 function _tosSplitCsvLine(line) {
   const result = [];
@@ -13308,41 +13313,166 @@ async function _tosLoadPrev(supa, ticker, snapshotDate) {
   }
 }
 
+// ── STEP A: Expiration Picker ──────────────────────────────
+function _tosUpdateChipStyles() {
+  document.querySelectorAll('[data-tos-chip]').forEach(el => {
+    const exp = el.getAttribute('data-tos-chip');
+    const sel = _tosSelectedExps.has(exp);
+    el.style.background    = sel ? 'var(--cyan)' : 'transparent';
+    el.style.color         = sel ? '#000814' : '#607080';
+    el.style.borderColor   = sel ? 'var(--cyan)' : '#3a4858';
+    el.style.fontWeight    = sel ? '600' : '400';
+  });
+}
+
+function _tosRenderPicker() {
+  const picker = document.getElementById('tos-picker');
+  if (!picker || !_tosParsed) return;
+
+  const expMap = new Map();
+  for (const r of _tosParsed.rows) {
+    if (!expMap.has(r.exp_label)) expMap.set(r.exp_label, { dte: r.dte, count: 0 });
+    expMap.get(r.exp_label).count++;
+  }
+  const exps = [...expMap.entries()].sort((a, b) => (a[1].dte ?? 9999) - (b[1].dte ?? 9999));
+  if (!exps.length) { picker.style.display = 'none'; return; }
+
+  // Default: DTE ≤ 60 selected; beyond 60 unselected
+  _tosSelectedExps = new Set(
+    exps.filter(([, d]) => (d.dte ?? 9999) <= 60).map(([label]) => label)
+  );
+
+  const chipHtml = exps.map(([label, d]) => {
+    const dteStr = d.dte != null ? ` · ${d.dte} DTE` : '';
+    const safeAttr = label.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return `<button data-tos-chip="${safeAttr}"
+      onclick="tosToggleExp(this.getAttribute('data-tos-chip'))"
+      style="background:transparent;border:1px solid #3a4858;color:#607080;padding:3px 10px;border-radius:3px;font-size:10px;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:background 0.12s,color 0.12s;">
+      ${label}${dteStr} · ${d.count} strikes
+    </button>`;
+  }).join('');
+
+  picker.innerHTML = `
+    <div style="font-size:9px;color:#607080;margin-bottom:6px;letter-spacing:0.3px;text-transform:uppercase;">Expirations to display:</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+      ${chipHtml}
+      <button onclick="tosSelectAll()" style="background:none;border:none;color:var(--cyan);font-size:10px;cursor:pointer;font-family:var(--font);padding:2px 4px;margin-left:4px;">All</button>
+      <button onclick="tosSelectNone()" style="background:none;border:none;color:#607080;font-size:10px;cursor:pointer;font-family:var(--font);padding:2px 4px;">None</button>
+    </div>`;
+  picker.style.display = '';
+  _tosUpdateChipStyles();
+  _tosRender();
+}
+
+function tosToggleExp(label) {
+  if (_tosSelectedExps.has(label)) _tosSelectedExps.delete(label);
+  else _tosSelectedExps.add(label);
+  _tosUpdateChipStyles();
+  _tosRender();
+}
+
+function tosSelectAll() {
+  document.querySelectorAll('[data-tos-chip]').forEach(el => {
+    _tosSelectedExps.add(el.getAttribute('data-tos-chip'));
+  });
+  _tosUpdateChipStyles();
+  _tosRender();
+}
+
+function tosSelectNone() {
+  _tosSelectedExps.clear();
+  _tosUpdateChipStyles();
+  _tosRender();
+}
+
+// ── STEP B+C: Render ──────────────────────────────────────
 function _tosRender() {
   const body = document.getElementById('tos-body');
   if (!body || !_tosParsed) return;
   const spot = parseFloat(document.getElementById('tos-price')?.value) || _tosParsed.spot || 0;
 
-  // Group by expiration
   const expMap = new Map();
   for (const r of _tosParsed.rows) {
     if (!expMap.has(r.exp_label)) expMap.set(r.exp_label, { dte: r.dte, rows: [] });
     expMap.get(r.exp_label).rows.push(r);
   }
 
-  const exps = [...expMap.entries()].sort((a, b) => (a[1].dte ?? 9999) - (b[1].dte ?? 9999));
-  if (!exps.length) { body.innerHTML = '<div class="empty">No option rows parsed.</div>'; return; }
+  // STEP A: only render selected expirations
+  const exps = [...expMap.entries()]
+    .filter(([label]) => _tosSelectedExps.has(label))
+    .sort((a, b) => (a[1].dte ?? 9999) - (b[1].dte ?? 9999));
 
-  const cellC = `color:var(--blue);`;
-  const cellP = `color:var(--amber);`;
-  const cellBase = `padding:3px 7px;text-align:right;`;
+  if (!exps.length) {
+    body.innerHTML = '<div class="empty">Select at least one expiration above to display.</div>';
+    return;
+  }
+
+  // STEP C: ΔOI columns only when prior snapshot exists
+  const callCols  = _tosHasPrev ? 5 : 4;
+  const putCols   = _tosHasPrev ? 5 : 4;
+  const totalCols = 1 + callCols + 1 + putCols + 1; // bandL + calls + strike + puts + bandR
+
+  // STEP C: tighter cell styles; Cum columns muted + smaller
+  const cellBase = 'padding:2px 4px;text-align:right;font-variant-numeric:tabular-nums;';
+  const cellC    = 'color:var(--blue);';
+  const cellP    = 'color:var(--amber);';
+  const cellCumC = 'color:rgba(61,158,255,0.55);font-size:10px;';
+  const cellCumP = 'color:rgba(255,176,32,0.55);font-size:10px;';
+
+  // STEP B: band column helpers
+  const bandSt  = 'width:22px;max-width:22px;min-width:22px;text-align:center;vertical-align:middle;padding:0;';
+  const bandTxt = 'font-size:8px;letter-spacing:1.5px;text-transform:uppercase;writing-mode:vertical-lr;';
+  const mkBand  = (label, rowspan, side, borderCol, bgCol, txtCol) =>
+    `<td rowspan="${rowspan}" style="${bandSt};border-${side}:2px solid ${borderCol};background:${bgCol};color:${txtCol};">
+       <span style="${bandTxt}">${label}</span>
+     </td>`;
+
+  const mkRow = (r, cumCV, cumCOI, cumPV, cumPOI, bL, bR) => {
+    const callDelta = _tosHasPrev
+      ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'call_oi', r.call_oi)}</td>`
+      : '';
+    const putDelta = _tosHasPrev
+      ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'put_oi', r.put_oi)}</td>`
+      : '';
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
+      ${bL}
+      <td style="${cellBase}${cellCumC}">${_tosFmtN(cumCV)}</td>
+      <td style="${cellBase}${cellC}">${_tosFmtN(r.call_volume)}</td>
+      ${callDelta}
+      <td style="${cellBase}${cellC}">${_tosFmtN(r.call_oi)}</td>
+      <td style="${cellBase}${cellCumC}">${_tosFmtN(cumCOI)}</td>
+      <td style="text-align:center;font-weight:700;padding:2px 8px;color:#e0e0e0;white-space:nowrap;font-variant-numeric:tabular-nums;">${r.strike}</td>
+      <td style="${cellBase}${cellCumP}">${_tosFmtN(cumPOI)}</td>
+      <td style="${cellBase}${cellP}">${_tosFmtN(r.put_oi)}</td>
+      ${putDelta}
+      <td style="${cellBase}${cellP}">${_tosFmtN(r.put_volume)}</td>
+      <td style="${cellBase}${cellCumP}">${_tosFmtN(cumPV)}</td>
+      ${bR}
+    </tr>`;
+  };
+
+  const thBase   = 'padding:3px 4px;font-size:9px;font-weight:500;letter-spacing:0.3px;white-space:nowrap;';
+  const hdrDeltaC = _tosHasPrev ? `<th style="${thBase}text-align:right;color:var(--blue);">Δ OI</th>` : '';
+  const hdrDeltaP = _tosHasPrev ? `<th style="${thBase}text-align:right;color:var(--amber);">Δ OI</th>` : '';
 
   const blocks = exps.map(([expLabel, expData]) => {
-    const all = [...expData.rows].sort((a, b) => a.strike - b.strike);
+    const all   = [...expData.rows].sort((a, b) => a.strike - b.strike);
     const below = all.filter(r => r.strike < spot).slice(-10);
     const above = all.filter(r => r.strike >= spot).slice(0, 10);
+    const disp  = [...below, ...above];
+    if (!disp.length) return null;
 
-    // Cumulatives — below: accumulate from bottom (nearest spot) upward
+    // Cumulatives — below: from bottom (nearest spot) upward
     const bCV = [], bCOI = [], bPV = [], bPOI = [];
     for (let i = below.length - 1; i >= 0; i--) {
-      const prev = i === below.length - 1;
-      bCV[i]  = below[i].call_volume + (prev ? 0 : bCV[i + 1]);
-      bCOI[i] = below[i].call_oi     + (prev ? 0 : bCOI[i + 1]);
-      bPV[i]  = below[i].put_volume  + (prev ? 0 : bPV[i + 1]);
-      bPOI[i] = below[i].put_oi      + (prev ? 0 : bPOI[i + 1]);
+      const last = i === below.length - 1;
+      bCV[i]  = below[i].call_volume + (last ? 0 : bCV[i + 1]);
+      bCOI[i] = below[i].call_oi     + (last ? 0 : bCOI[i + 1]);
+      bPV[i]  = below[i].put_volume  + (last ? 0 : bPV[i + 1]);
+      bPOI[i] = below[i].put_oi      + (last ? 0 : bPOI[i + 1]);
     }
 
-    // Cumulatives — above: accumulate from top (nearest spot) downward
+    // Cumulatives — above: from top (nearest spot) downward
     const aCV = [], aCOI = [], aPV = [], aPOI = [];
     for (let i = 0; i < above.length; i++) {
       aCV[i]  = above[i].call_volume + (i === 0 ? 0 : aCV[i - 1]);
@@ -13351,73 +13481,71 @@ function _tosRender() {
       aPOI[i] = above[i].put_oi      + (i === 0 ? 0 : aPOI[i - 1]);
     }
 
-    const disp = [...below, ...above];
     const tCV  = disp.reduce((s, r) => s + r.call_volume, 0);
     const tCOI = disp.reduce((s, r) => s + r.call_oi, 0);
     const tPV  = disp.reduce((s, r) => s + r.put_volume, 0);
     const tPOI = disp.reduce((s, r) => s + r.put_oi, 0);
     const cpR  = tPV > 0 ? (tCV / tPV).toFixed(2) : '—';
     const dteStr = expData.dte != null ? ` · ${expData.dte} DTE` : '';
-    const prevNote = _tosHasPrev ? '' : ' · no prior snapshot';
 
-    const mkRow = (r, cumCV, cumCOI, cumPV, cumPOI) => `
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.03);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
-        <td style="${cellBase}${cellC}">${_tosFmtN(cumCV)}</td>
-        <td style="${cellBase}${cellC}">${_tosFmtN(r.call_volume)}</td>
-        <td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'call_oi', r.call_oi)}</td>
-        <td style="${cellBase}${cellC}">${_tosFmtN(r.call_oi)}</td>
-        <td style="${cellBase}${cellC}">${_tosFmtN(cumCOI)}</td>
-        <td style="text-align:center;font-weight:700;padding:3px 10px;color:#e0e0e0;white-space:nowrap;">${r.strike}</td>
-        <td style="${cellBase}${cellP}">${_tosFmtN(cumPOI)}</td>
-        <td style="${cellBase}${cellP}">${_tosFmtN(r.put_oi)}</td>
-        <td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'put_oi', r.put_oi)}</td>
-        <td style="${cellBase}${cellP}">${_tosFmtN(r.put_volume)}</td>
-        <td style="${cellBase}${cellP}">${_tosFmtN(cumPV)}</td>
-      </tr>`;
+    // STEP B: ITM/OTM band cells — below: calls=ITM left, puts=OTM right
+    const belowHtml = below.map((r, i) => {
+      const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'rgba(61,158,255,0.35)', 'rgba(61,158,255,0.05)', 'rgba(61,158,255,0.55)') : '';
+      const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'rgba(255,176,32,0.25)',  'rgba(255,176,32,0.04)',  'rgba(255,176,32,0.45)')  : '';
+      return mkRow(r, bCV[i], bCOI[i], bPV[i], bPOI[i], bL, bR);
+    }).join('');
 
-    const belowHtml = below.map((r, i) => mkRow(r, bCV[i], bCOI[i], bPV[i], bPOI[i])).join('');
-    const aboveHtml = above.map((r, i) => mkRow(r, aCV[i], aCOI[i], aPV[i], aPOI[i])).join('');
-    const divider = `<tr><td colspan="11" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:12px;">${spot} ← spot</span></td></tr>`;
+    // STEP B: above: calls=OTM left, puts=ITM right
+    const aboveHtml = above.map((r, i) => {
+      const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'rgba(61,158,255,0.2)',  'rgba(61,158,255,0.03)', 'rgba(61,158,255,0.4)') : '';
+      const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'rgba(255,176,32,0.35)', 'rgba(255,176,32,0.05)', 'rgba(255,176,32,0.55)') : '';
+      return mkRow(r, aCV[i], aCOI[i], aPV[i], aPOI[i], bL, bR);
+    }).join('');
 
-    const thBase = 'padding:4px 7px;font-size:9px;font-weight:500;letter-spacing:0.3px;white-space:nowrap;';
+    const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:12px;">${spot} ← spot</span></td></tr>`;
+
     return `
-    <div style="margin-bottom:28px;">
+    <div style="margin-bottom:24px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
         <span style="font-size:13px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">${expLabel}${dteStr}</span>
         <span style="font-size:10px;color:#8090a0;">
           Calls ${_tosFmtN(tCV)} vol / ${_tosFmtN(tCOI)} OI &nbsp;·&nbsp;
           Puts ${_tosFmtN(tPV)} vol / ${_tosFmtN(tPOI)} OI &nbsp;·&nbsp;
           C/P ${cpR}
-          &nbsp;<span style="color:#506070;">(${disp.length} displayed strikes${prevNote})</span>
+          &nbsp;<span style="color:#506070;">(${disp.length} strikes)</span>
         </span>
       </div>
       <div class="card" style="padding:0;overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--font);">
+        <table style="border-collapse:collapse;font-size:11px;font-family:var(--font);max-width:1000px;margin:0 auto;">
           <thead>
             <tr style="background:var(--bg3);border-bottom:1px solid var(--border);">
-              <th colspan="5" style="text-align:center;color:var(--blue);padding:5px;font-size:10px;letter-spacing:0.5px;font-weight:600;">CALLS</th>
-              <th style="padding:5px;"></th>
-              <th colspan="5" style="text-align:center;color:var(--amber);padding:5px;font-size:10px;letter-spacing:0.5px;font-weight:600;">PUTS</th>
+              <th style="width:22px;padding:0;"></th>
+              <th colspan="${callCols}" style="text-align:center;color:var(--blue);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">CALLS</th>
+              <th style="padding:4px;"></th>
+              <th colspan="${putCols}" style="text-align:center;color:var(--amber);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">PUTS</th>
+              <th style="width:22px;padding:0;"></th>
             </tr>
             <tr style="background:var(--bg2);border-bottom:1px solid var(--border);">
-              <th style="${thBase}text-align:right;color:var(--blue);">CUM VOL</th>
+              <th style="width:22px;padding:0;"></th>
+              <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM VOL</th>
               <th style="${thBase}text-align:right;color:var(--blue);">VOL</th>
-              <th style="${thBase}text-align:right;color:var(--blue);">Δ OI</th>
+              ${hdrDeltaC}
               <th style="${thBase}text-align:right;color:var(--blue);">OI</th>
-              <th style="${thBase}text-align:right;color:var(--blue);">CUM OI</th>
+              <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM OI</th>
               <th style="${thBase}text-align:center;color:#e0e0e0;font-weight:600;">STRIKE</th>
-              <th style="${thBase}text-align:right;color:var(--amber);">CUM OI</th>
+              <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM OI</th>
               <th style="${thBase}text-align:right;color:var(--amber);">OI</th>
-              <th style="${thBase}text-align:right;color:var(--amber);">Δ OI</th>
+              ${hdrDeltaP}
               <th style="${thBase}text-align:right;color:var(--amber);">VOL</th>
-              <th style="${thBase}text-align:right;color:var(--amber);">CUM VOL</th>
+              <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM VOL</th>
+              <th style="width:22px;padding:0;"></th>
             </tr>
           </thead>
           <tbody>${belowHtml}${divider}${aboveHtml}</tbody>
         </table>
       </div>
     </div>`;
-  });
+  }).filter(Boolean);
 
   body.innerHTML = blocks.join('');
 }
@@ -13450,7 +13578,7 @@ async function tosHandleFile(input) {
     status.textContent = `Parsed ${parsed.rows.length} strikes across ${expCount} expirations — spot ${parsed.spot}`;
     const supa = await getSupabaseAsync();
     if (supa) await _tosLoadPrev(supa, parsed.ticker, parsed.snapshotDate);
-    _tosRender();
+    _tosRenderPicker(); // STEP A: show picker first; picker calls _tosRender()
   } catch (e) {
     console.error('[TOS CSV] Parse error:', e);
     status.style.color = 'var(--red)';
@@ -13484,6 +13612,7 @@ async function tosSaveSnapshot() {
   try {
     const supa = await getSupabaseAsync();
     if (!supa) throw new Error('Supabase unavailable');
+    // Save ALL parsed rows regardless of which expirations are displayed
     const rows = _tosParsed.rows.map(r => ({
       ticker, snapshot_date: snapshotDate, captured_at: _tosParsed.capturedAt,
       spot, exp_label: r.exp_label, dte: r.dte, strike: r.strike,
