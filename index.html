@@ -13216,11 +13216,6 @@ function parseTosOptionsCsv(text) {
   const snapshotDate = `${year}-${month}-${day}`;
   const capturedAt   = `${snapshotDate}T${hm[3]}`;
 
-  const dteMap = {};
-  let spot = null;
-  let grabNextSpot = false;
-  const rows = [];
-
   const parseNum = v => {
     const s = (v || '').replace(/,/g, '').trim();
     if (!s || s === '<empty>' || s === 'N/A') return 0;
@@ -13236,55 +13231,98 @@ function parseTosOptionsCsv(text) {
     return isNaN(n) ? null : n;
   };
 
+  // Build a column-position map from a ToS header row.
+  // Call-side = LAST (rightmost) occurrence before expIdx.
+  // Put-side  = FIRST (leftmost) occurrence after strikeIdx.
+  const buildHdrMap = cols => {
+    const expIdx    = cols.indexOf('Exp');
+    const strikeIdx = cols.indexOf('Strike');
+    if (expIdx === -1 || strikeIdx === -1 || strikeIdx <= expIdx) return null;
+    const FIELDS = ['Volume', 'Open.Int', 'Delta', 'Theta', 'Impl Vol', '%Change', 'Vega'];
+    const m = { expIdx, strikeIdx };
+    for (const f of FIELDS) {
+      m[`c_${f}`] = -1;
+      for (let j = expIdx - 1; j >= 0; j--) { if (cols[j] === f) { m[`c_${f}`] = j; break; } }
+      m[`p_${f}`] = -1;
+      for (let j = strikeIdx + 1; j < cols.length; j++) { if (cols[j] === f) { m[`p_${f}`] = j; break; } }
+    }
+    return m;
+  };
+
+  const getN   = (cols, idx) => idx >= 0 && idx < cols.length ? parseNum(cols[idx])      : 0;
+  const getNul = (cols, idx) => idx >= 0 && idx < cols.length ? parseNullable(cols[idx]) : null;
+
+  const dteMap       = {};
+  const rowsByExp    = {};   // expLabel -> row[]
+  const allExpLabels = [];   // every group header seen, in order
+  let spot         = null;
+  let grabNextSpot = false;
+  let hdrMap       = null;   // re-read from each column-header row
+
   for (let i = 1; i < lines.length; i++) {
     const raw = lines[i];
     if (!raw || !raw.trim()) continue;
     const cols = _tosSplitCsvLine(raw);
 
-    // Grab spot from line after LAST
+    // Spot detection
     if (grabNextSpot) {
       const v = parseFloat((cols[0] || '').replace(/,/g, ''));
       if (!isNaN(v)) spot = v;
       grabNextSpot = false;
       continue;
     }
-
-    // Detect LAST header
     if (cols[0] === 'LAST') { grabNextSpot = true; continue; }
 
-    // Skip column-header rows (",,%Change…")
-    if (raw.startsWith(',,%Change') || (cols[0] === '' && cols[1] === '' && cols[2] === '%Change')) continue;
-
-    // Detect expiration group header: "21 AUG 26  (4)  100"
-    const expHdr = raw.trim().match(/^(\d{1,2} [A-Z]{3} \d{2})\s+\((\d+)\)/);
-    if (expHdr && cols.length < 10) {
-      dteMap[expHdr[1]] = parseInt(expHdr[2]);
+    // Short rows: expiration group headers "21 AUG 26  (4)  100"
+    if (cols.length < 10) {
+      const expHdr = raw.trim().match(/^(\d{1,2} [A-Z]{3} \d{2})\s+\((\d+)\)/);
+      if (expHdr) {
+        const label = expHdr[1];
+        dteMap[label] = parseInt(expHdr[2]);
+        if (!allExpLabels.includes(label)) allExpLabels.push(label);
+        if (!rowsByExp[label]) rowsByExp[label] = [];
+      }
       continue;
     }
 
-    // Data row
-    if (cols.length < 28) continue;
-    const expLabel = cols[14].trim();
-    if (!/^\d{1,2} [A-Z]{3} \d{2}$/.test(expLabel)) continue;
+    // Column-header row: contains both "Exp" and "Strike" cells.
+    // Re-read every time — different expiration groups can have different layouts.
+    const eIdx = cols.indexOf('Exp');
+    const sIdx = cols.indexOf('Strike');
+    if (eIdx !== -1 && sIdx !== -1 && sIdx > eIdx) {
+      hdrMap = buildHdrMap(cols);
+      continue;
+    }
 
-    rows.push({
+    // Data row — requires a valid header map from this expiration's header row
+    if (!hdrMap) continue;
+    const expLabel = (cols[hdrMap.expIdx] || '').trim();
+    if (!/^\d{1,2} [A-Z]{3} \d{2}$/.test(expLabel)) continue;
+    const strike = parseFloat((cols[hdrMap.strikeIdx] || '').replace(/,/g, ''));
+    if (isNaN(strike) || strike <= 0) continue;
+
+    if (!rowsByExp[expLabel]) rowsByExp[expLabel] = [];
+    rowsByExp[expLabel].push({
       exp_label:       expLabel,
       dte:             dteMap[expLabel] ?? null,
-      strike:          parseNum(cols[15]),
-      call_volume:     parseNum(cols[6]),
-      call_oi:         parseNum(cols[7]),
-      call_pct_change: parseNullable(cols[2]),
-      call_delta:      parseNullable(cols[3]),
-      call_theta:      parseNullable(cols[4]),
-      put_volume:      parseNum(cols[24]),
-      put_oi:          parseNum(cols[25]),
-      put_pct_change:  parseNullable(cols[20]),
-      put_delta:       parseNullable(cols[21]),
-      put_theta:       parseNullable(cols[22]),
+      strike,
+      call_volume:     getN(cols,   hdrMap['c_Volume']),
+      call_oi:         getN(cols,   hdrMap['c_Open.Int']),
+      call_pct_change: getNul(cols, hdrMap['c_%Change']),
+      call_delta:      getNul(cols, hdrMap['c_Delta']),
+      call_theta:      getNul(cols, hdrMap['c_Theta']),
+      put_volume:      getN(cols,   hdrMap['p_Volume']),
+      put_oi:          getN(cols,   hdrMap['p_Open.Int']),
+      put_pct_change:  getNul(cols, hdrMap['p_%Change']),
+      put_delta:       getNul(cols, hdrMap['p_Delta']),
+      put_theta:       getNul(cols, hdrMap['p_Theta']),
     });
   }
 
-  return { ticker, capturedAt, snapshotDate, spot, rows };
+  const rows          = allExpLabels.flatMap(l => rowsByExp[l] || []);
+  const collapsedExps = allExpLabels.filter(l => !rowsByExp[l] || rowsByExp[l].length === 0);
+
+  return { ticker, capturedAt, snapshotDate, spot, rows, collapsedExps };
 }
 
 function _tosFmtN(n) {
@@ -13379,13 +13417,19 @@ function _tosRenderPicker() {
     </button>`;
   }).join('');
 
+  const collapsedExps = _tosParsed.collapsedExps || [];
+  const collapsedNote = collapsedExps.length > 0
+    ? `<div style="margin-top:8px;font-size:10px;color:#506070;">Not in this export (collapsed in ToS): ${collapsedExps.join(', ')}</div>`
+    : '';
+
   picker.innerHTML = `
     <div style="font-size:9px;color:#607080;margin-bottom:6px;letter-spacing:0.3px;text-transform:uppercase;">Expirations to display:</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
       ${chipHtml}
       <button onclick="tosSelectAll()" style="background:none;border:none;color:var(--cyan);font-size:10px;cursor:pointer;font-family:var(--font);padding:2px 4px;margin-left:4px;">All</button>
       <button onclick="tosSelectNone()" style="background:none;border:none;color:#607080;font-size:10px;cursor:pointer;font-family:var(--font);padding:2px 4px;">None</button>
-    </div>`;
+    </div>
+    ${collapsedNote}`;
   picker.style.display = '';
   _tosUpdateChipStyles();
   _tosRender();
@@ -13627,34 +13671,66 @@ function _tosRender() {
 }
 
 async function tosHandleFile(input) {
-  const status = document.getElementById('tos-status');
+  const status  = document.getElementById('tos-status');
+  const picker  = document.getElementById('tos-picker');
+  const body    = document.getElementById('tos-body');
+  const saveBtn = document.getElementById('tos-save-btn');
+  const tickerEl = document.getElementById('tos-ticker');
+  const priceEl  = document.getElementById('tos-price');
+  const dateEl   = document.getElementById('tos-date');
+
   if (!input.files || !input.files.length) return;
-  const file = input.files[0];
+
+  // Reset ALL page state before parsing — never leave stale data on screen
+  _tosParsed       = null;
+  _tosPrevMap      = new Map();
+  _tosHasPrev      = false;
+  _tosSelectedExps = new Set();
+  if (picker)  { picker.innerHTML = ''; picker.style.display = 'none'; }
+  if (body)    body.innerHTML = '';
+  if (saveBtn) saveBtn.disabled = true;
+  if (tickerEl) tickerEl.value = '';
+  if (priceEl)  priceEl.value  = '';
+  if (dateEl)   dateEl.value   = '';
+
   status.style.color = '#8090a0';
   status.textContent = 'Parsing…';
+
   try {
-    const text = await file.text();
+    const text   = await input.files[0].text();
     const parsed = parseTosOptionsCsv(text);
+
     if (!parsed) {
       status.style.color = 'var(--red)';
-      status.textContent = 'Parse failed — could not read CSV header.';
+      status.textContent = 'Parse failed — could not read file header (not a ToS Positions CSV).';
       return;
     }
+
+    // Fail loudly on zero rows — never silently keep the previous render
+    if (parsed.rows.length === 0) {
+      status.style.color = 'var(--red)';
+      status.textContent = 'No option rows found in this file — unrecognised column layout.';
+      return;
+    }
+
     _tosParsed = parsed;
-    const tickerEl = document.getElementById('tos-ticker');
-    const priceEl  = document.getElementById('tos-price');
-    const dateEl   = document.getElementById('tos-date');
     if (tickerEl) tickerEl.value = parsed.ticker;
     if (priceEl)  priceEl.value  = parsed.spot != null ? parsed.spot : '';
     if (dateEl)   dateEl.value   = parsed.snapshotDate;
-    const saveBtn = document.getElementById('tos-save-btn');
-    if (saveBtn) saveBtn.disabled = false;
+    if (saveBtn)  saveBtn.disabled = false;
+
+    // Detailed status: ticker · date time · N strikes across M expirations · spot P
     const expCount = new Set(parsed.rows.map(r => r.exp_label)).size;
+    const [datePart, timePart] = parsed.capturedAt.split('T');
+    const [yr, mo, dy] = datePart.split('-');
+    const capturedDisplay = `${parseInt(mo)}/${parseInt(dy)}/${yr.slice(2)} ${(timePart || '').slice(0, 5)}`;
+    const spotStr = parsed.spot != null ? ` · spot ${parsed.spot}` : '';
     status.style.color = 'var(--green)';
-    status.textContent = `Parsed ${parsed.rows.length} strikes across ${expCount} expirations — spot ${parsed.spot}`;
+    status.textContent = `${parsed.ticker} · ${capturedDisplay} · parsed ${parsed.rows.length.toLocaleString()} strikes across ${expCount} expirations${spotStr}`;
+
     const supa = await getSupabaseAsync();
     if (supa) await _tosLoadPrev(supa, parsed.ticker, parsed.snapshotDate);
-    _tosRenderPicker(); // STEP A: show picker first; picker calls _tosRender()
+    _tosRenderPicker();
   } catch (e) {
     console.error('[TOS CSV] Parse error:', e);
     status.style.color = 'var(--red)';
