@@ -13228,6 +13228,14 @@ function parseTosOptionsCsv(text) {
     return isNaN(n) ? 0 : n;
   };
 
+  // null means missing — distinct from 0 which is meaningful for greeks/%chg
+  const parseNullable = v => {
+    const s = (v || '').replace(/%$/, '').replace(/,/g, '').trim();
+    if (!s || s === '<empty>' || s === 'N/A') return null;
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  };
+
   for (let i = 1; i < lines.length; i++) {
     const raw = lines[i];
     if (!raw || !raw.trim()) continue;
@@ -13260,13 +13268,19 @@ function parseTosOptionsCsv(text) {
     if (!/^\d{1,2} [A-Z]{3} \d{2}$/.test(expLabel)) continue;
 
     rows.push({
-      exp_label:   expLabel,
-      dte:         dteMap[expLabel] ?? null,
-      strike:      parseNum(cols[15]),
-      call_volume: parseNum(cols[6]),
-      call_oi:     parseNum(cols[7]),
-      put_volume:  parseNum(cols[24]),
-      put_oi:      parseNum(cols[25]),
+      exp_label:       expLabel,
+      dte:             dteMap[expLabel] ?? null,
+      strike:          parseNum(cols[15]),
+      call_volume:     parseNum(cols[6]),
+      call_oi:         parseNum(cols[7]),
+      call_pct_change: parseNullable(cols[2]),
+      call_delta:      parseNullable(cols[3]),
+      call_theta:      parseNullable(cols[4]),
+      put_volume:      parseNum(cols[24]),
+      put_oi:          parseNum(cols[25]),
+      put_pct_change:  parseNullable(cols[20]),
+      put_delta:       parseNullable(cols[21]),
+      put_theta:       parseNullable(cols[22]),
     });
   }
 
@@ -13276,6 +13290,19 @@ function parseTosOptionsCsv(text) {
 function _tosFmtN(n) {
   if (n == null || isNaN(n)) return '0';
   return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function _tosFmtPct(v) {
+  if (v == null) return '<span style="color:#506070;">—</span>';
+  const s = v.toFixed(2) + '%';
+  if (v > 0) return `<span style="color:var(--green);">+${s}</span>`;
+  if (v < 0) return `<span style="color:var(--red);">${s}</span>`;
+  return `<span style="color:#506070;">${s}</span>`;
+}
+
+function _tosFmtG(v) {
+  if (v == null) return '<span style="color:#506070;">—</span>';
+  return `<span style="color:#6a7f90;">${v.toFixed(2)}</span>`;
 }
 
 function _tosDeltaHtml(expLabel, strike, field, currOI) {
@@ -13407,55 +13434,90 @@ function _tosRender() {
     return;
   }
 
-  // STEP C: ΔOI columns only when prior snapshot exists
-  const callCols  = _tosHasPrev ? 5 : 4;
-  const putCols   = _tosHasPrev ? 5 : 4;
-  const totalCols = 1 + callCols + 1 + putCols + 1; // bandL + calls + strike + puts + bandR
+  // column widths (px) — used for table-layout:fixed and equal-width blocks (STEP D)
+  const Wb = 30;   // band
+  const Wc = 62;   // cum vol / cum oi  (muted secondary)
+  const Wv = 72;   // vol / oi          (primary)
+  const Wp = 58;   // % chg
+  const Wd = 56;   // delta (greek)
+  const Wt = 56;   // theta
+  const Wo = 60;   // oi Δ1D (only when _tosHasPrev)
+  const Ws = 76;   // strike
 
-  // cell styles — looser padding, readable font sizes
-  const cellBase  = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px;';
+  // STEP C: 8 call cols + 8 put cols when OI Δ1D shown; 7 each otherwise
+  const callCols  = _tosHasPrev ? 8 : 7;
+  const putCols   = _tosHasPrev ? 8 : 7;
+  const totalCols = 1 + callCols + 1 + putCols + 1;
+
+  // STEP D: fixed identical width for every expiration block
+  const sideW  = Wc + Wv + Wp + Wd + Wt + (_tosHasPrev ? Wo : 0) + Wv + Wc;
+  const tableW = Wb + sideW + Ws + sideW + Wb;
+
+  // colgroup for table-layout:fixed column ordering
+  // calls L→R: CumVol|Vol|%Chg|Delta|Theta|[OIΔ]|OI|CumOI  puts L→R: CumOI|OI|[OIΔ]|Theta|Delta|%Chg|Vol|CumVol
+  const colWidths = _tosHasPrev
+    ? [Wb, Wc, Wv, Wp, Wd, Wt, Wo, Wv, Wc, Ws, Wc, Wv, Wo, Wt, Wd, Wp, Wv, Wc, Wb]
+    : [Wb, Wc, Wv, Wp, Wd, Wt, Wv, Wc, Ws, Wc, Wv, Wt, Wd, Wp, Wv, Wc, Wb];
+  const colgroup = `<colgroup>${colWidths.map(w => `<col style="width:${w}px;">`).join('')}</colgroup>`;
+
+  // cell styles
+  const cellBase  = 'padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
   const cellC     = 'color:var(--blue);';
   const cellP     = 'color:var(--amber);';
   const cellCumC  = 'color:rgba(61,158,255,0.55);font-size:11px;';
   const cellCumP  = 'color:rgba(255,176,32,0.55);font-size:11px;';
-  // vertical rule between CALLS / STRIKE / PUTS zones
   const strikeSep = 'border-left:1px solid rgba(255,255,255,0.13);border-right:1px solid rgba(255,255,255,0.13);';
 
-  // STEP A: wider band columns, bottom-to-top text, boosted opacity
-  const bandSt  = 'width:34px;max-width:34px;min-width:34px;text-align:center;vertical-align:middle;padding:0;';
+  // band column helpers
+  const bandSt  = `width:${Wb}px;max-width:${Wb}px;min-width:${Wb}px;text-align:center;vertical-align:middle;padding:0;`;
   const bandTxt = 'font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;';
   const mkBand  = (label, rowspan, side, borderCol, bgCol, txtCol) =>
     `<td rowspan="${rowspan}" style="${bandSt};border-${side}:2px solid ${borderCol};background:${bgCol};color:${txtCol};">
        <span style="${bandTxt}">${label}</span>
      </td>`;
 
+  // STEP C: column order — calls: CumVol|Vol|%Chg|Delta|Theta|[OIΔ1D]|OI|CumOI
+  //                         puts:  CumOI|OI|[OIΔ1D]|Theta|Delta|%Chg|Vol|CumVol
   const mkRow = (r, cumCV, cumCOI, cumPV, cumPOI, bL, bR) => {
-    const callDelta = _tosHasPrev
+    const callOIDelta = _tosHasPrev
       ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'call_oi', r.call_oi)}</td>`
       : '';
-    const putDelta = _tosHasPrev
+    const putOIDelta = _tosHasPrev
       ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'put_oi', r.put_oi)}</td>`
       : '';
     return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
       ${bL}
       <td style="${cellBase}${cellCumC}">${_tosFmtN(cumCV)}</td>
       <td style="${cellBase}${cellC}">${_tosFmtN(r.call_volume)}</td>
-      ${callDelta}
+      <td style="${cellBase}">${_tosFmtPct(r.call_pct_change)}</td>
+      <td style="${cellBase}">${_tosFmtG(r.call_delta)}</td>
+      <td style="${cellBase}">${_tosFmtG(r.call_theta)}</td>
+      ${callOIDelta}
       <td style="${cellBase}${cellC}">${_tosFmtN(r.call_oi)}</td>
       <td style="${cellBase}${cellCumC}">${_tosFmtN(cumCOI)}</td>
-      <td style="text-align:center;font-weight:700;padding:5px 14px;color:#e0e0e0;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:12.5px;${strikeSep}">${r.strike}</td>
+      <td style="text-align:center;font-weight:700;padding:5px 10px;color:#e0e0e0;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:12.5px;${strikeSep}">${r.strike}</td>
       <td style="${cellBase}${cellCumP}">${_tosFmtN(cumPOI)}</td>
       <td style="${cellBase}${cellP}">${_tosFmtN(r.put_oi)}</td>
-      ${putDelta}
+      ${putOIDelta}
+      <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
+      <td style="${cellBase}">${_tosFmtG(r.put_delta)}</td>
+      <td style="${cellBase}">${_tosFmtPct(r.put_pct_change)}</td>
       <td style="${cellBase}${cellP}">${_tosFmtN(r.put_volume)}</td>
       <td style="${cellBase}${cellCumP}">${_tosFmtN(cumPV)}</td>
       ${bR}
     </tr>`;
   };
 
-  const thBase    = 'padding:5px 8px;font-size:9px;font-weight:500;letter-spacing:0.3px;white-space:nowrap;';
-  const hdrDeltaC = _tosHasPrev ? `<th style="${thBase}text-align:right;color:var(--blue);">Δ OI</th>` : '';
-  const hdrDeltaP = _tosHasPrev ? `<th style="${thBase}text-align:right;color:var(--amber);">Δ OI</th>` : '';
+  // STEP B: header names — OI Δ1D vs DELTA clearly distinct
+  const thBase      = 'padding:5px 6px;font-size:9px;font-weight:500;letter-spacing:0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  const thCumC      = `${thBase}text-align:right;color:rgba(61,158,255,0.6);`;
+  const thCumP      = `${thBase}text-align:right;color:rgba(255,176,32,0.6);`;
+  const thC         = `${thBase}text-align:right;color:var(--blue);`;
+  const thP         = `${thBase}text-align:right;color:var(--amber);`;
+  const thMuted     = `${thBase}text-align:right;color:#607080;`;
+  const thStrike    = `${thBase}text-align:center;color:#e0e0e0;font-weight:600;${strikeSep}`;
+  const hdrOIDeltaC = _tosHasPrev ? `<th style="${thC}">OI Δ1D</th>` : '';
+  const hdrOIDeltaP = _tosHasPrev ? `<th style="${thP}">OI Δ1D</th>` : '';
 
   const blocks = exps.map(([expLabel, expData]) => {
     const all   = [...expData.rows].sort((a, b) => a.strike - b.strike);
@@ -13490,7 +13552,6 @@ function _tosRender() {
     const cpR  = tPV > 0 ? (tCV / tPV).toFixed(2) : '—';
     const dteStr = expData.dte != null ? ` · ${expData.dte} DTE` : '';
 
-    // STEP A: higher-opacity bands so regions are obvious at a glance
     // below: call-ITM (blue) left, put-OTM (amber) right
     const belowHtml = below.map((r, i) => {
       const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'rgba(61,158,255,0.5)',  'rgba(61,158,255,0.13)', 'rgba(61,158,255,0.85)') : '';
@@ -13507,43 +13568,52 @@ function _tosRender() {
 
     const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:12px;">${spot} ← spot</span></td></tr>`;
 
-    // STEP C: wrapper shrinks to table width; card border hugs table
+    // STEP D: fixed tableW so every block is identical width; STEP E: readable header
     return `
     <div style="margin-bottom:28px;">
-      <div style="width:max-content;max-width:100%;margin:0 auto;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
-          <span style="font-size:13px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">${expLabel}${dteStr}</span>
-          <span style="font-size:10px;color:#8090a0;">
-            Calls ${_tosFmtN(tCV)} vol / ${_tosFmtN(tCOI)} OI &nbsp;·&nbsp;
-            Puts ${_tosFmtN(tPV)} vol / ${_tosFmtN(tPOI)} OI &nbsp;·&nbsp;
-            C/P ${cpR}
-            &nbsp;<span style="color:#506070;">(${disp.length} strikes)</span>
+      <div style="width:${tableW}px;max-width:100%;margin:0 auto;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <span style="font-size:15px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">${expLabel}${dteStr}</span>
+          <span style="font-size:14px;color:#e8e8e8;line-height:1.6;">
+            Calls <strong>${_tosFmtN(tCV)}</strong> vol / <strong>${_tosFmtN(tCOI)}</strong> OI
+            &nbsp;·&nbsp;
+            Puts <strong>${_tosFmtN(tPV)}</strong> vol / <strong>${_tosFmtN(tPOI)}</strong> OI
+            &nbsp;·&nbsp;
+            C/P <strong style="font-size:16px;color:#fff;">${cpR}</strong>
+            &nbsp;<span style="font-size:10px;color:#506070;font-weight:400;">(${disp.length} strikes)</span>
           </span>
         </div>
-        <div class="card" style="padding:0;overflow-x:auto;width:max-content;max-width:100%;">
-          <table style="border-collapse:collapse;font-family:var(--font);max-width:1150px;">
+        <div class="card" style="padding:0;overflow-x:auto;">
+          <table style="border-collapse:collapse;font-family:var(--font);width:${tableW}px;table-layout:fixed;">
+            ${colgroup}
             <thead>
               <tr style="background:var(--bg3);border-bottom:1px solid var(--border);">
-                <th style="width:34px;padding:0;"></th>
+                <th style="padding:0;"></th>
                 <th colspan="${callCols}" style="text-align:center;color:var(--blue);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">CALLS</th>
                 <th style="padding:4px;${strikeSep}"></th>
                 <th colspan="${putCols}" style="text-align:center;color:var(--amber);padding:4px;font-size:10px;letter-spacing:0.5px;font-weight:600;">PUTS</th>
-                <th style="width:34px;padding:0;"></th>
+                <th style="padding:0;"></th>
               </tr>
               <tr style="background:var(--bg2);border-bottom:1px solid var(--border);">
-                <th style="width:34px;padding:0;"></th>
-                <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM VOL</th>
-                <th style="${thBase}text-align:right;color:var(--blue);">VOL</th>
-                ${hdrDeltaC}
-                <th style="${thBase}text-align:right;color:var(--blue);">OI</th>
-                <th style="${thBase}text-align:right;color:rgba(61,158,255,0.6);">CUM OI</th>
-                <th style="${thBase}text-align:center;color:#e0e0e0;font-weight:600;${strikeSep}">STRIKE</th>
-                <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM OI</th>
-                <th style="${thBase}text-align:right;color:var(--amber);">OI</th>
-                ${hdrDeltaP}
-                <th style="${thBase}text-align:right;color:var(--amber);">VOL</th>
-                <th style="${thBase}text-align:right;color:rgba(255,176,32,0.6);">CUM VOL</th>
-                <th style="width:34px;padding:0;"></th>
+                <th style="padding:0;"></th>
+                <th style="${thCumC}">CUM VOL</th>
+                <th style="${thC}">VOL</th>
+                <th style="${thMuted}">% CHG</th>
+                <th style="${thMuted}">DELTA</th>
+                <th style="${thMuted}">THETA</th>
+                ${hdrOIDeltaC}
+                <th style="${thC}">OI</th>
+                <th style="${thCumC}">CUM OI</th>
+                <th style="${thStrike}">STRIKE</th>
+                <th style="${thCumP}">CUM OI</th>
+                <th style="${thP}">OI</th>
+                ${hdrOIDeltaP}
+                <th style="${thMuted}">THETA</th>
+                <th style="${thMuted}">DELTA</th>
+                <th style="${thMuted}">% CHG</th>
+                <th style="${thP}">VOL</th>
+                <th style="${thCumP}">CUM VOL</th>
+                <th style="padding:0;"></th>
               </tr>
             </thead>
             <tbody>${belowHtml}${divider}${aboveHtml}</tbody>
@@ -13623,7 +13693,13 @@ async function tosSaveSnapshot() {
       ticker, snapshot_date: snapshotDate, captured_at: _tosParsed.capturedAt,
       spot, exp_label: r.exp_label, dte: r.dte, strike: r.strike,
       call_volume: r.call_volume, call_oi: r.call_oi,
+      call_pct_change: r.call_pct_change ?? null,
+      call_delta: r.call_delta ?? null,
+      call_theta: r.call_theta ?? null,
       put_volume: r.put_volume, put_oi: r.put_oi,
+      put_pct_change: r.put_pct_change ?? null,
+      put_delta: r.put_delta ?? null,
+      put_theta: r.put_theta ?? null,
     }));
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
