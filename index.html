@@ -1860,7 +1860,7 @@ async function runRefresh(btn,key,fn){
 // Inserts a small inline span after the page's Refresh button.
 // Clears itself 2.5 s after complete:true.
 function showRefreshProgress(pageKey, done, total, opts = {}) {
-  const { unavailable = 0, complete = false } = opts;
+  const { unavailable = 0, complete = false, label = '' } = opts;
   const elemId = 'rp-' + pageKey;
 
   // Find or create the inline span adjacent to this page's Refresh button
@@ -1883,8 +1883,9 @@ function showRefreshProgress(pageKey, done, total, opts = {}) {
   }
 
   if (complete) {
-    el.innerHTML = '<span style="color:#00e5b0;font-weight:600;">✓ Up to date</span>';
-    setTimeout(() => { try { el.remove(); } catch(_) {} }, 2500);
+    const detail = label ? `<span style="color:#6080a0;font-size:10px;margin-left:4px;">(${label})</span>` : '';
+    el.innerHTML = `<span style="color:#00e5b0;font-weight:600;">✓ Up to date</span>${detail}`;
+    setTimeout(() => { try { el.remove(); } catch(_) {} }, 4000);
     return;
   }
 
@@ -5054,28 +5055,46 @@ async function fetchLiveAll(force, pageKey){
   const scannerSyms=(_scannerData||[]).map(r=>r.symbol).filter(Boolean);
   const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms,...swingSyms,...scannerSyms])];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
-  console.log('[fetchLiveAll] fetching',tickerList.length,'tickers');
+  const wlFlat=Object.values(WATCHLIST).flat();
+  console.log(`[fetchLiveAll] ${tickerList.length} tickers (${wlFlat.length} built-in · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner, deduped)`);
   if(pageKey) showRefreshProgress(pageKey, 0, tickerList.length);
   let _rpUnavail = 0;
   // Mark only un-seen tickers as loading; tickers with existing data keep showing last value
   tickerList.forEach(sym=>{if(!liveData[sym])liveData[sym]={p:null,dp:null,d:null,t:null,loading:true};});
   if(typeof renderTape==='function')renderTape();
-  for(let i=0;i<tickerList.length;i++){
-    const sym=tickerList[i];
+
+  // Serve cache hits immediately — no fetch needed
+  let _done=0;
+  const toFetch=tickerList.filter(sym=>{
     const cached=_fhCache.get(sym);
     if(cached&&(Date.now()-cached.fetchedAt)<FH_CACHE_TTL_MS){
-      if(liveData[sym]&&liveData[sym].loading){
-        liveData[sym]={p:cached.c,dp:cached.dp||0,d:cached.d||0,t:cached.t||0,loading:false};
-      }
-    }else{
+      if(liveData[sym]?.loading) liveData[sym]={p:cached.c,dp:cached.dp||0,d:cached.d||0,t:cached.t||0,loading:false};
+      _done++;
+      return false;
+    }
+    return true;
+  });
+  if(pageKey) showRefreshProgress(pageKey,_done,tickerList.length,{unavailable:_rpUnavail});
+
+  // Fetch uncached in parallel batches of 15.
+  // Sleep 1100ms between batches keeps throughput at ~13 calls/s — above the strict
+  // 60/min free limit but Finnhub rarely hard-blocks bursts on personal keys.
+  // Each call has a 5s hard timeout so a hanging response can't stall the whole run.
+  const BATCH=15;
+  const totalBatches=Math.ceil(toFetch.length/BATCH);
+  for(let b=0;b<toFetch.length;b+=BATCH){
+    const batch=toFetch.slice(b,b+BATCH);
+    await Promise.all(batch.map(async sym=>{
       try{
-        const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey);
+        const ctrl=new AbortController();
+        const tmo=setTimeout(()=>ctrl.abort(),5000);
+        const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey,{signal:ctrl.signal});
+        clearTimeout(tmo);
         const d=await r.json();
         const lastPx=(d.c&&d.c!==0)?d.c:(d.pc&&d.pc!==0?d.pc:null);
         if(lastPx!=null){
           const isLast=!(d.c&&d.c!==0);
-          const quote={c:lastPx,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now(),lastClose:isLast};
-          _fhCache.set(sym,quote);
+          _fhCache.set(sym,{c:lastPx,d:d.d||0,dp:d.dp||0,t:d.t,fetchedAt:Date.now(),lastClose:isLast});
           liveData[sym]={p:lastPx,dp:d.dp||0,d:d.d||0,t:d.t||0,loading:false,lastClose:isLast};
           recordPriceSnapshot(sym,lastPx);
         }else{
@@ -5084,25 +5103,23 @@ async function fetchLiveAll(force, pageKey){
           _rpUnavail++;
         }
       }catch(e){
-        console.warn('[FH]',sym,'fetch failed:',e.message);
+        console.warn('[FH]',sym,e.name==='AbortError'?'5s timeout':'failed:',e.message);
         const prev=liveData[sym]||{};
         liveData[sym]={...prev,loading:false,error:true};
         _rpUnavail++;
       }
-      await sleep(1100);
-    }
-    if(pageKey) showRefreshProgress(pageKey, i+1, tickerList.length, { unavailable: _rpUnavail });
-    // Progressive render every 10 tickers so MSTR/MARA appear as they come in
-    if((i+1)%10===0||i===tickerList.length-1){
-      console.log('[fetchLiveAll] progress:',(i+1),'/',tickerList.length);
-      renderTape();renderWatchlist();renderMoverLists();
-      if(typeof renderMomentum==='function')renderMomentum();
-      if(typeof renderScanners==='function')renderScanners();
-      if(typeof updateStatBoxes==='function')updateStatBoxes();
-    }
+    }));
+    _done+=batch.length;
+    if(pageKey) showRefreshProgress(pageKey,_done,tickerList.length,{unavailable:_rpUnavail});
+    console.log(`[fetchLiveAll] batch ${Math.floor(b/BATCH)+1}/${totalBatches} done — ${_done}/${tickerList.length}`);
+    renderTape();renderWatchlist();renderMoverLists();
+    if(typeof renderMomentum==='function')renderMomentum();
+    if(typeof renderScanners==='function')renderScanners();
+    if(typeof updateStatBoxes==='function')updateStatBoxes();
+    if(b+BATCH<toFetch.length) await sleep(1100);
   }
-  console.log('[fetchLiveAll] COMPLETE — fetched',tickerList.length,'tickers');
-  if(pageKey) showRefreshProgress(pageKey, tickerList.length, tickerList.length, { unavailable: _rpUnavail, complete: true });
+  console.log(`[fetchLiveAll] COMPLETE — ${tickerList.length} total (${wlFlat.length} built-in watchlist · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner) · ${toFetch.length} live-fetched · ${tickerList.length-toFetch.length} cached`);
+  if(pageKey) showRefreshProgress(pageKey,tickerList.length,tickerList.length,{unavailable:_rpUnavail,complete:true,label:`${wlFlat.length} built-in · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner`});
   renderWatchlist();renderMoverLists();renderTape();
   if(typeof renderMomentum==='function')renderMomentum();
   if(typeof renderScanners==='function')renderScanners();
