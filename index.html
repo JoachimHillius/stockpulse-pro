@@ -13601,12 +13601,11 @@ function _tosRender() {
   const cellQuote = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;font-weight:400;color:rgba(255,255,255,0.62);white-space:nowrap;';
   const strikeSep = 'border-left:1px solid rgba(255,255,255,0.13);border-right:1px solid rgba(255,255,255,0.13);';
 
-  // band column — min-width only, no fixed or max width
-  const bandSt  = 'min-width:34px;text-align:center;vertical-align:middle;padding:0;';
-  const bandTxt = 'font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;';
-  const mkBand  = (label, rowspan, side, borderCol, bgCol, txtCol) =>
+  // band column — widened to fit label + totals
+  const bandSt  = 'min-width:46px;text-align:center;vertical-align:middle;padding:2px 0;';
+  const mkBand  = (label, rowspan, side, borderCol, bgCol, txtCol, vol, oi) =>
     `<td rowspan="${rowspan}" style="${bandSt};border-${side}:2px solid ${borderCol};background:${bgCol};color:${txtCol};">
-       <span style="${bandTxt}">${label}</span>
+       <span style="writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;text-align:center;"><span style="font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">${label}</span><span style="font-size:12px;font-weight:400;letter-spacing:0.5px;"> · VOL ${_tosFmtN(vol)} · OI ${_tosFmtN(oi)}</span></span>
      </td>`;
 
   // column order: [col5?]|Delta|Theta|Vol|OI  |  CumVol|CumOI|[OIΔ1D?]
@@ -13697,6 +13696,27 @@ function _tosRender() {
     const disp  = [...below, ...above];
     if (!disp.length) return null;
 
+    // Band-level totals for ITM/OTM column labels
+    const bCVol = below.reduce((s, r) => s + r.call_volume, 0);
+    const bCOI  = below.reduce((s, r) => s + r.call_oi,     0);
+    const bPVol = below.reduce((s, r) => s + r.put_volume,  0);
+    const bPOI  = below.reduce((s, r) => s + r.put_oi,      0);
+    const aCVol = above.reduce((s, r) => s + r.call_volume, 0);
+    const aCOI  = above.reduce((s, r) => s + r.call_oi,     0);
+    const aPVol = above.reduce((s, r) => s + r.put_volume,  0);
+    const aPOI  = above.reduce((s, r) => s + r.put_oi,      0);
+
+    // Shortfall note when forced depth exceeds available filtered rows
+    let shortfallNote = '';
+    if (_tosDepthMode !== 'auto') {
+      const parts = [];
+      if (below.length < depth) parts.push(`only ${below.length} below spot`);
+      if (above.length < depth) parts.push(`only ${above.length} above spot`);
+      if (parts.length) {
+        shortfallNote = `<span style="font-size:13px;color:var(--amber);font-weight:400;margin-left:8px;">· ${depth} requested · ${parts.join(', ')} meet thresholds</span>`;
+      }
+    }
+
     // Hidden-row stats for STEP D
     const hiddenCV  = hiddenRows.reduce((s, r) => s + r.call_volume, 0);
     const hiddenCOI = hiddenRows.reduce((s, r) => s + r.call_oi,     0);
@@ -13715,20 +13735,20 @@ function _tosRender() {
     const filterDesc = isFiltered ? ` · vol≥${_tosFmtN(_tosMinVol)} or OI≥${_tosFmtN(_tosMinOI)}` : '';
     const strikesLabel = `${disp.length} of ${totalStrikes} strikes${filterDesc}`;
     const autoTag = autoExpanded
-      ? `<span style="font-size:13px;color:#fff;font-weight:400;margin-left:8px;">· auto-expanded · ${Math.round(autoRatio * 100)}% of activity beyond row 10</span>`
+      ? `<span style="font-size:13px;color:#fff;font-weight:400;margin-left:8px;">· auto-expanded · ${Math.round(autoRatio * 100)}% of activity beyond row 10 (after filters)</span>`
       : '';
 
     // below: call-ITM (blue) left, put-OTM (amber) right
     const belowHtml = below.map((r, i) => {
-      const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.13)', 'var(--blue)') : '';
-      const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.08)', 'var(--amber)') : '';
+      const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.13)', 'var(--blue)',  bCVol, bCOI) : '';
+      const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.08)', 'var(--amber)', bPVol, bPOI) : '';
       return mkRow(r, bL, bR);
     }).join('');
 
     // above: call-OTM (blue) left, put-ITM (amber) right
     const aboveHtml = above.map((r, i) => {
-      const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.06)', 'var(--blue)') : '';
-      const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.13)', 'var(--amber)') : '';
+      const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.06)', 'var(--blue)',  aCVol, aCOI) : '';
+      const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.13)', 'var(--amber)', aPVol, aPOI) : '';
       return mkRow(r, bL, bR);
     }).join('');
 
@@ -13738,7 +13758,7 @@ function _tosRender() {
     <div data-tos-block style="margin-bottom:28px;overflow-x:auto;">
       <div style="display:inline-block;min-width:100%;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
-          <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}</span>
+          <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}${shortfallNote}</span>
           <span style="font-size:14px;color:#fff;line-height:1.6;">
             <span style="color:var(--blue);">Calls <strong>${_tosFmtN(tCV)}</strong> vol / <strong>${_tosFmtN(tCOI)}</strong> OI</span>
             &nbsp;·&nbsp;
@@ -13752,14 +13772,14 @@ function _tosRender() {
           <table style="border-collapse:collapse;font-family:var(--font);table-layout:auto;">
             <thead>
               <tr style="background:var(--bg3);border-bottom:1px solid var(--border);">
-                <th style="padding:0;min-width:34px;"></th>
+                <th style="padding:0;min-width:46px;"></th>
                 <th colspan="${callCols}" style="text-align:center;color:var(--blue);padding:5px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">CALLS</th>
                 <th style="padding:5px;${strikeSep}"></th>
                 <th colspan="${putCols}" style="text-align:center;color:var(--amber);padding:5px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">PUTS</th>
-                <th style="padding:0;min-width:34px;"></th>
+                <th style="padding:0;min-width:46px;"></th>
               </tr>
               <tr style="background:var(--bg2);border-bottom:1px solid var(--border);">
-                <th style="padding:0;min-width:34px;"></th>
+                <th style="padding:0;min-width:46px;"></th>
                 ${hdrCol5C}
                 <th style="${thBase}">DELTA</th>
                 <th style="${thBase}">THETA</th>
@@ -13777,7 +13797,7 @@ function _tosRender() {
                 <th style="${thBase}">BID</th>
                 <th style="${thBase}">ASK</th>
                 ${hdrOIDeltaP}
-                <th style="padding:0;min-width:34px;"></th>
+                <th style="padding:0;min-width:46px;"></th>
               </tr>
             </thead>
             <tbody>${belowHtml}${divider}${aboveHtml}</tbody>
