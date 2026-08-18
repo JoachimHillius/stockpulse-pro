@@ -13259,11 +13259,17 @@ function parseTosOptionsCsv(text) {
     const FIELDS = ['Volume', 'Open.Int', 'Delta', 'Theta', 'Impl Vol', '%Change', 'Vega', 'BID', 'ASK'];
     const m = { expIdx, strikeIdx };
     for (const f of FIELDS) {
+      const fL = f.toLowerCase();
       m[`c_${f}`] = -1;
-      for (let j = expIdx - 1; j >= 0; j--) { if (cols[j] === f) { m[`c_${f}`] = j; break; } }
+      for (let j = expIdx - 1; j >= 0; j--) {
+        if (cols[j] === f || cols[j].toLowerCase() === fL) { m[`c_${f}`] = j; break; }
+      }
       m[`p_${f}`] = -1;
-      for (let j = strikeIdx + 1; j < cols.length; j++) { if (cols[j] === f) { m[`p_${f}`] = j; break; } }
+      for (let j = strikeIdx + 1; j < cols.length; j++) {
+        if (cols[j] === f || cols[j].toLowerCase() === fL) { m[`p_${f}`] = j; break; }
+      }
     }
+    console.log('[TOS CSV] hdrMap BID/ASK indices:', m['c_BID'], m['c_ASK'], m['p_BID'], m['p_ASK']);
     return m;
   };
 
@@ -13351,6 +13357,10 @@ function parseTosOptionsCsv(text) {
   const rows          = allExpLabels.flatMap(l => rowsByExp[l] || []);
   const collapsedExps = allExpLabels.filter(l => !rowsByExp[l] || rowsByExp[l].length === 0);
 
+  if (rows.length) {
+    const r = rows[0];
+    console.log('[TOS CSV] first parsed row bid/ask:', r.call_bid, r.call_ask, r.put_bid, r.put_ask, '| col5Type:', col5Type);
+  }
   return { ticker, capturedAt, snapshotDate, spot, rows, collapsedExps, col5Type };
 }
 
@@ -13920,6 +13930,7 @@ async function tosSaveSnapshot() {
       put_bid:        r.put_bid        ?? null,
       put_ask:        r.put_ask        ?? null,
     }));
+    if (rows.length) console.log('[TOS CSV] first payload object:', JSON.stringify(rows[0], null, 2));
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
       const { error } = await supa
