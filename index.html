@@ -13197,6 +13197,8 @@ let _tosSelectedExps = new Set();
 let _tosDepthMode = 'auto'; // 'auto' | '10' | '20' | '30'
 let _tosSnapshots = [];         // rows from list_options_snapshots()
 let _tosViewingSnapshot = null; // {ticker, snapshotDate} when viewing a loaded snapshot
+let _tosMinVol = 100;           // filter: row displayed if max(call_vol,put_vol) >= this
+let _tosMinOI  = 1000;          // filter: row displayed if max(call_oi,put_oi)  >= this
 
 function _tosSplitCsvLine(line) {
   const result = [];
@@ -13490,6 +13492,7 @@ function _tosRenderPicker() {
     const active = _tosDepthMode === v;
     return `data-tos-depth="${v}" onclick="tosSetDepth('${v}')" style="background:${active ? 'var(--cyan)' : 'transparent'};border:1px solid ${active ? 'var(--cyan)' : '#3a4858'};color:${active ? '#000' : '#fff'};padding:2px 9px;border-radius:3px;font-size:13px;cursor:pointer;font-family:var(--font);"`;
   };
+  const inpSt = 'width:72px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:#fff;padding:3px 6px;font-size:13px;font-family:var(--font);';
   const depthCtrl = `
     <div style="margin-top:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
       <span style="font-size:13px;color:#fff;letter-spacing:0.3px;text-transform:uppercase;">Depth:</span>
@@ -13498,6 +13501,14 @@ function _tosRenderPicker() {
       <button ${btnSt('20')}>20</button>
       <button ${btnSt('30')}>30</button>
       <span style="font-size:13px;color:#fff;margin-left:2px;">strikes per side</span>
+      <span style="margin-left:16px;font-size:13px;color:#fff;letter-spacing:0.3px;text-transform:uppercase;">Min Vol:</span>
+      <input type="number" min="0" step="1" value="${_tosMinVol}"
+        oninput="_tosMinVol=Math.max(0,parseInt(this.value)||0);_tosRender()"
+        style="${inpSt}"/>
+      <span style="font-size:13px;color:#fff;letter-spacing:0.3px;text-transform:uppercase;">Min OI:</span>
+      <input type="number" min="0" step="1" value="${_tosMinOI}"
+        oninput="_tosMinOI=Math.max(0,parseInt(this.value)||0);_tosRender()"
+        style="${inpSt}"/>
     </div>`;
 
   picker.innerHTML = `
@@ -13634,12 +13645,29 @@ function _tosRender() {
   const hdrCol5P = hasCol5 ? `<th style="${thBase}">${hdrCol5Label}</th>` : '';
 
   const blocks = exps.map(([expLabel, expData]) => {
-    const all        = [...expData.rows].sort((a, b) => a.strike - b.strike);
-    const totalStrikes = all.length;
-    const allBelow   = all.filter(r => r.strike < spot);
-    const allAbove   = all.filter(r => r.strike >= spot);
+    const allRaw     = [...expData.rows].sort((a, b) => a.strike - b.strike);
+    const totalStrikes = allRaw.length;
 
-    // Determine depth for this expiration
+    // STEP B — filter first, then apply depth to survivors
+    const passes = r =>
+      Math.max(r.call_volume, r.put_volume) >= _tosMinVol ||
+      Math.max(r.call_oi,    r.put_oi)    >= _tosMinOI;
+    let filtered    = allRaw.filter(passes);
+    let hiddenRows  = allRaw.filter(r => !passes(r));
+    let usedFallback = false;
+
+    // STEP E — guard: fewer than 3 survivors → show all with note
+    if (filtered.length < 3) {
+      filtered     = allRaw;
+      hiddenRows   = [];
+      usedFallback = true;
+    }
+
+    const all      = filtered;
+    const allBelow = all.filter(r => r.strike < spot);
+    const allAbove = all.filter(r => r.strike >= spot);
+
+    // Determine depth — computed on filtered rows so depth means "N live rows"
     let depth, autoExpanded, autoRatio;
     if (_tosDepthMode === 'auto') {
       const di = _tosComputeDepth(all, spot);
@@ -13653,6 +13681,12 @@ function _tosRender() {
     const above = allAbove.slice(0, depth);
     const disp  = [...below, ...above];
     if (!disp.length) return null;
+
+    // Hidden-row stats for STEP D
+    const hiddenCV  = hiddenRows.reduce((s, r) => s + r.call_volume, 0);
+    const hiddenCOI = hiddenRows.reduce((s, r) => s + r.call_oi,     0);
+    const hiddenPV  = hiddenRows.reduce((s, r) => s + r.put_volume,  0);
+    const hiddenPOI = hiddenRows.reduce((s, r) => s + r.put_oi,      0);
 
     // Single running cumulative ascending by strike (lowest → highest).
     // disp is already sorted ascending: [...below, ...above].
@@ -13673,7 +13707,9 @@ function _tosRender() {
     const cpR  = tPV > 0 ? (tCV / tPV).toFixed(2) : '—';
     const dteStr = expData.dte != null ? ` · ${expData.dte} DTE` : '';
 
-    const strikesLabel = `${disp.length} of ${totalStrikes} strikes`;
+    const isFiltered = (_tosMinVol > 0 || _tosMinOI > 0) && !usedFallback;
+    const filterDesc = isFiltered ? ` · vol≥${_tosFmtN(_tosMinVol)} or OI≥${_tosFmtN(_tosMinOI)}` : '';
+    const strikesLabel = `${disp.length} of ${totalStrikes} strikes${filterDesc}`;
     const autoTag = autoExpanded
       ? `<span style="font-size:13px;color:#fff;font-weight:400;margin-left:8px;">· auto-expanded · ${Math.round(autoRatio * 100)}% of activity beyond row 10</span>`
       : '';
@@ -13746,6 +13782,8 @@ function _tosRender() {
             <tbody>${belowHtml}${divider}${aboveHtml}</tbody>
           </table>
         </div>
+        ${usedFallback ? `<div style="font-size:13px;color:var(--amber);margin-top:6px;">Few strikes meet thresholds — showing all</div>` : ''}
+        ${hiddenRows.length > 0 ? `<div style="font-size:13px;color:#fff;margin-top:6px;">${hiddenRows.length} strikes hidden (below thresholds) · <span style="color:var(--blue);">${_tosFmtN(hiddenCV)} call vol / ${_tosFmtN(hiddenCOI)} call OI</span> · <span style="color:var(--amber);">${_tosFmtN(hiddenPV)} put vol / ${_tosFmtN(hiddenPOI)} put OI</span></div>` : ''}
       </div>
     </div>`; // end block
   }).filter(Boolean);
