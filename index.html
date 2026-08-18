@@ -1355,6 +1355,17 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: TOS CSV ============ -->
 <div id="page-toscsv" class="page">
   <div style="max-width:1200px;">
+    <!-- Saved Snapshots panel — collapsed by default -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;" onclick="tosToggleSnapPanel()">
+        <span class="card-title" style="margin:0;">SAVED SNAPSHOTS</span>
+        <span id="tos-snap-badge" style="background:var(--bg3);border:1px solid var(--border2);color:#fff;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:0.5px;">— saved</span>
+        <span id="tos-snap-chevron" style="margin-left:auto;color:#fff;font-size:12px;">▼</span>
+      </div>
+      <div id="tos-snap-body" style="display:none;margin-top:12px;">
+        <div id="tos-snap-table" style="overflow-x:auto;font-size:14px;color:#fff;"></div>
+      </div>
+    </div>
     <div class="card" style="margin-bottom:16px;">
       <div class="card-hd">
         <span class="card-title">ThinkorSwim CSV</span>
@@ -1379,11 +1390,13 @@ select option{background:var(--bg2);}
         <div style="align-self:flex-end;">
           <button id="tos-save-btn" class="btn btn-cyan btn-sm" onclick="tosSaveSnapshot()" disabled>Save snapshot</button>
           <div style="font-size:13px;color:#fff;margin-top:3px;white-space:nowrap;">saves all expirations in file</div>
+          <div id="tos-save-warn" style="display:none;font-size:13px;color:var(--amber);margin-top:4px;max-width:350px;line-height:1.4;"></div>
         </div>
       </div>
       <div id="tos-status" style="font-size:13px;color:#fff;min-height:16px;"></div>
       <div id="tos-picker" style="display:none;margin-top:10px;"></div>
     </div>
+    <div id="tos-snap-banner"></div>
     <div id="tos-body"></div>
   </div>
 </div>
@@ -13182,6 +13195,8 @@ let _tosPrevMap = new Map();
 let _tosHasPrev = false;
 let _tosSelectedExps = new Set();
 let _tosDepthMode = 'auto'; // 'auto' | '10' | '20' | '30'
+let _tosSnapshots = [];         // rows from list_options_snapshots()
+let _tosViewingSnapshot = null; // {ticker, snapshotDate} when viewing a loaded snapshot
 
 function _tosSplitCsvLine(line) {
   const result = [];
@@ -13761,16 +13776,21 @@ async function tosHandleFile(input) {
   if (!input.files || !input.files.length) return;
 
   // Reset ALL page state before parsing — never leave stale data on screen
-  _tosParsed       = null;
-  _tosPrevMap      = new Map();
-  _tosHasPrev      = false;
-  _tosSelectedExps = new Set();
+  _tosParsed           = null;
+  _tosPrevMap          = new Map();
+  _tosHasPrev          = false;
+  _tosSelectedExps     = new Set();
+  _tosViewingSnapshot  = null;
   if (picker)  { picker.innerHTML = ''; picker.style.display = 'none'; }
   if (body)    body.innerHTML = '';
-  if (saveBtn) saveBtn.disabled = true;
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Save snapshot'; }
   if (tickerEl) tickerEl.value = '';
   if (priceEl)  priceEl.value  = '';
   if (dateEl)   dateEl.value   = '';
+  const _bannerEl = document.getElementById('tos-snap-banner');
+  if (_bannerEl) { _bannerEl.style.display = 'none'; _bannerEl.innerHTML = ''; }
+  const _warnEl = document.getElementById('tos-save-warn');
+  if (_warnEl)  { _warnEl.style.display = 'none'; _warnEl.textContent = ''; }
 
   status.style.color = '#fff';
   status.textContent = 'Parsing…';
@@ -13797,6 +13817,7 @@ async function tosHandleFile(input) {
     if (priceEl)  priceEl.value  = parsed.spot != null ? parsed.spot : '';
     if (dateEl)   dateEl.value   = parsed.snapshotDate;
     if (saveBtn)  saveBtn.disabled = false;
+    _tosCheckOverwrite();
 
     // Detailed status: ticker · date time · N strikes across M expirations · spot P
     const expCount = new Set(parsed.rows.map(r => r.exp_label)).size;
@@ -13836,23 +13857,37 @@ async function tosSaveSnapshot() {
     status.textContent = 'Ticker and snapshot date are required.';
     return;
   }
-  const orig = btn.textContent;
+  const isOverwrite = !!_tosSnapshots.find(s => s.ticker === ticker && s.snapshot_date === snapshotDate);
   btn.disabled = true;
   btn.textContent = 'Saving…';
   status.textContent = '';
+  let didSave = false;
   try {
     const supa = await getSupabaseAsync();
     if (!supa) throw new Error('Supabase unavailable');
-    // Save ALL parsed rows regardless of which expirations are displayed
+
+    // On overwrite: delete existing rows first — prevents stale rows from old exports
+    // merging with the new ones when expirations differ between files.
+    if (isOverwrite) {
+      const { error: delErr } = await supa.rpc('delete_options_snapshot', {
+        p_ticker: ticker,
+        p_snapshot_date: snapshotDate,
+      });
+      if (delErr) throw delErr;
+    }
+
+    const col5Type = _tosParsed.col5Type;
     const rows = _tosParsed.rows.map(r => ({
       ticker, snapshot_date: snapshotDate, captured_at: _tosParsed.capturedAt,
       spot, exp_label: r.exp_label, dte: r.dte, strike: r.strike,
       call_volume: r.call_volume, call_oi: r.call_oi,
-      call_pct_change: r.call_pct_change ?? null,
+      call_pct_change: col5Type === 'pctChange' ? (r.call_pct_change ?? null) : null,
+      call_impl_vol:   col5Type === 'implVol'   ? (r.call_impl_vol   ?? null) : null,
       call_delta: r.call_delta ?? null,
       call_theta: r.call_theta ?? null,
       put_volume: r.put_volume, put_oi: r.put_oi,
-      put_pct_change: r.put_pct_change ?? null,
+      put_pct_change: col5Type === 'pctChange' ? (r.put_pct_change ?? null) : null,
+      put_impl_vol:   col5Type === 'implVol'   ? (r.put_impl_vol   ?? null) : null,
       put_delta: r.put_delta ?? null,
       put_theta: r.put_theta ?? null,
     }));
@@ -13865,7 +13900,10 @@ async function tosSaveSnapshot() {
     }
     status.style.color = 'var(--green)';
     status.textContent = `Saved ${rows.length} rows for ${ticker} on ${snapshotDate}`;
+    didSave = true;
     await _tosLoadPrev(supa, ticker, snapshotDate);
+    await _tosLoadSnapshots();
+    _tosCheckOverwrite();
     _tosRender();
   } catch (e) {
     console.error('[TOS CSV] Save error:', e);
@@ -13873,9 +13911,271 @@ async function tosSaveSnapshot() {
     status.textContent = `Save failed: ${e.message || 'see console'}`;
   } finally {
     btn.disabled = false;
-    btn.textContent = orig;
+    if (!didSave) btn.textContent = isOverwrite ? 'Overwrite snapshot' : 'Save snapshot';
   }
 }
+
+// ============================================================
+// TOS CSV — SAVED SNAPSHOTS PANEL
+// ============================================================
+
+function tosToggleSnapPanel() {
+  const body = document.getElementById('tos-snap-body');
+  const chev = document.getElementById('tos-snap-chevron');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (chev) chev.textContent = open ? '▼' : '▲';
+}
+
+async function _tosLoadSnapshots() {
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) return;
+    const { data, error } = await supa.rpc('list_options_snapshots');
+    if (error) throw error;
+    _tosSnapshots = data || [];
+  } catch (e) {
+    console.error('[TOS CSV] list_options_snapshots error:', e);
+    _tosSnapshots = [];
+  }
+  _tosRenderSnapshotsPanel();
+}
+
+function _tosRenderSnapshotsPanel() {
+  const badge = document.getElementById('tos-snap-badge');
+  const tbl   = document.getElementById('tos-snap-table');
+  if (badge) badge.textContent = `${_tosSnapshots.length} saved`;
+  if (!tbl) return;
+
+  if (!_tosSnapshots.length) {
+    tbl.innerHTML = '<div style="color:#fff;font-size:14px;padding:8px 0;">No saved snapshots.</div>';
+    return;
+  }
+
+  const sorted = [..._tosSnapshots].sort((a, b) =>
+    (b.snapshot_date || '').localeCompare(a.snapshot_date || '') ||
+    (a.ticker || '').localeCompare(b.ticker || '')
+  );
+
+  const thS  = 'padding:5px 10px;font-size:13px;font-weight:700;color:#fff;text-transform:uppercase;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border2);';
+  const thSL = thS.replace('text-align:right', 'text-align:left');
+  const tdS  = 'padding:5px 10px;font-size:14px;font-weight:500;color:#fff;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;';
+  const tdSL = tdS.replace('text-align:right', 'text-align:left');
+
+  const rows = sorted.map(r => {
+    const cpOI = r.put_oi > 0 ? (r.call_oi / r.put_oi).toFixed(2) : '—';
+    const ticker = (r.ticker || '').replace(/'/g, "\\'");
+    const date   = (r.snapshot_date || '').replace(/'/g, "\\'");
+    const sc     = r.strike_count || 0;
+    const ec     = r.exp_count    || 0;
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
+      <td style="${tdSL}font-weight:700;letter-spacing:1px;">${r.ticker || ''}</td>
+      <td style="${tdS}">${r.snapshot_date || ''}</td>
+      <td style="${tdS}font-variant-numeric:tabular-nums;">${r.spot != null ? r.spot : '—'}</td>
+      <td style="${tdS}">${ec}</td>
+      <td style="${tdS}">${sc ? _tosFmtN(sc) : '—'}</td>
+      <td style="${tdS}color:var(--blue);">${r.call_vol != null ? _tosFmtN(r.call_vol) : '—'}</td>
+      <td style="${tdS}color:var(--blue);">${r.call_oi  != null ? _tosFmtN(r.call_oi)  : '—'}</td>
+      <td style="${tdS}color:var(--amber);">${r.put_vol  != null ? _tosFmtN(r.put_vol)  : '—'}</td>
+      <td style="${tdS}color:var(--amber);">${r.put_oi   != null ? _tosFmtN(r.put_oi)   : '—'}</td>
+      <td style="${tdS}">${cpOI}</td>
+      <td style="padding:5px 6px;white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="tosLoadSnapshot('${ticker}','${date}')" style="font-size:12px;padding:3px 10px;">Load</button>
+      </td>
+      <td style="padding:5px 6px;white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="tosDeleteSnapshot('${ticker}','${date}',${sc},${ec})" style="font-size:12px;padding:3px 10px;color:var(--red);border-color:var(--red);">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  tbl.innerHTML = `<table style="border-collapse:collapse;table-layout:auto;width:100%;">
+    <thead><tr style="background:var(--bg3);">
+      <th style="${thSL}">Ticker</th>
+      <th style="${thS}">Date</th>
+      <th style="${thS}">Spot</th>
+      <th style="${thS}">Expirations</th>
+      <th style="${thS}">Strikes</th>
+      <th style="${thS}color:var(--blue);">Call Vol</th>
+      <th style="${thS}color:var(--blue);">Call OI</th>
+      <th style="${thS}color:var(--amber);">Put Vol</th>
+      <th style="${thS}color:var(--amber);">Put OI</th>
+      <th style="${thS}">C/P OI</th>
+      <th style="${thS}"></th><th style="${thS}"></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function _tosCheckOverwrite() {
+  const ticker       = (document.getElementById('tos-ticker')?.value || '').trim().toUpperCase();
+  const snapshotDate = document.getElementById('tos-date')?.value || '';
+  const saveBtn = document.getElementById('tos-save-btn');
+  const warnEl  = document.getElementById('tos-save-warn');
+  if (!saveBtn || !warnEl || !_tosParsed || _tosViewingSnapshot) return;
+
+  const match = _tosSnapshots.find(s => s.ticker === ticker && s.snapshot_date === snapshotDate);
+  if (match) {
+    warnEl.style.display = 'block';
+    warnEl.textContent = `A snapshot for ${ticker} ${snapshotDate} already exists (${_tosFmtN(match.strike_count || 0)} rows). Saving will replace it.`;
+    saveBtn.textContent = 'Overwrite snapshot';
+  } else {
+    warnEl.style.display = 'none';
+    warnEl.textContent = '';
+    saveBtn.textContent = 'Save snapshot';
+  }
+}
+
+async function tosLoadSnapshot(ticker, snapshotDate) {
+  const status = document.getElementById('tos-status');
+  const body   = document.getElementById('tos-body');
+  const picker = document.getElementById('tos-picker');
+  const banner = document.getElementById('tos-snap-banner');
+
+  if (status) { status.style.color = '#fff'; status.textContent = `Loading ${ticker} ${snapshotDate}…`; }
+  if (body)   body.innerHTML = '';
+  if (picker) { picker.innerHTML = ''; picker.style.display = 'none'; }
+
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) throw new Error('Supabase unavailable');
+
+    const PAGE = 1000;
+    let from = 0, allRows = [];
+    while (true) {
+      const { data, error } = await supa
+        .from('options_chain_snapshots')
+        .select('*')
+        .eq('ticker', ticker)
+        .eq('snapshot_date', snapshotDate)
+        .order('exp_label', { ascending: true })
+        .order('strike',    { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || !data.length) break;
+      allRows = allRows.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    if (!allRows.length) throw new Error('No rows found for this snapshot');
+
+    // Detect col5Type from stored columns
+    let col5Type = null;
+    for (const r of allRows) {
+      if (r.call_impl_vol != null || r.put_impl_vol != null) { col5Type = 'implVol';   break; }
+      if (r.call_pct_change != null || r.put_pct_change != null) { col5Type = 'pctChange'; break; }
+    }
+
+    const spot = allRows[0].spot;
+    const rows = allRows.map(r => ({
+      exp_label:      r.exp_label,
+      dte:            r.dte,
+      strike:         r.strike,
+      call_volume:    r.call_volume    ?? 0,
+      call_oi:        r.call_oi        ?? 0,
+      call_pct_change:r.call_pct_change?? null,
+      call_impl_vol:  r.call_impl_vol  ?? null,
+      call_delta:     r.call_delta     ?? null,
+      call_theta:     r.call_theta     ?? null,
+      put_volume:     r.put_volume     ?? 0,
+      put_oi:         r.put_oi         ?? 0,
+      put_pct_change: r.put_pct_change ?? null,
+      put_impl_vol:   r.put_impl_vol   ?? null,
+      put_delta:      r.put_delta      ?? null,
+      put_theta:      r.put_theta      ?? null,
+    }));
+
+    _tosParsed = { ticker, capturedAt: allRows[0].captured_at || null, snapshotDate, spot, rows, collapsedExps: [], col5Type };
+    _tosPrevMap          = new Map();
+    _tosHasPrev          = false;
+    _tosSelectedExps     = new Set();
+    _tosViewingSnapshot  = { ticker, snapshotDate };
+
+    const tickerEl = document.getElementById('tos-ticker');
+    const priceEl  = document.getElementById('tos-price');
+    const dateEl   = document.getElementById('tos-date');
+    if (tickerEl) tickerEl.value = ticker;
+    if (priceEl)  priceEl.value  = spot ?? '';
+    if (dateEl)   dateEl.value   = snapshotDate;
+
+    const saveBtn = document.getElementById('tos-save-btn');
+    const warnEl  = document.getElementById('tos-save-warn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Save snapshot'; }
+    if (warnEl)  { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+
+    if (banner) {
+      banner.innerHTML = `<div style="background:rgba(0,212,255,0.1);border:1px solid var(--cyan);border-radius:6px;padding:8px 14px;display:flex;align-items:center;gap:12px;margin-bottom:12px;font-size:14px;color:#fff;flex-wrap:wrap;">
+        <span>Viewing saved snapshot · <strong>${ticker}</strong> · ${snapshotDate}</span>
+        <button class="btn btn-ghost btn-sm" onclick="tosClearSnapshot()" style="font-size:12px;padding:3px 10px;">Clear</button>
+      </div>`;
+      banner.style.display = 'block';
+    }
+
+    if (status) { status.style.color = '#fff'; status.textContent = ''; }
+    _tosRenderPicker();
+  } catch (e) {
+    console.error('[TOS CSV] Load snapshot error:', e);
+    if (status) { status.style.color = 'var(--red)'; status.textContent = `Load failed: ${e.message || 'see console'}`; }
+  }
+}
+
+function tosClearSnapshot() {
+  _tosParsed           = null;
+  _tosPrevMap          = new Map();
+  _tosHasPrev          = false;
+  _tosSelectedExps     = new Set();
+  _tosViewingSnapshot  = null;
+
+  const els = {
+    body:   document.getElementById('tos-body'),
+    banner: document.getElementById('tos-snap-banner'),
+    picker: document.getElementById('tos-picker'),
+    status: document.getElementById('tos-status'),
+    ticker: document.getElementById('tos-ticker'),
+    price:  document.getElementById('tos-price'),
+    date:   document.getElementById('tos-date'),
+    save:   document.getElementById('tos-save-btn'),
+    warn:   document.getElementById('tos-save-warn'),
+  };
+  if (els.body)   els.body.innerHTML = '';
+  if (els.banner) { els.banner.style.display = 'none'; els.banner.innerHTML = ''; }
+  if (els.picker) { els.picker.innerHTML = ''; els.picker.style.display = 'none'; }
+  if (els.status) { els.status.style.color = '#fff'; els.status.textContent = ''; }
+  if (els.ticker) els.ticker.value = '';
+  if (els.price)  els.price.value  = '';
+  if (els.date)   els.date.value   = '';
+  if (els.save)   { els.save.disabled = true; els.save.textContent = 'Save snapshot'; }
+  if (els.warn)   { els.warn.style.display = 'none'; els.warn.textContent = ''; }
+}
+
+async function tosDeleteSnapshot(ticker, snapshotDate, strikeCount, expCount) {
+  const msg = `Delete ${ticker} ${snapshotDate}? This removes ${_tosFmtN(strikeCount)} rows across ${expCount} expirations. This cannot be undone.`;
+  if (!confirm(msg)) return;
+
+  const status = document.getElementById('tos-status');
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) throw new Error('Supabase unavailable');
+    const { data, error } = await supa.rpc('delete_options_snapshot', {
+      p_ticker: ticker,
+      p_snapshot_date: snapshotDate,
+    });
+    if (error) throw error;
+    const deleted = typeof data === 'number' ? data : strikeCount;
+    if (status) { status.style.color = 'var(--green)'; status.textContent = `Deleted ${_tosFmtN(deleted)} rows.`; }
+    if (_tosViewingSnapshot && _tosViewingSnapshot.ticker === ticker && _tosViewingSnapshot.snapshotDate === snapshotDate) {
+      tosClearSnapshot();
+    }
+    await _tosLoadSnapshots();
+    _tosCheckOverwrite();
+  } catch (e) {
+    console.error('[TOS CSV] Delete error:', e);
+    if (status) { status.style.color = 'var(--red)'; status.textContent = `Delete failed: ${e.message || 'see console'}`; }
+  }
+}
+
+// Load snapshot list on startup so the panel is populated immediately
+_tosLoadSnapshots();
 </script>
 
 <!-- Hover popup for Gainers/Losers -->
