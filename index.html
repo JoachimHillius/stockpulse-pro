@@ -104,6 +104,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .stat-lbl{font-size:12px;color:#c0c8d0;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;font-weight:600;}
 .stat-val{font-size:24px;font-weight:700;letter-spacing:-1px;line-height:1.2;}
 .stat-sub{font-size:10px;margin-top:3px;}
+/* Compact stat boxes — Options Flow upload row only */
+#flow-stat-row .stat-box{padding:6px 10px;}
+#flow-stat-row .stat-lbl{font-size:10px;margin-bottom:2px;}
+#flow-stat-row .stat-val{font-size:15px;}
+#flow-stat-row .stat-sub{font-size:9px;margin-top:2px;}
 
 /* VIX GAUGE */
 .vix-num{font-family:'Bebas Neue',sans-serif;font-size:56px;letter-spacing:2px;line-height:1;text-align:center;}
@@ -720,13 +725,52 @@ select option{background:var(--bg2);}
       </div>
       <div id="upload-log-list" style="max-height:240px;overflow-y:auto;background:var(--bg);border-radius:4px;"></div>
     </div>
-    <div class="g2" style="gap:8px;">
+    <div class="g2" id="flow-stat-row" style="gap:8px;">
       <div class="stat-box"><div class="stat-lbl">TRADES — TODAY / ALL-TIME</div><div class="stat-val" id="flow-total" style="color:var(--blue);font-size:20px;">—</div><div class="stat-sub" id="flow-today-breakdown" style="color:#8090a0;">OMEN — / SM —</div></div>
       <div class="stat-box"><div class="stat-lbl">Call Premium</div><div class="stat-val" id="flow-call-$" style="color:var(--green)">$0</div></div>
       <div class="stat-box"><div class="stat-lbl">Put Premium</div><div class="stat-val" id="flow-put-$" style="color:var(--red)">$0</div></div>
       <div class="stat-box"><div class="stat-lbl">C/P Ratio</div><div class="stat-val" id="flow-ratio" style="color:var(--amber)">—</div></div>
       <div class="stat-box"><div class="stat-lbl">Sweeps</div><div class="stat-val" id="flow-sweeps" style="color:var(--red)">0</div></div>
       <div class="stat-box"><div class="stat-lbl">At Ask</div><div class="stat-val" id="flow-atask" style="color:var(--green)">0</div></div>
+    </div>
+  </div>
+
+  <!-- COVERAGE + TOP FLOW CARDS -->
+  <div id="of-coverage-card" style="background:var(--bg3);border-radius:5px;padding:10px 16px;margin-bottom:8px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+    <div style="letter-spacing:1.2px;text-transform:uppercase;font-size:10px;color:#c0c8d0;font-weight:600;white-space:nowrap;">SYMBOLS WITH CONTRACTS TODAY</div>
+    <div style="font-size:22px;font-weight:700;color:#e0e0e0;" id="of-cov-symbols">—</div>
+    <div style="font-size:12px;color:#e0e0e0;white-space:nowrap;">
+      <span id="of-cov-total" style="font-weight:700;color:#e0e0e0;">—</span> contracts ·
+      <span id="of-cov-calls" style="font-weight:700;color:var(--blue);">—</span> calls ·
+      <span id="of-cov-puts" style="font-weight:700;color:var(--amber);">—</span> puts ·
+      C/P <span id="of-cov-ratio" style="font-weight:700;color:#e0e0e0;">—</span>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+      <span id="of-cov-date" style="font-size:10px;color:#8090a0;"></span>
+      <button onclick="loadOfCoverage()" title="Refresh coverage" style="background:none;border:none;color:#8090a0;font-size:14px;cursor:pointer;padding:2px 4px;line-height:1;" id="of-cov-refresh">↻</button>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+    <!-- TOP 10 CALLS -->
+    <div class="card" style="padding:12px 14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span style="letter-spacing:1.2px;text-transform:uppercase;font-size:11px;color:#e0e0e0;font-weight:700;">TOP 10 CALL FLOW</span>
+        <span style="font-size:10px;color:#8090a0;" id="of-top-calls-date"></span>
+      </div>
+      <div id="of-top-calls-body">
+        <div style="color:#8090a0;font-size:11px;">Loading…</div>
+      </div>
+    </div>
+    <!-- TOP 10 PUTS -->
+    <div class="card" style="padding:12px 14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span style="letter-spacing:1.2px;text-transform:uppercase;font-size:11px;color:#e0e0e0;font-weight:700;">TOP 10 PUT FLOW</span>
+        <span style="font-size:10px;color:#8090a0;" id="of-top-puts-date"></span>
+      </div>
+      <div id="of-top-puts-body">
+        <div style="color:#8090a0;font-size:11px;">Loading…</div>
+      </div>
     </div>
   </div>
 
@@ -5182,6 +5226,9 @@ function goPage(name,btn){
     setTimeout(loadEarningsFlow,80);
     setTimeout(loadEarningsCalendar,110);
   }
+  if(name==='flow'){
+    setTimeout(loadOfCoverage,100);
+  }
 }
 
 // ============================================================
@@ -9266,8 +9313,89 @@ function manualRefreshCarousel(){
   fetchLiveAll(true).catch(e=>console.warn('[Carousel] manual refresh failed:',e));
 }
 
+// ── Coverage card + Top Flow cards ─────────────────────────────────
+async function loadOfCoverage() {
+  const btn = document.getElementById('of-cov-refresh');
+  if (btn) { btn.style.opacity = '0.4'; btn.style.pointerEvents = 'none'; }
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) return;
+    // Latest trading date — single row, no pagination needed
+    const { data: dateRow } = await supa.from('omen_flow')
+      .select('trading_date').order('trading_date', { ascending: false }).limit(1);
+    const latestDate = dateRow?.[0]?.trading_date;
+    if (!latestDate) {
+      const el = document.getElementById('of-cov-symbols');
+      if (el) el.textContent = '—';
+      return;
+    }
+    // Coverage aggregation via RPC (avoids pulling 285k rows to client)
+    const { data, error } = await supa.rpc('get_omen_coverage', { p_date: latestDate });
+    if (error) { console.error('[OFCoverage]', error.message); return; }
+    const row = data?.[0] || {};
+    const calls = Number(row.call_count || 0);
+    const puts  = Number(row.put_count  || 0);
+    const ratio = puts > 0 ? (calls / puts).toFixed(2) : '∞';
+    const setEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+    setEl('of-cov-symbols', Number(row.symbol_count || 0).toLocaleString());
+    setEl('of-cov-total',   Number(row.total_count  || 0).toLocaleString());
+    setEl('of-cov-calls',   calls.toLocaleString());
+    setEl('of-cov-puts',    puts.toLocaleString());
+    setEl('of-cov-ratio',   ratio);
+    setEl('of-cov-date',    latestDate);
+    await loadOfTopFlow(latestDate);
+  } catch (e) {
+    console.error('[OFCoverage]', e.message);
+  } finally {
+    if (btn) { btn.style.opacity = ''; btn.style.pointerEvents = ''; }
+  }
+}
+
+async function loadOfTopFlow(date) {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  // Fire both RPCs in parallel
+  const [callsRes, putsRes] = await Promise.all([
+    supa.rpc('get_omen_top_calls', { p_date: date, p_limit: 10 }),
+    supa.rpc('get_omen_top_puts',  { p_date: date, p_limit: 10 }),
+  ]);
+  const setEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+  setEl('of-top-calls-date', date);
+  setEl('of-top-puts-date',  date);
+
+  function renderRows(rows, el) {
+    if (!el) return;
+    if (!rows?.length) { el.innerHTML = '<div style="color:#8090a0;font-size:11px;">No data</div>'; return; }
+    const header = `<div style="display:grid;grid-template-columns:18px 56px 1fr 1fr 1fr;gap:4px;padding:0 0 4px;border-bottom:1px solid var(--border2);margin-bottom:2px;">
+      <span></span>
+      <span style="font-size:9px;color:#6080a0;letter-spacing:0.5px;">TICKER</span>
+      <span style="font-size:9px;color:var(--blue);text-align:right;letter-spacing:0.5px;">CALLS</span>
+      <span style="font-size:9px;color:var(--amber);text-align:right;letter-spacing:0.5px;">PUTS</span>
+      <span style="font-size:9px;color:#6080a0;text-align:right;letter-spacing:0.5px;">C/P</span>
+    </div>`;
+    const body = rows.map((r, i) => {
+      const ratio = r.ratio != null ? r.ratio : '∞';
+      return `<div style="display:grid;grid-template-columns:18px 56px 1fr 1fr 1fr;align-items:center;gap:4px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="font-size:10px;color:#6080a0;">${i + 1}</span>
+        <span style="font-size:13px;font-weight:700;color:#e0e0e0;">${r.symbol}</span>
+        <span style="font-size:12px;color:var(--blue);text-align:right;">${Number(r.call_count).toLocaleString()}</span>
+        <span style="font-size:12px;color:var(--amber);text-align:right;">${Number(r.put_count).toLocaleString()}</span>
+        <span style="font-size:12px;font-weight:700;color:#e0e0e0;text-align:right;">${ratio}</span>
+      </div>`;
+    }).join('');
+    el.innerHTML = header + body;
+  }
+
+  if (callsRes.error) console.error('[OFTopCalls]', callsRes.error.message);
+  else renderRows(callsRes.data, document.getElementById('of-top-calls-body'));
+
+  if (putsRes.error) console.error('[OFTopPuts]', putsRes.error.message);
+  else renderRows(putsRes.data, document.getElementById('of-top-puts-body'));
+}
+
 async function refreshOptionsFlow(){
   await loadFlowFromSupabase();
+  await loadOfCoverage();
   setRefreshed('options_flow');
   console.log('[OptionsFlow] Manual refresh complete');
 }
