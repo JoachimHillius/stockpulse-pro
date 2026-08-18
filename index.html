@@ -2294,7 +2294,7 @@ function setTapePeriod(p,btn){
 function renderTape(){
   const syms=[...new Set(['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SMCI','BTDR','MARA'])];
   const scale=PERIOD_SCALE[tapePeriod]||1;
-  const all=syms.map(s=>{const q=getQ(s);console.log('[carousel]',s,'live:',q?.p,'time:',q?.t);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading,stale:!!q.stale};});
+  const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading,stale:!!q.stale};});
   const gainers=[...all].filter(x=>x.dp>0).sort((a,b)=>b.dp-a.dp);
   const losers=[...all].filter(x=>x.dp<0).sort((a,b)=>a.dp-b.dp);
   const mkItem=(x)=>{
@@ -13598,7 +13598,7 @@ function _tosRender() {
   const cellSep   = `${cellBase}border-left:2px solid rgba(255,255,255,0.2);`;
   const cellVolC  = `${cellBase}font-size:15px;font-weight:700;color:var(--blue);`;
   const cellVolP  = `${cellBase}font-size:15px;font-weight:700;color:var(--amber);`;
-  const cellBidAsk = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;white-space:nowrap;';
+  const cellQuote = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;font-weight:400;color:rgba(255,255,255,0.62);white-space:nowrap;';
   const strikeSep = 'border-left:1px solid rgba(255,255,255,0.13);border-right:1px solid rgba(255,255,255,0.13);';
 
   // band column — min-width only, no fixed or max width
@@ -13632,8 +13632,8 @@ function _tosRender() {
       <td style="${cellBase}">${_tosFmtG(r.call_theta)}</td>
       <td style="${cellVolC}">${_tosFmtN(r.call_volume)}</td>
       <td style="${cellVolC}">${_tosFmtN(r.call_oi)}</td>
-      <td class="tos-quote tos-bid" style="${cellBidAsk}">${_tosFmtG(r.call_bid)}</td>
-      <td class="tos-quote" style="${cellBidAsk}">${_tosFmtG(r.call_ask)}</td>
+      <td style="${cellQuote}">${_tosFmtG(r.call_bid)}</td>
+      <td style="${cellQuote}">${_tosFmtG(r.call_ask)}</td>
       ${callOIDelta}
       <td style="text-align:center;font-weight:700;padding:5px 28px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${r.strike}</td>
       ${putCol5}
@@ -13641,8 +13641,8 @@ function _tosRender() {
       <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
       <td style="${cellVolP}">${_tosFmtN(r.put_volume)}</td>
       <td style="${cellVolP}">${_tosFmtN(r.put_oi)}</td>
-      <td class="tos-quote tos-bid" style="${cellBidAsk}">${_tosFmtG(r.put_bid)}</td>
-      <td class="tos-quote" style="${cellBidAsk}">${_tosFmtG(r.put_ask)}</td>
+      <td style="${cellQuote}">${_tosFmtG(r.put_bid)}</td>
+      <td style="${cellQuote}">${_tosFmtG(r.put_ask)}</td>
       ${putOIDelta}
       ${bR}
     </tr>`;
@@ -13790,7 +13790,16 @@ function _tosRender() {
   }).filter(Boolean);
 
   body.innerHTML = blocks.join('');
-  requestAnimationFrame(() => _tosEqualizeBlocks());
+  requestAnimationFrame(() => {
+    _tosEqualizeBlocks();
+    const bidCell = body.querySelector('td[style*="0.62"]');
+    if (bidCell) {
+      const cs = getComputedStyle(bidCell);
+      console.log('[TOS DOM] BID cell computed fontWeight:', cs.fontWeight, '| color:', cs.color);
+    } else {
+      console.log('[TOS DOM] BID cell not found in DOM');
+    }
+  });
 }
 
 function _tosEqualizeBlocks() {
