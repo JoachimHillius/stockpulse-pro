@@ -13351,6 +13351,11 @@ function _tosFmtG(v) {
   return v.toFixed(2);
 }
 
+function _tosFmtIV(v) {
+  if (v == null) return '—';
+  return v.toFixed(1) + '%';
+}
+
 function _tosDeltaHtml(expLabel, strike, field, currOI) {
   if (!_tosHasPrev) return '—';
   const prev = _tosPrevMap.get(`${expLabel}|${Number(strike)}`);
@@ -13537,49 +13542,24 @@ function _tosRender() {
     return;
   }
 
-  // column widths (px) — used for table-layout:fixed and equal-width blocks (STEP D)
-  const Wb = 30;   // band
-  const Wc = 62;   // cum vol / cum oi  (muted secondary)
-  const Wv = 72;   // vol / oi          (primary)
-  const Wp = 58;   // % chg / IV (col5, omitted when neither is in file)
-  const Wd = 56;   // delta (greek)
-  const Wt = 56;   // theta
-  const Wo = 60;   // oi Δ1D (only when _tosHasPrev)
-  const Ws = 76;   // strike
-
   const col5Type = _tosParsed.col5Type;  // 'pctChange' | 'implVol' | null
   const hasCol5  = col5Type !== null;
 
-  // STEP C: col count adjusts for OI Δ1D presence AND col5 presence
+  // Column counts — needed for colspan in CALLS/PUTS header row and divider
   const sideBaseCols = hasCol5 ? 7 : 6;
   const callCols  = _tosHasPrev ? sideBaseCols + 1 : sideBaseCols;
   const putCols   = callCols;
   const totalCols = 1 + callCols + 1 + putCols + 1;
 
-  // STEP D: fixed identical width for every expiration block
-  const col5W  = hasCol5 ? Wp : 0;
-  const sideW  = Wc + Wv + col5W + Wd + Wt + (_tosHasPrev ? Wo : 0) + Wv + Wc;
-  const tableW = Wb + sideW + Ws + sideW + Wb;
-
-  // colgroup — column order follows CSV: [col5?]|Delta|Theta|Vol|OI|CumVol|CumOI|[OIΔ?]
-  // Both call and put sides read identically left-to-right (no mirror on puts)
-  const _cg = (hasPrev, has5) => {
-    const csv = has5 ? [Wp, Wd, Wt, Wv, Wv] : [Wd, Wt, Wv, Wv];
-    const der = hasPrev ? [Wc, Wc, Wo] : [Wc, Wc];
-    return [Wb, ...csv, ...der, Ws, ...csv, ...der, Wb];
-  };
-  const colWidths = _cg(_tosHasPrev, hasCol5);
-  const colgroup = `<colgroup>${colWidths.map(w => `<col style="width:${w}px;">`).join('')}</colgroup>`;
-
-  // cell styles — 14px white for all; 15px bold call/put colour for VOL and OI
-  const cellBase  = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-  const cellSep   = `${cellBase}border-left:2px solid rgba(255,255,255,0.2);`;  // CSV→derived boundary
+  // cell styles — table-layout:auto, white-space:nowrap — no clipping, columns size to content
+  const cellBase  = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;font-weight:500;color:#fff;white-space:nowrap;';
+  const cellSep   = `${cellBase}border-left:2px solid rgba(255,255,255,0.2);`;
   const cellVolC  = `${cellBase}font-size:15px;font-weight:700;color:var(--blue);`;
   const cellVolP  = `${cellBase}font-size:15px;font-weight:700;color:var(--amber);`;
   const strikeSep = 'border-left:1px solid rgba(255,255,255,0.13);border-right:1px solid rgba(255,255,255,0.13);';
 
-  // band column helpers — full-brightness colours, no opacity on text
-  const bandSt  = `width:${Wb}px;max-width:${Wb}px;min-width:${Wb}px;text-align:center;vertical-align:middle;padding:0;`;
+  // band column — min-width only, no fixed or max width
+  const bandSt  = 'min-width:34px;text-align:center;vertical-align:middle;padding:0;';
   const bandTxt = 'font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;';
   const mkBand  = (label, rowspan, side, borderCol, bgCol, txtCol) =>
     `<td rowspan="${rowspan}" style="${bandSt};border-${side}:2px solid ${borderCol};background:${bgCol};color:${txtCol};">
@@ -13590,7 +13570,7 @@ function _tosRender() {
   //               same on both sides, no mirror
   const _fmtCol5 = (pct, iv) => {
     if (col5Type === 'pctChange') return _tosFmtPct(pct);
-    if (col5Type === 'implVol')   return _tosFmtG(iv);
+    if (col5Type === 'implVol')   return _tosFmtIV(iv);
     return '';
   };
   const mkRow = (r, cumCV, cumCOI, cumPV, cumPOI, bL, bR) => {
@@ -13627,8 +13607,8 @@ function _tosRender() {
     </tr>`;
   };
 
-  // Header styles — 13px white bold; CALLS/PUTS section rows stay blue/amber
-  const thBase   = 'padding:5px 8px;font-size:13px;font-weight:700;color:#fff;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;';
+  // Header styles — no overflow:hidden, no text-overflow:ellipsis
+  const thBase   = 'padding:5px 8px;font-size:13px;font-weight:700;color:#fff;text-transform:uppercase;white-space:nowrap;text-align:right;';
   const thSep    = `${thBase}border-left:2px solid rgba(255,255,255,0.2);`;
   const thStrike = `${thBase}text-align:center;${strikeSep}`;
 
@@ -13708,8 +13688,8 @@ function _tosRender() {
     const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:13px;">${spot} ← spot</span></td></tr>`;
 
     return `
-    <div style="margin-bottom:28px;">
-      <div style="width:${tableW}px;max-width:100%;margin:0 auto;">
+    <div data-tos-block style="margin-bottom:28px;overflow-x:auto;">
+      <div style="display:inline-block;min-width:100%;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
           <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}</span>
           <span style="font-size:14px;color:#fff;line-height:1.6;">
@@ -13721,19 +13701,18 @@ function _tosRender() {
             &nbsp;<span style="font-size:13px;color:#fff;font-weight:400;">(${strikesLabel} · totals cover displayed strikes only)</span>
           </span>
         </div>
-        <div class="card" style="padding:0;overflow-x:auto;">
-          <table style="border-collapse:collapse;font-family:var(--font);width:${tableW}px;table-layout:fixed;">
-            ${colgroup}
+        <div class="card" style="padding:0;">
+          <table style="border-collapse:collapse;font-family:var(--font);table-layout:auto;">
             <thead>
               <tr style="background:var(--bg3);border-bottom:1px solid var(--border);">
-                <th style="padding:0;"></th>
+                <th style="padding:0;min-width:34px;"></th>
                 <th colspan="${callCols}" style="text-align:center;color:var(--blue);padding:5px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">CALLS</th>
                 <th style="padding:5px;${strikeSep}"></th>
                 <th colspan="${putCols}" style="text-align:center;color:var(--amber);padding:5px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">PUTS</th>
-                <th style="padding:0;"></th>
+                <th style="padding:0;min-width:34px;"></th>
               </tr>
               <tr style="background:var(--bg2);border-bottom:1px solid var(--border);">
-                <th style="padding:0;"></th>
+                <th style="padding:0;min-width:34px;"></th>
                 ${hdrCol5C}
                 <th style="${thBase}">DELTA</th>
                 <th style="${thBase}">THETA</th>
@@ -13751,17 +13730,28 @@ function _tosRender() {
                 <th style="${thSep}">CUM VOL</th>
                 <th style="${thBase}">CUM OI</th>
                 ${hdrOIDeltaP}
-                <th style="padding:0;"></th>
+                <th style="padding:0;min-width:34px;"></th>
               </tr>
             </thead>
             <tbody>${belowHtml}${divider}${aboveHtml}</tbody>
           </table>
         </div>
       </div>
-    </div>`;
+    </div>`; // end block
   }).filter(Boolean);
 
   body.innerHTML = blocks.join('');
+  requestAnimationFrame(() => _tosEqualizeBlocks());
+}
+
+function _tosEqualizeBlocks() {
+  const body = document.getElementById('tos-body');
+  if (!body) return;
+  let maxW = 0;
+  body.querySelectorAll('table').forEach(t => { maxW = Math.max(maxW, t.scrollWidth); });
+  if (maxW > 0) {
+    body.querySelectorAll('[data-tos-block]').forEach(b => { b.style.minWidth = maxW + 'px'; });
+  }
 }
 
 async function tosHandleFile(input) {
