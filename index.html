@@ -628,13 +628,18 @@ select option{background:var(--bg2);}
   <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
       <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:var(--cyan);">ADD STOCK TO WATCHLIST</span>
+      <span id="wl-sector-needed-badge" style="display:none;font-size:11px;color:var(--amber);font-weight:600;"></span>
       <button onclick="toggleAddStockPopup()" style="background:transparent;border:none;color:#888;cursor:pointer;font-size:18px;margin-left:auto;">×</button>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <input id="add-stock-input" type="text" placeholder="Type ticker (e.g. NFLX)..."
+      <input id="add-stock-input" type="text" placeholder="Ticker (e.g. NFLX)…"
         oninput="onAddStockInput(event)"
         onkeydown="if(event.key==='Enter')submitNewStock()"
-        style="flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:4px;font-size:13px;text-transform:uppercase;"/>
+        style="width:130px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:4px;font-size:13px;text-transform:uppercase;"/>
+      <select id="add-stock-sector" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:4px;font-size:13px;font-family:var(--font);">
+        <option value="" disabled selected>Select sector…</option>
+      </select>
+      <input id="add-stock-sector-other" type="text" placeholder="Sector name…" style="display:none;width:140px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:4px;font-size:13px;"/>
       <button onclick="submitNewStock()" style="background:var(--green);color:#000;border:none;padding:8px 16px;border-radius:4px;font-weight:700;cursor:pointer;">Add</button>
     </div>
     <div style="font-size:10px;color:#8090a0;margin-top:6px;">Or pick from OMEN universe:</div>
@@ -3018,6 +3023,10 @@ function _wlPctCell(val) {
   const cls = Math.abs(val) < 0.05 ? 'pct-zero' : val > 0 ? 'pct-pos' : 'pct-neg';
   return `<span class="pct-cell ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
 }
+function _wlStaleCell(latestDate) {
+  const d = latestDate ? latestDate.slice(0,10) : '?';
+  return `<span class="pct-cell" style="color:var(--amber);font-size:10px;" title="Price history stale — last bar ${d}">stale</span>`;
+}
 function _wlBbCell(val) {
   if (val == null) return `<span class="pct-cell pct-na">—</span>`;
   const cls = val >= 60 ? 'pct-pos' : val <= 40 ? 'pct-neg' : 'pct-zero';
@@ -3102,9 +3111,17 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
     </span>
   </div>`;
 
+  // Compute max latestDate across all histBaselines entries to detect stale symbols
+  const _allDates = Object.values(histBaselines).map(b=>b?.latestDate).filter(Boolean).sort();
+  const _maxDate = _allDates.at(-1) || null;
+
   const rows = sorted.map(sym => {
     const q = getQ(sym);
     const p = histBaselines[sym]?.perf;
+    const latestDate = histBaselines[sym]?.latestDate || null;
+    // Flag stale if latestDate is present and more than 5 calendar days behind newest
+    const isStale = latestDate && _maxDate &&
+      ((new Date(_maxDate) - new Date(latestDate)) / 86400000) > 5;
     const fa = getFlowAnalytics(sym, flowBullBearWindow);
     const netClr = q.d >= 0 ? 'pct-pos' : 'pct-neg';
     const m5 = getPriceChangePct(sym, 5);
@@ -3131,18 +3148,31 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
     const chain = optionsCache[sym];
     if (chain?.pcRatio != null && (chain.pcRatio < 0.5 || chain.pcRatio > 1.5))
       dots.push('<span class="wl-dot dot-opts" title="Unusual options: P/C ' + chain.pcRatio + '"></span>');
+    const isCustom = customTickers.includes(sym);
+    const userRow = isCustom ? (_userWatchlist||[]).find(r=>r.symbol===sym) : null;
+    const symSector = userRow?.sector||'';
+    const sectorNeedsEdit = isCustom && (!symSector || symSector==='Custom');
+    // Inline sector edit widget for user-added stocks
+    const sectorEditHtml = isCustom
+      ? `<span onclick="event.stopPropagation();" style="margin-left:6px;display:inline-flex;align-items:center;gap:3px;">
+          <select onchange="updateUserTickerSector('${sym}',this.value);this.blur();" style="background:var(--bg3);border:1px solid ${sectorNeedsEdit?'var(--amber)':'var(--border2)'};border-radius:3px;color:${sectorNeedsEdit?'var(--amber)':'#8090a0'};padding:1px 4px;font-size:9px;font-family:var(--font);cursor:pointer;max-width:100px;" title="Edit sector">
+            ${(!symSector||symSector==='Custom')?'<option value="" disabled selected>set sector</option>':'<option value="" disabled>change…</option>'}
+            ${_wlSectorOptions()}
+          </select>
+         </span>`
+      : '';
     return `<div class="wl-dense-row" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
       <span class="wl-sym-cell">${sym}</span>
-      <span class="wl-name-cell">${COMPANY_NAMES[sym] || sector}${customTickers.includes(sym) ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:6px;" title="Remove from watchlist">×</button>` : ''}</span>
+      <span class="wl-name-cell">${COMPANY_NAMES[sym] || sector}${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:4px;" title="Remove from watchlist">×</button>` : ''}</span>
       <span class="wl-price-cell">${fmtPrice(sym, q.p)}</span>
       <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
-      ${_wlPctCell(d1)}
-      ${_wlPctCell(w1)}
-      ${_wlPctCell(m1)}
-      ${_wlPctCell(m6)}
-      ${_wlPctCell(y1)}
+      ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(d1)}
+      ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(w1)}
+      ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(m1)}
+      ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(m6)}
+      ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(y1)}
       ${_wlBbCell(bullPct)}
       ${_wlBbCell(bearPct)}
       <div class="wl-dot-wrap">${dots.join('')}</div>
@@ -3188,12 +3218,38 @@ function renderWatchlist() {
   body.innerHTML = html || '<div class="empty">No tickers match your filter</div>';
 }
 function refreshWatchlist(){if(finnhubKey)fetchLiveAll();else renderWatchlist();}
+function _wlSectorOptions(){
+  const builtIn=Object.keys(WATCHLIST);
+  const userExtra=[...new Set((_userWatchlist||[]).map(r=>r.sector).filter(s=>s&&s!=='Custom'))];
+  const all=[...new Set([...builtIn,...userExtra])].sort();
+  return all.map(s=>`<option value="${s}">${s}</option>`).join('')+'<option value="__other__">Other… (type below)</option>';
+}
+function _wlRefreshSectorBadge(){
+  const badge=document.getElementById('wl-sector-needed-badge');
+  if(!badge)return;
+  const n=(_userWatchlist||[]).filter(r=>!r.sector||r.sector==='Custom').length;
+  if(n>0){badge.textContent=n+' symbol'+(n===1?'':'s')+' need a sector';badge.style.display='';}
+  else{badge.style.display='none';}
+}
 function toggleAddStockPopup(){
   const el=document.getElementById('add-stock-popup');
   if(!el)return;
   const open=el.style.display!=='none'&&el.style.display!=='';
   el.style.display=open?'none':'block';
-  if(!open){document.getElementById('add-stock-input').focus();renderAddStockSuggestions('');}
+  if(!open){
+    const sel=document.getElementById('add-stock-sector');
+    if(sel){sel.innerHTML='<option value="" disabled selected>Select sector…</option>'+_wlSectorOptions();sel.value='';}
+    const other=document.getElementById('add-stock-sector-other');
+    if(other)other.style.display='none';
+    const selEl=document.getElementById('add-stock-sector');
+    if(selEl)selEl.onchange=function(){
+      const oth=document.getElementById('add-stock-sector-other');
+      if(oth)oth.style.display=this.value==='__other__'?'':'none';
+    };
+    _wlRefreshSectorBadge();
+    document.getElementById('add-stock-input').focus();
+    renderAddStockSuggestions('');
+  }
 }
 async function renderAddStockSuggestions(query){
   const el=document.getElementById('add-stock-suggestions');
@@ -3208,16 +3264,22 @@ async function renderAddStockSuggestions(query){
 }
 function onAddStockInput(e){renderAddStockSuggestions((e.target.value||'').toUpperCase());}
 async function quickAddStock(sym){
-  const ok=await addUserTicker(sym);
-  if(ok){document.getElementById('add-stock-input').value='';renderAddStockSuggestions('');}
+  const sector=SECTOR_BY_SYMBOL[sym]||'Other';
+  const ok=await addUserTicker(sym,sector);
+  if(ok){document.getElementById('add-stock-input').value='';renderAddStockSuggestions('');_wlRefreshSectorBadge();}
 }
 async function submitNewStock(){
   const inp=document.getElementById('add-stock-input');
   if(!inp)return;
   const sym=(inp.value||'').trim().toUpperCase();
   if(!sym)return;
-  const ok=await addUserTicker(sym);
-  if(ok){inp.value='';renderAddStockSuggestions('');}
+  const sel=document.getElementById('add-stock-sector');
+  const otherInp=document.getElementById('add-stock-sector-other');
+  let sector=(sel?.value||'').trim();
+  if(sector==='__other__')sector=(otherInp?.value||'').trim();
+  if(!sector||sector==='Custom'){alert('Please select a sector before adding.');return;}
+  const ok=await addUserTicker(sym,sector);
+  if(ok){inp.value='';if(sel){sel.innerHTML='<option value="" disabled selected>Select sector…</option>'+_wlSectorOptions();sel.value='';}if(otherInp){otherInp.style.display='none';otherInp.value='';}renderAddStockSuggestions('');_wlRefreshSectorBadge();}
 }
 function quickPatterns(sym,q){
   const p=[];
@@ -6382,15 +6444,18 @@ async function loadUserWatchlist(){
 async function addUserTicker(symbol,sector){
   const sym=(symbol||'').trim().toUpperCase();
   if(!sym||!/^[A-Z]{1,6}$/.test(sym)){alert('Invalid ticker: '+symbol);return false;}
+  const sec=(sector||'').trim()||'Other';
   const supa=await getSupabaseAsync();
   if(!supa){alert('Database not ready');return false;}
   try{
-    const{error}=await supa.from('user_watchlist').insert({symbol:sym,sector:sector||'Custom'});
+    const{error}=await supa.from('user_watchlist').insert({symbol:sym,sector:sec});
     if(error){
       if(String(error.message).includes('duplicate')){alert(sym+' is already in your watchlist');}
       else{alert('Add failed: '+error.message);}
       return false;
     }
+    // Mirror sector to symbol_sectors so other pages/features pick it up
+    await supa.from('symbol_sectors').upsert({symbol:sym,sector:sec,updated_at:new Date().toISOString()},{onConflict:'symbol'});
     await loadUserWatchlist();
     if(typeof renderWatchlist==='function')renderWatchlist();
     return true;
@@ -6399,11 +6464,26 @@ async function addUserTicker(symbol,sector){
 async function removeUserTicker(symbol){
   const supa=await getSupabaseAsync();
   if(!supa)return;
+  const sym=(symbol||'').trim().toUpperCase();
   try{
-    await supa.from('user_watchlist').delete().eq('symbol',symbol);
+    await supa.from('user_watchlist').delete().eq('symbol',sym);
     await loadUserWatchlist();
     if(typeof renderWatchlist==='function')renderWatchlist();
   }catch(e){console.warn('[user_watchlist] delete failed:',e);}
+}
+async function updateUserTickerSector(symbol,newSector){
+  const sym=(symbol||'').trim().toUpperCase();
+  const sec=(newSector||'').trim();
+  if(!sym||!sec)return;
+  const supa=await getSupabaseAsync();
+  if(!supa)return;
+  try{
+    await supa.from('user_watchlist').update({sector:sec}).eq('symbol',sym);
+    await supa.from('symbol_sectors').upsert({symbol:sym,sector:sec,updated_at:new Date().toISOString()},{onConflict:'symbol'});
+    await loadUserWatchlist();
+    if(typeof renderWatchlist==='function')renderWatchlist();
+    _wlRefreshSectorBadge();
+  }catch(e){console.warn('[user_watchlist] sector update failed:',e);}
 }
 async function getOmenTickerUniverse(){
   if(_omenTickerCache)return _omenTickerCache;
@@ -6636,9 +6716,20 @@ async function startPriceSync(forceRefresh){
     const elapsed=Math.round((Date.now()-startTime)/1000);
     if(statusEl)statusEl.textContent='✓ Complete';
     if(barEl)barEl.style.width='100%';
+    // Query price_sync_status for failed symbols to name them explicitly
+    let failedNames='';
+    try{
+      const supa=await getSupabaseAsync();
+      if(supa){
+        const{data:failedRows}=await supa.from('price_sync_status').select('symbol,last_status,last_synced_at').eq('last_status','failed').order('symbol');
+        if(failedRows&&failedRows.length){
+          failedNames=' · <span style="color:var(--amber);">failed: '+failedRows.map(r=>r.symbol).join(', ')+'</span>';
+        }
+      }
+    }catch(_){}
     if(summaryEl){
       summaryEl.style.display='block';
-      summaryEl.innerHTML='<strong style="color:var(--green);">✓ Sync complete</strong> · '+totalSucceeded+' tickers · '+totalRows.toLocaleString()+' price rows · '+totalFailed+' failures · '+elapsed+'s';
+      summaryEl.innerHTML='<strong style="color:var(--green);">✓ Sync complete</strong> · Refreshed '+totalSucceeded+' of '+(totalSucceeded+totalFailed)+' tickers · '+totalRows.toLocaleString()+' price rows · '+elapsed+'s'+failedNames;
     }
   }catch(e){
     console.error('[PriceSync] failed:',e);
