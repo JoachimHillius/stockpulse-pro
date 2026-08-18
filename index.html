@@ -415,7 +415,8 @@ select option{background:var(--bg2);}
 .earn-form-collapsed .earn-form-body { display:none; }
 .earn-form-hint { display:none; font-size:11px; color:#506070; margin-top:6px; }
 .earn-form-collapsed .earn-form-hint { display:block; }
-.tos-quote { font-weight:400; }
+.tos-quote { font-weight:400; color:#fff; }
+.tos-bid   { color:rgba(255,255,255,0.62); }
 </style>
 </head>
 <body>
@@ -13597,7 +13598,7 @@ function _tosRender() {
   const cellSep   = `${cellBase}border-left:2px solid rgba(255,255,255,0.2);`;
   const cellVolC  = `${cellBase}font-size:15px;font-weight:700;color:var(--blue);`;
   const cellVolP  = `${cellBase}font-size:15px;font-weight:700;color:var(--amber);`;
-  const cellBidAsk = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;color:#fff;white-space:nowrap;';
+  const cellBidAsk = 'padding:5px 11px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;white-space:nowrap;';
   const strikeSep = 'border-left:1px solid rgba(255,255,255,0.13);border-right:1px solid rgba(255,255,255,0.13);';
 
   // band column — min-width only, no fixed or max width
@@ -13631,7 +13632,7 @@ function _tosRender() {
       <td style="${cellBase}">${_tosFmtG(r.call_theta)}</td>
       <td style="${cellVolC}">${_tosFmtN(r.call_volume)}</td>
       <td style="${cellVolC}">${_tosFmtN(r.call_oi)}</td>
-      <td class="tos-quote" style="${cellBidAsk}">${_tosFmtG(r.call_bid)}</td>
+      <td class="tos-quote tos-bid" style="${cellBidAsk}">${_tosFmtG(r.call_bid)}</td>
       <td class="tos-quote" style="${cellBidAsk}">${_tosFmtG(r.call_ask)}</td>
       ${callOIDelta}
       <td style="text-align:center;font-weight:700;padding:5px 28px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${r.strike}</td>
@@ -13640,7 +13641,7 @@ function _tosRender() {
       <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
       <td style="${cellVolP}">${_tosFmtN(r.put_volume)}</td>
       <td style="${cellVolP}">${_tosFmtN(r.put_oi)}</td>
-      <td class="tos-quote" style="${cellBidAsk}">${_tosFmtG(r.put_bid)}</td>
+      <td class="tos-quote tos-bid" style="${cellBidAsk}">${_tosFmtG(r.put_bid)}</td>
       <td class="tos-quote" style="${cellBidAsk}">${_tosFmtG(r.put_ask)}</td>
       ${putOIDelta}
       ${bR}
