@@ -13594,7 +13594,7 @@ function _tosRender() {
       <td style="${cellSep}">${_tosFmtN(cumCV)}</td>
       <td style="${cellBase}">${_tosFmtN(cumCOI)}</td>
       ${callOIDelta}
-      <td style="text-align:center;font-weight:700;padding:5px 10px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${r.strike}</td>
+      <td style="text-align:center;font-weight:700;padding:5px 28px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${r.strike}</td>
       ${putCol5}
       <td style="${cellBase}">${_tosFmtG(r.put_delta)}</td>
       <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
@@ -13610,7 +13610,7 @@ function _tosRender() {
   // Header styles — no overflow:hidden, no text-overflow:ellipsis
   const thBase   = 'padding:5px 8px;font-size:13px;font-weight:700;color:#fff;text-transform:uppercase;white-space:nowrap;text-align:right;';
   const thSep    = `${thBase}border-left:2px solid rgba(255,255,255,0.2);`;
-  const thStrike = `${thBase}text-align:center;${strikeSep}`;
+  const thStrike = `padding:5px 28px;font-size:13px;font-weight:700;color:#fff;text-transform:uppercase;white-space:nowrap;text-align:center;${strikeSep}`;
 
   const hdrOIDeltaC = _tosHasPrev ? `<th style="${thBase}">OI Δ1D</th>` : '';
   const hdrOIDeltaP = _tosHasPrev ? `<th style="${thBase}">OI Δ1D</th>` : '';
@@ -13639,23 +13639,15 @@ function _tosRender() {
     const disp  = [...below, ...above];
     if (!disp.length) return null;
 
-    // Cumulatives — below: from bottom (nearest spot) upward
-    const bCV = [], bCOI = [], bPV = [], bPOI = [];
-    for (let i = below.length - 1; i >= 0; i--) {
-      const last = i === below.length - 1;
-      bCV[i]  = below[i].call_volume + (last ? 0 : bCV[i + 1]);
-      bCOI[i] = below[i].call_oi     + (last ? 0 : bCOI[i + 1]);
-      bPV[i]  = below[i].put_volume  + (last ? 0 : bPV[i + 1]);
-      bPOI[i] = below[i].put_oi      + (last ? 0 : bPOI[i + 1]);
-    }
-
-    // Cumulatives — above: from top (nearest spot) downward
-    const aCV = [], aCOI = [], aPV = [], aPOI = [];
-    for (let i = 0; i < above.length; i++) {
-      aCV[i]  = above[i].call_volume + (i === 0 ? 0 : aCV[i - 1]);
-      aCOI[i] = above[i].call_oi     + (i === 0 ? 0 : aCOI[i - 1]);
-      aPV[i]  = above[i].put_volume  + (i === 0 ? 0 : aPV[i - 1]);
-      aPOI[i] = above[i].put_oi      + (i === 0 ? 0 : aPOI[i - 1]);
+    // Single running cumulative ascending by strike (lowest → highest).
+    // disp is already sorted ascending: [...below, ...above].
+    // Top row (highest strike) equals the block header total — that is the verify check.
+    const cumCV = [], cumCOI = [], cumPV = [], cumPOI = [];
+    for (let i = 0; i < disp.length; i++) {
+      cumCV[i]  = disp[i].call_volume + (i === 0 ? 0 : cumCV[i - 1]);
+      cumCOI[i] = disp[i].call_oi     + (i === 0 ? 0 : cumCOI[i - 1]);
+      cumPV[i]  = disp[i].put_volume  + (i === 0 ? 0 : cumPV[i - 1]);
+      cumPOI[i] = disp[i].put_oi      + (i === 0 ? 0 : cumPOI[i - 1]);
     }
 
     // Totals cover displayed strikes only
@@ -13672,17 +13664,20 @@ function _tosRender() {
       : '';
 
     // below: call-ITM (blue) left, put-OTM (amber) right
+    // disp indices 0..below.length-1
     const belowHtml = below.map((r, i) => {
       const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.13)', 'var(--blue)') : '';
       const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.08)', 'var(--amber)') : '';
-      return mkRow(r, bCV[i], bCOI[i], bPV[i], bPOI[i], bL, bR);
+      return mkRow(r, cumCV[i], cumCOI[i], cumPV[i], cumPOI[i], bL, bR);
     }).join('');
 
     // above: call-OTM (blue) left, put-ITM (amber) right
+    // disp indices below.length..disp.length-1
     const aboveHtml = above.map((r, i) => {
+      const j = below.length + i;
       const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.06)', 'var(--blue)') : '';
       const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.13)', 'var(--amber)') : '';
-      return mkRow(r, aCV[i], aCOI[i], aPV[i], aPOI[i], bL, bR);
+      return mkRow(r, cumCV[j], cumCOI[j], cumPV[j], cumPOI[j], bL, bR);
     }).join('');
 
     const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:13px;">${spot} ← spot</span></td></tr>`;
@@ -13693,9 +13688,9 @@ function _tosRender() {
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
           <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}</span>
           <span style="font-size:14px;color:#fff;line-height:1.6;">
-            Calls <strong>${_tosFmtN(tCV)}</strong> vol / <strong>${_tosFmtN(tCOI)}</strong> OI
+            <span style="color:var(--blue);">Calls <strong>${_tosFmtN(tCV)}</strong> vol / <strong>${_tosFmtN(tCOI)}</strong> OI</span>
             &nbsp;·&nbsp;
-            Puts <strong>${_tosFmtN(tPV)}</strong> vol / <strong>${_tosFmtN(tPOI)}</strong> OI
+            <span style="color:var(--amber);">Puts <strong>${_tosFmtN(tPV)}</strong> vol / <strong>${_tosFmtN(tPOI)}</strong> OI</span>
             &nbsp;·&nbsp;
             C/P <strong style="font-size:16px;color:#fff;">${cpR}</strong>
             &nbsp;<span style="font-size:13px;color:#fff;font-weight:400;">(${strikesLabel} · totals cover displayed strikes only)</span>
