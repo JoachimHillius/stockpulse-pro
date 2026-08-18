@@ -6686,6 +6686,13 @@ async function startPriceSync(forceRefresh){
   if(btn){btn.disabled=true;btn.textContent='Syncing…';btn.style.opacity='0.6';}
   if(progressEl)progressEl.style.display='block';
   if(summaryEl)summaryEl.style.display='none';
+
+  // Build the exact set of symbols to sync: built-in watchlist + user-added.
+  // Sending an explicit list bypasses get_sync_universe (2,475 symbols) so the
+  // edge function only processes the ~96 symbols the user cares about.
+  const userSyms=(_userWatchlist||[]).map(r=>r.symbol);
+  const syncTickers=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms])];
+
   let totalProcessed=0,totalSucceeded=0,totalFailed=0,totalRows=0;
   const startTime=Date.now();
   try{
@@ -6693,7 +6700,12 @@ async function startPriceSync(forceRefresh){
       const r=await fetch(PRICE_SYNC_URL,{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+PRICE_SYNC_ANON_KEY,'apikey':PRICE_SYNC_ANON_KEY},
-        body:JSON.stringify({max_batch:30,force_refresh:!!forceRefresh}),
+        body:JSON.stringify({
+          max_batch:30,
+          force_refresh:!!forceRefresh,
+          stale_days:forceRefresh?0:1,
+          tickers:syncTickers,
+        }),
       });
       if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()));
       const data=await r.json();
@@ -6705,8 +6717,8 @@ async function startPriceSync(forceRefresh){
       const done=totalProcessed;
       const total=done+remaining;
       const pct=total>0?Math.round((done/total)*100):100;
-      if(statusEl)statusEl.textContent='Syncing… last batch: '+(data.succeeded||0)+'/'+(data.processed||0)+' ok · '+((data.total_rows_inserted||0).toLocaleString())+' rows';
-      if(countsEl)countsEl.textContent=done+' / '+total;
+      if(statusEl)statusEl.textContent='Syncing… '+(data.succeeded||0)+'/'+(data.processed||0)+' ok this batch · '+done+' of '+(done+remaining)+' done';
+      if(countsEl)countsEl.textContent=done+' / '+(done+remaining);
       if(barEl)barEl.style.width=pct+'%';
       console.log('[PriceSync] batch:',data);
       if((data.processed||0)===0||(data.remaining||0)===0)break;
@@ -6716,21 +6728,30 @@ async function startPriceSync(forceRefresh){
     const elapsed=Math.round((Date.now()-startTime)/1000);
     if(statusEl)statusEl.textContent='✓ Complete';
     if(barEl)barEl.style.width='100%';
-    // Query price_sync_status for failed symbols to name them explicitly
-    let failedNames='';
+
+    // Query final status for the exact symbols we attempted
+    let summaryHtml='<strong style="color:var(--green);">✓ Sync complete</strong>';
     try{
       const supa=await getSupabaseAsync();
       if(supa){
-        const{data:failedRows}=await supa.from('price_sync_status').select('symbol,last_status,last_synced_at').eq('last_status','failed').order('symbol');
-        if(failedRows&&failedRows.length){
-          failedNames=' · <span style="color:var(--amber);">failed: '+failedRows.map(r=>r.symbol).join(', ')+'</span>';
-        }
+        const{data:statusRows}=await supa.from('price_sync_status')
+          .select('symbol,last_status')
+          .in('symbol',syncTickers)
+          .order('symbol');
+        const rows=statusRows||[];
+        const okCount=rows.filter(r=>r.last_status==='success').length;
+        const errSyms=rows.filter(r=>r.last_status==='error').map(r=>r.symbol);
+        const pendingSyms=rows.filter(r=>r.last_status==='pending'||r.last_status==='idle').map(r=>r.symbol);
+        summaryHtml+=' · '+okCount+' of '+syncTickers.length+' synced · '+totalRows.toLocaleString()+' price rows · '+elapsed+'s';
+        if(errSyms.length)summaryHtml+=' · <span style="color:var(--amber);">failed ('+errSyms.length+'): '+errSyms.join(', ')+'</span>';
+        if(pendingSyms.length)summaryHtml+=' · <span style="color:var(--amber);">still pending ('+pendingSyms.length+'): '+pendingSyms.join(', ')+'</span>';
+      }else{
+        summaryHtml+=' · '+totalSucceeded+' synced · '+totalRows.toLocaleString()+' rows · '+elapsed+'s';
       }
-    }catch(_){}
-    if(summaryEl){
-      summaryEl.style.display='block';
-      summaryEl.innerHTML='<strong style="color:var(--green);">✓ Sync complete</strong> · Refreshed '+totalSucceeded+' of '+(totalSucceeded+totalFailed)+' tickers · '+totalRows.toLocaleString()+' price rows · '+elapsed+'s'+failedNames;
+    }catch(_){
+      summaryHtml+=' · '+totalSucceeded+' synced · '+totalRows.toLocaleString()+' rows · '+elapsed+'s';
     }
+    if(summaryEl){summaryEl.style.display='block';summaryEl.style.color='';summaryEl.innerHTML=summaryHtml;}
   }catch(e){
     console.error('[PriceSync] failed:',e);
     if(statusEl)statusEl.textContent='✗ Failed: '+e.message;
