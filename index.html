@@ -13181,6 +13181,7 @@ let _tosParsed = null;
 let _tosPrevMap = new Map();
 let _tosHasPrev = false;
 let _tosSelectedExps = new Set();
+let _tosDepthMode = 'auto'; // 'auto' | '10' | '20' | '30'
 
 function _tosSplitCsvLine(line) {
   const result = [];
@@ -13397,6 +13398,42 @@ function _tosUpdateChipStyles() {
   });
 }
 
+// Compute per-expiration depth. allSorted must already be ascending by strike.
+// Returns { depth:10|20, autoExpanded:bool, ratio:number }
+function _tosComputeDepth(allSorted, spot) {
+  const below20 = allSorted.filter(r => r.strike < spot).slice(-20);
+  const above20 = allSorted.filter(r => r.strike >= spot).slice(0, 20);
+
+  const act = r => r.call_volume + r.call_oi + r.put_volume + r.put_oi;
+
+  // band1 = rows 1-10 (nearest to spot on each side)
+  const band1 = [...below20.slice(-10), ...above20.slice(0, 10)]
+    .reduce((s, r) => s + act(r), 0);
+  // band2 = rows 11-20 (further out)
+  const band2 = [...below20.slice(0, -10), ...above20.slice(10)]
+    .reduce((s, r) => s + act(r), 0);
+
+  if (band1 === 0) return { depth: 10, autoExpanded: false, ratio: 0 };
+  const ratio = band2 / band1;
+  const expanded = ratio >= 0.25;
+  return { depth: expanded ? 20 : 10, autoExpanded: expanded, ratio };
+}
+
+function _tosUpdateDepthStyles() {
+  document.querySelectorAll('[data-tos-depth]').forEach(btn => {
+    const active = btn.getAttribute('data-tos-depth') === _tosDepthMode;
+    btn.style.background = active ? 'var(--cyan)' : 'transparent';
+    btn.style.borderColor = active ? 'var(--cyan)' : '#3a4858';
+    btn.style.color       = active ? '#000'        : '#607080';
+  });
+}
+
+function tosSetDepth(mode) {
+  _tosDepthMode = mode;
+  _tosUpdateDepthStyles();
+  _tosRender();
+}
+
 function _tosRenderPicker() {
   const picker = document.getElementById('tos-picker');
   if (!picker || !_tosParsed) return;
@@ -13429,6 +13466,20 @@ function _tosRenderPicker() {
     ? `<div style="margin-top:8px;font-size:10px;color:#506070;">Not in this export (collapsed in ToS): ${collapsedExps.join(', ')}</div>`
     : '';
 
+  const btnSt = (v) => {
+    const active = _tosDepthMode === v;
+    return `data-tos-depth="${v}" onclick="tosSetDepth('${v}')" style="background:${active ? 'var(--cyan)' : 'transparent'};border:1px solid ${active ? 'var(--cyan)' : '#3a4858'};color:${active ? '#000' : '#607080'};padding:2px 9px;border-radius:3px;font-size:10px;cursor:pointer;font-family:var(--font);"`;
+  };
+  const depthCtrl = `
+    <div style="margin-top:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <span style="font-size:9px;color:#607080;letter-spacing:0.3px;text-transform:uppercase;">Depth:</span>
+      <button ${btnSt('auto')}>Auto</button>
+      <button ${btnSt('10')}>10</button>
+      <button ${btnSt('20')}>20</button>
+      <button ${btnSt('30')}>30</button>
+      <span style="font-size:9px;color:#3a4858;margin-left:2px;">strikes per side</span>
+    </div>`;
+
   picker.innerHTML = `
     <div style="font-size:9px;color:#607080;margin-bottom:6px;letter-spacing:0.3px;text-transform:uppercase;">Expirations to display:</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
@@ -13436,7 +13487,8 @@ function _tosRenderPicker() {
       <button onclick="tosSelectAll()" style="background:none;border:none;color:var(--cyan);font-size:10px;cursor:pointer;font-family:var(--font);padding:2px 4px;margin-left:4px;">All</button>
       <button onclick="tosSelectNone()" style="background:none;border:none;color:#607080;font-size:10px;cursor:pointer;font-family:var(--font);padding:2px 4px;">None</button>
     </div>
-    ${collapsedNote}`;
+    ${collapsedNote}
+    ${depthCtrl}`;
   picker.style.display = '';
   _tosUpdateChipStyles();
   _tosRender();
@@ -13591,9 +13643,23 @@ function _tosRender() {
   const hdrCol5P = hasCol5 ? `<th style="${thMuted}">${hdrCol5Label}</th>` : '';
 
   const blocks = exps.map(([expLabel, expData]) => {
-    const all   = [...expData.rows].sort((a, b) => a.strike - b.strike);
-    const below = all.filter(r => r.strike < spot).slice(-10);
-    const above = all.filter(r => r.strike >= spot).slice(0, 10);
+    const all        = [...expData.rows].sort((a, b) => a.strike - b.strike);
+    const totalStrikes = all.length;
+    const allBelow   = all.filter(r => r.strike < spot);
+    const allAbove   = all.filter(r => r.strike >= spot);
+
+    // Determine depth for this expiration
+    let depth, autoExpanded, autoRatio;
+    if (_tosDepthMode === 'auto') {
+      const di = _tosComputeDepth(all, spot);
+      depth = di.depth; autoExpanded = di.autoExpanded; autoRatio = di.ratio;
+    } else {
+      depth = parseInt(_tosDepthMode, 10);
+      autoExpanded = false; autoRatio = 0;
+    }
+
+    const below = allBelow.slice(-depth);
+    const above = allAbove.slice(0, depth);
     const disp  = [...below, ...above];
     if (!disp.length) return null;
 
@@ -13616,12 +13682,18 @@ function _tosRender() {
       aPOI[i] = above[i].put_oi      + (i === 0 ? 0 : aPOI[i - 1]);
     }
 
+    // Totals cover displayed strikes only
     const tCV  = disp.reduce((s, r) => s + r.call_volume, 0);
     const tCOI = disp.reduce((s, r) => s + r.call_oi, 0);
     const tPV  = disp.reduce((s, r) => s + r.put_volume, 0);
     const tPOI = disp.reduce((s, r) => s + r.put_oi, 0);
     const cpR  = tPV > 0 ? (tCV / tPV).toFixed(2) : '—';
     const dteStr = expData.dte != null ? ` · ${expData.dte} DTE` : '';
+
+    const strikesLabel = `${disp.length} of ${totalStrikes} strikes`;
+    const autoTag = autoExpanded
+      ? `<span style="font-size:9px;color:#506070;font-weight:400;margin-left:8px;">· auto-expanded · ${Math.round(autoRatio * 100)}% of activity beyond row 10</span>`
+      : '';
 
     // below: call-ITM (blue) left, put-OTM (amber) right
     const belowHtml = below.map((r, i) => {
@@ -13639,19 +13711,18 @@ function _tosRender() {
 
     const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:12px;">${spot} ← spot</span></td></tr>`;
 
-    // STEP D: fixed tableW so every block is identical width; STEP E: readable header
     return `
     <div style="margin-bottom:28px;">
       <div style="width:${tableW}px;max-width:100%;margin:0 auto;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
-          <span style="font-size:15px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">${expLabel}${dteStr}</span>
+          <span style="font-size:15px;font-weight:600;color:#e0e0e0;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}</span>
           <span style="font-size:14px;color:#e8e8e8;line-height:1.6;">
             Calls <strong>${_tosFmtN(tCV)}</strong> vol / <strong>${_tosFmtN(tCOI)}</strong> OI
             &nbsp;·&nbsp;
             Puts <strong>${_tosFmtN(tPV)}</strong> vol / <strong>${_tosFmtN(tPOI)}</strong> OI
             &nbsp;·&nbsp;
             C/P <strong style="font-size:16px;color:#fff;">${cpR}</strong>
-            &nbsp;<span style="font-size:10px;color:#506070;font-weight:400;">(${disp.length} strikes)</span>
+            &nbsp;<span style="font-size:10px;color:#506070;font-weight:400;">(${strikesLabel} · totals cover displayed strikes only)</span>
           </span>
         </div>
         <div class="card" style="padding:0;overflow-x:auto;">
