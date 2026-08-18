@@ -13256,7 +13256,7 @@ function parseTosOptionsCsv(text) {
     const expIdx    = cols.indexOf('Exp');
     const strikeIdx = cols.indexOf('Strike');
     if (expIdx === -1 || strikeIdx === -1 || strikeIdx <= expIdx) return null;
-    const FIELDS = ['Volume', 'Open.Int', 'Delta', 'Theta', 'Impl Vol', '%Change', 'Vega'];
+    const FIELDS = ['Volume', 'Open.Int', 'Delta', 'Theta', 'Impl Vol', '%Change', 'Vega', 'BID', 'ASK'];
     const m = { expIdx, strikeIdx };
     for (const f of FIELDS) {
       m[`c_${f}`] = -1;
@@ -13335,12 +13335,16 @@ function parseTosOptionsCsv(text) {
       call_impl_vol:   getNul(cols, hdrMap['c_Impl Vol']),
       call_delta:      getNul(cols, hdrMap['c_Delta']),
       call_theta:      getNul(cols, hdrMap['c_Theta']),
+      call_bid:        getNul(cols, hdrMap['c_BID']),
+      call_ask:        getNul(cols, hdrMap['c_ASK']),
       put_volume:      getN(cols,   hdrMap['p_Volume']),
       put_oi:          getN(cols,   hdrMap['p_Open.Int']),
       put_pct_change:  getNul(cols, hdrMap['p_%Change']),
       put_impl_vol:    getNul(cols, hdrMap['p_Impl Vol']),
       put_delta:       getNul(cols, hdrMap['p_Delta']),
       put_theta:       getNul(cols, hdrMap['p_Theta']),
+      put_bid:         getNul(cols, hdrMap['p_BID']),
+      put_ask:         getNul(cols, hdrMap['p_ASK']),
     });
   }
 
@@ -13599,7 +13603,7 @@ function _tosRender() {
     if (col5Type === 'implVol')   return _tosFmtIV(iv);
     return '';
   };
-  const mkRow = (r, cumCV, cumCOI, cumPV, cumPOI, bL, bR) => {
+  const mkRow = (r, bL, bR) => {
     const callOIDelta = _tosHasPrev
       ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'call_oi', r.call_oi)}</td>`
       : '';
@@ -13608,8 +13612,6 @@ function _tosRender() {
       : '';
     const callCol5 = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.call_pct_change, r.call_impl_vol)}</td>` : '';
     const putCol5  = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.put_pct_change,  r.put_impl_vol)}</td>`  : '';
-    // CSV group: col5 | delta | theta | vol | OI
-    // Derived group (sep): cumVol | cumOI | [OIΔ1D]
     return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
       ${bL}
       ${callCol5}
@@ -13617,8 +13619,8 @@ function _tosRender() {
       <td style="${cellBase}">${_tosFmtG(r.call_theta)}</td>
       <td style="${cellVolC}">${_tosFmtN(r.call_volume)}</td>
       <td style="${cellVolC}">${_tosFmtN(r.call_oi)}</td>
-      <td style="${cellSep}">${_tosFmtN(cumCV)}</td>
-      <td style="${cellBase}">${_tosFmtN(cumCOI)}</td>
+      <td style="${cellBase}">${_tosFmtG(r.call_bid)}</td>
+      <td style="${cellBase}">${_tosFmtG(r.call_ask)}</td>
       ${callOIDelta}
       <td style="text-align:center;font-weight:700;padding:5px 28px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${r.strike}</td>
       ${putCol5}
@@ -13626,8 +13628,8 @@ function _tosRender() {
       <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
       <td style="${cellVolP}">${_tosFmtN(r.put_volume)}</td>
       <td style="${cellVolP}">${_tosFmtN(r.put_oi)}</td>
-      <td style="${cellSep}">${_tosFmtN(cumPV)}</td>
-      <td style="${cellBase}">${_tosFmtN(cumPOI)}</td>
+      <td style="${cellBase}">${_tosFmtG(r.put_bid)}</td>
+      <td style="${cellBase}">${_tosFmtG(r.put_ask)}</td>
       ${putOIDelta}
       ${bR}
     </tr>`;
@@ -13688,17 +13690,6 @@ function _tosRender() {
     const hiddenPV  = hiddenRows.reduce((s, r) => s + r.put_volume,  0);
     const hiddenPOI = hiddenRows.reduce((s, r) => s + r.put_oi,      0);
 
-    // Single running cumulative ascending by strike (lowest → highest).
-    // disp is already sorted ascending: [...below, ...above].
-    // Top row (highest strike) equals the block header total — that is the verify check.
-    const cumCV = [], cumCOI = [], cumPV = [], cumPOI = [];
-    for (let i = 0; i < disp.length; i++) {
-      cumCV[i]  = disp[i].call_volume + (i === 0 ? 0 : cumCV[i - 1]);
-      cumCOI[i] = disp[i].call_oi     + (i === 0 ? 0 : cumCOI[i - 1]);
-      cumPV[i]  = disp[i].put_volume  + (i === 0 ? 0 : cumPV[i - 1]);
-      cumPOI[i] = disp[i].put_oi      + (i === 0 ? 0 : cumPOI[i - 1]);
-    }
-
     // Totals cover displayed strikes only
     const tCV  = disp.reduce((s, r) => s + r.call_volume, 0);
     const tCOI = disp.reduce((s, r) => s + r.call_oi, 0);
@@ -13715,20 +13706,17 @@ function _tosRender() {
       : '';
 
     // below: call-ITM (blue) left, put-OTM (amber) right
-    // disp indices 0..below.length-1
     const belowHtml = below.map((r, i) => {
       const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.13)', 'var(--blue)') : '';
       const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.08)', 'var(--amber)') : '';
-      return mkRow(r, cumCV[i], cumCOI[i], cumPV[i], cumPOI[i], bL, bR);
+      return mkRow(r, bL, bR);
     }).join('');
 
     // above: call-OTM (blue) left, put-ITM (amber) right
-    // disp indices below.length..disp.length-1
     const aboveHtml = above.map((r, i) => {
-      const j = below.length + i;
       const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.06)', 'var(--blue)') : '';
       const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.13)', 'var(--amber)') : '';
-      return mkRow(r, cumCV[j], cumCOI[j], cumPV[j], cumPOI[j], bL, bR);
+      return mkRow(r, bL, bR);
     }).join('');
 
     const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:13px;">${spot} ← spot</span></td></tr>`;
@@ -13764,8 +13752,8 @@ function _tosRender() {
                 <th style="${thBase}">THETA</th>
                 <th style="${thBase}">VOL</th>
                 <th style="${thBase}">OI</th>
-                <th style="${thSep}">CUM VOL</th>
-                <th style="${thBase}">CUM OI</th>
+                <th style="${thBase}">BID</th>
+                <th style="${thBase}">ASK</th>
                 ${hdrOIDeltaC}
                 <th style="${thStrike}">STRIKE</th>
                 ${hdrCol5P}
@@ -13773,8 +13761,8 @@ function _tosRender() {
                 <th style="${thBase}">THETA</th>
                 <th style="${thBase}">VOL</th>
                 <th style="${thBase}">OI</th>
-                <th style="${thSep}">CUM VOL</th>
-                <th style="${thBase}">CUM OI</th>
+                <th style="${thBase}">BID</th>
+                <th style="${thBase}">ASK</th>
                 ${hdrOIDeltaP}
                 <th style="padding:0;min-width:34px;"></th>
               </tr>
@@ -13914,20 +13902,23 @@ async function tosSaveSnapshot() {
       if (delErr) throw delErr;
     }
 
-    const col5Type = _tosParsed.col5Type;
     const rows = _tosParsed.rows.map(r => ({
       ticker, snapshot_date: snapshotDate, captured_at: _tosParsed.capturedAt,
       spot, exp_label: r.exp_label, dte: r.dte, strike: r.strike,
       call_volume: r.call_volume, call_oi: r.call_oi,
-      call_pct_change: col5Type === 'pctChange' ? (r.call_pct_change ?? null) : null,
-      call_impl_vol:   col5Type === 'implVol'   ? (r.call_impl_vol   ?? null) : null,
-      call_delta: r.call_delta ?? null,
-      call_theta: r.call_theta ?? null,
+      call_pct_change: r.call_pct_change ?? null,
+      call_impl_vol:   r.call_impl_vol   ?? null,
+      call_delta:      r.call_delta      ?? null,
+      call_theta:      r.call_theta      ?? null,
+      call_bid:        r.call_bid        ?? null,
+      call_ask:        r.call_ask        ?? null,
       put_volume: r.put_volume, put_oi: r.put_oi,
-      put_pct_change: col5Type === 'pctChange' ? (r.put_pct_change ?? null) : null,
-      put_impl_vol:   col5Type === 'implVol'   ? (r.put_impl_vol   ?? null) : null,
-      put_delta: r.put_delta ?? null,
-      put_theta: r.put_theta ?? null,
+      put_pct_change: r.put_pct_change ?? null,
+      put_impl_vol:   r.put_impl_vol   ?? null,
+      put_delta:      r.put_delta      ?? null,
+      put_theta:      r.put_theta      ?? null,
+      put_bid:        r.put_bid        ?? null,
+      put_ask:        r.put_ask        ?? null,
     }));
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
@@ -14121,12 +14112,16 @@ async function tosLoadSnapshot(ticker, snapshotDate) {
       call_impl_vol:  r.call_impl_vol  ?? null,
       call_delta:     r.call_delta     ?? null,
       call_theta:     r.call_theta     ?? null,
+      call_bid:       r.call_bid       ?? null,
+      call_ask:       r.call_ask       ?? null,
       put_volume:     r.put_volume     ?? 0,
       put_oi:         r.put_oi         ?? 0,
       put_pct_change: r.put_pct_change ?? null,
       put_impl_vol:   r.put_impl_vol   ?? null,
       put_delta:      r.put_delta      ?? null,
       put_theta:      r.put_theta      ?? null,
+      put_bid:        r.put_bid        ?? null,
+      put_ask:        r.put_ask        ?? null,
     }));
 
     _tosParsed = { ticker, capturedAt: allRows[0].captured_at || null, snapshotDate, spot, rows, collapsedExps: [], col5Type };
