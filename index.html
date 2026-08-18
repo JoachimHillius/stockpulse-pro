@@ -739,10 +739,13 @@ select option{background:var(--bg2);}
   <div id="of-coverage-card" style="background:var(--bg3);border-radius:5px;padding:10px 16px;margin-bottom:8px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
     <div style="letter-spacing:1.2px;text-transform:uppercase;font-size:10px;color:#c0c8d0;font-weight:600;white-space:nowrap;">SYMBOLS WITH CONTRACTS TODAY</div>
     <div style="font-size:22px;font-weight:700;color:#e0e0e0;" id="of-cov-symbols">—</div>
-    <div style="font-size:12px;color:#e0e0e0;white-space:nowrap;">
-      <span id="of-cov-total" style="font-weight:700;color:#e0e0e0;">—</span> contracts ·
-      <span id="of-cov-calls" style="font-weight:700;color:var(--blue);">—</span> calls ·
-      <span id="of-cov-puts" style="font-weight:700;color:var(--amber);">—</span> puts ·
+    <div style="font-size:12px;color:#e0e0e0;">
+      <span id="of-cov-total" style="font-weight:700;color:#e0e0e0;">—</span> entries ·
+      <span id="of-cov-calls" style="font-weight:700;color:var(--blue);">—</span> call entries /
+      <span id="of-cov-puts" style="font-weight:700;color:var(--amber);">—</span> put entries
+      <span style="color:#6080a0;margin:0 4px;">|</span>
+      contracts: <span id="of-cov-call-contracts" style="font-weight:700;color:var(--blue);">—</span> calls /
+      <span id="of-cov-put-contracts" style="font-weight:700;color:var(--amber);">—</span> puts ·
       C/P <span id="of-cov-ratio" style="font-weight:700;color:#e0e0e0;">—</span>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
@@ -754,23 +757,31 @@ select option{background:var(--bg2);}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
     <!-- TOP 10 CALLS -->
     <div class="card" style="padding:12px 14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
         <span style="letter-spacing:1.2px;text-transform:uppercase;font-size:11px;color:#e0e0e0;font-weight:700;">TOP 10 CALL FLOW</span>
-        <span style="font-size:10px;color:#8090a0;" id="of-top-calls-date"></span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;border:1px solid var(--border);border-radius:3px;overflow:hidden;font-size:10px;">
+            <button id="of-calls-by-contracts" onclick="setOfRankBy('calls','contracts')" style="padding:2px 7px;background:var(--blue);color:#fff;border:none;cursor:pointer;">by contracts</button>
+            <button id="of-calls-by-entries"   onclick="setOfRankBy('calls','entries')"   style="padding:2px 7px;background:var(--bg3);color:#8090a0;border:none;cursor:pointer;">by entries</button>
+          </div>
+          <span style="font-size:10px;color:#8090a0;" id="of-top-calls-date"></span>
+        </div>
       </div>
-      <div id="of-top-calls-body">
-        <div style="color:#8090a0;font-size:11px;">Loading…</div>
-      </div>
+      <div id="of-top-calls-body"><div style="color:#8090a0;font-size:11px;">Loading…</div></div>
     </div>
     <!-- TOP 10 PUTS -->
     <div class="card" style="padding:12px 14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
         <span style="letter-spacing:1.2px;text-transform:uppercase;font-size:11px;color:#e0e0e0;font-weight:700;">TOP 10 PUT FLOW</span>
-        <span style="font-size:10px;color:#8090a0;" id="of-top-puts-date"></span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;border:1px solid var(--border);border-radius:3px;overflow:hidden;font-size:10px;">
+            <button id="of-puts-by-contracts" onclick="setOfRankBy('puts','contracts')" style="padding:2px 7px;background:var(--amber);color:#000;border:none;cursor:pointer;">by contracts</button>
+            <button id="of-puts-by-entries"   onclick="setOfRankBy('puts','entries')"   style="padding:2px 7px;background:var(--bg3);color:#8090a0;border:none;cursor:pointer;">by entries</button>
+          </div>
+          <span style="font-size:10px;color:#8090a0;" id="of-top-puts-date"></span>
+        </div>
       </div>
-      <div id="of-top-puts-body">
-        <div style="color:#8090a0;font-size:11px;">Loading…</div>
-      </div>
+      <div id="of-top-puts-body"><div style="color:#8090a0;font-size:11px;">Loading…</div></div>
     </div>
   </div>
 
@@ -9314,6 +9325,27 @@ function manualRefreshCarousel(){
 }
 
 // ── Coverage card + Top Flow cards ─────────────────────────────────
+let _ofCallsRankBy = 'contracts';
+let _ofPutsRankBy  = 'contracts';
+let _ofTopDate     = null;
+
+async function setOfRankBy(card, mode) {
+  if (card === 'calls') {
+    _ofCallsRankBy = mode;
+    document.getElementById('of-calls-by-contracts').style.background = mode==='contracts' ? 'var(--blue)' : 'var(--bg3)';
+    document.getElementById('of-calls-by-contracts').style.color      = mode==='contracts' ? '#fff'        : '#8090a0';
+    document.getElementById('of-calls-by-entries').style.background   = mode==='entries'   ? 'var(--blue)' : 'var(--bg3)';
+    document.getElementById('of-calls-by-entries').style.color        = mode==='entries'   ? '#fff'        : '#8090a0';
+  } else {
+    _ofPutsRankBy = mode;
+    document.getElementById('of-puts-by-contracts').style.background = mode==='contracts' ? 'var(--amber)' : 'var(--bg3)';
+    document.getElementById('of-puts-by-contracts').style.color      = mode==='contracts' ? '#000'         : '#8090a0';
+    document.getElementById('of-puts-by-entries').style.background   = mode==='entries'   ? 'var(--amber)' : 'var(--bg3)';
+    document.getElementById('of-puts-by-entries').style.color        = mode==='entries'   ? '#000'         : '#8090a0';
+  }
+  if (_ofTopDate) await loadOfTopFlow(_ofTopDate);
+}
+
 async function loadOfCoverage() {
   const btn = document.getElementById('of-cov-refresh');
   if (btn) { btn.style.opacity = '0.4'; btn.style.pointerEvents = 'none'; }
@@ -9333,16 +9365,18 @@ async function loadOfCoverage() {
     const { data, error } = await supa.rpc('get_omen_coverage', { p_date: latestDate });
     if (error) { console.error('[OFCoverage]', error.message); return; }
     const row = data?.[0] || {};
-    const calls = Number(row.call_count || 0);
-    const puts  = Number(row.put_count  || 0);
-    const ratio = puts > 0 ? (calls / puts).toFixed(2) : '∞';
+    const callContracts = Number(row.call_contracts || 0);
+    const putContracts  = Number(row.put_contracts  || 0);
+    const ratio = putContracts > 0 ? (callContracts / putContracts).toFixed(2) : '∞';
     const setEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
-    setEl('of-cov-symbols', Number(row.symbol_count || 0).toLocaleString());
-    setEl('of-cov-total',   Number(row.total_count  || 0).toLocaleString());
-    setEl('of-cov-calls',   calls.toLocaleString());
-    setEl('of-cov-puts',    puts.toLocaleString());
-    setEl('of-cov-ratio',   ratio);
-    setEl('of-cov-date',    latestDate);
+    setEl('of-cov-symbols',        Number(row.symbol_count || 0).toLocaleString());
+    setEl('of-cov-total',          Number(row.total_count  || 0).toLocaleString());
+    setEl('of-cov-calls',          Number(row.call_count   || 0).toLocaleString());
+    setEl('of-cov-puts',           Number(row.put_count    || 0).toLocaleString());
+    setEl('of-cov-call-contracts', callContracts.toLocaleString());
+    setEl('of-cov-put-contracts',  putContracts.toLocaleString());
+    setEl('of-cov-ratio',          ratio);
+    setEl('of-cov-date',           latestDate);
     await loadOfTopFlow(latestDate);
   } catch (e) {
     console.error('[OFCoverage]', e.message);
@@ -9352,12 +9386,13 @@ async function loadOfCoverage() {
 }
 
 async function loadOfTopFlow(date) {
+  _ofTopDate = date;
   const supa = await getSupabaseAsync();
   if (!supa) return;
-  // Fire both RPCs in parallel
+  // Fire both RPCs in parallel, passing current rank mode
   const [callsRes, putsRes] = await Promise.all([
-    supa.rpc('get_omen_top_calls', { p_date: date, p_limit: 10 }),
-    supa.rpc('get_omen_top_puts',  { p_date: date, p_limit: 10 }),
+    supa.rpc('get_omen_top_calls', { p_date: date, p_limit: 10, p_rank_by: _ofCallsRankBy }),
+    supa.rpc('get_omen_top_puts',  { p_date: date, p_limit: 10, p_rank_by: _ofPutsRankBy  }),
   ]);
   const setEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
   setEl('of-top-calls-date', date);
@@ -9366,24 +9401,22 @@ async function loadOfTopFlow(date) {
   function renderRows(rows, el) {
     if (!el) return;
     if (!rows?.length) { el.innerHTML = '<div style="color:#8090a0;font-size:11px;">No data</div>'; return; }
-    const header = `<div style="display:grid;grid-template-columns:18px 56px 1fr 1fr 1fr;gap:4px;padding:0 0 4px;border-bottom:1px solid var(--border2);margin-bottom:2px;">
-      <span></span>
-      <span style="font-size:9px;color:#6080a0;letter-spacing:0.5px;">TICKER</span>
-      <span style="font-size:9px;color:var(--blue);text-align:right;letter-spacing:0.5px;">CALLS</span>
-      <span style="font-size:9px;color:var(--amber);text-align:right;letter-spacing:0.5px;">PUTS</span>
-      <span style="font-size:9px;color:#6080a0;text-align:right;letter-spacing:0.5px;">C/P</span>
-    </div>`;
-    const body = rows.map((r, i) => {
+    el.innerHTML = rows.map((r, i) => {
       const ratio = r.ratio != null ? r.ratio : '∞';
-      return `<div style="display:grid;grid-template-columns:18px 56px 1fr 1fr 1fr;align-items:center;gap:4px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
-        <span style="font-size:10px;color:#6080a0;">${i + 1}</span>
-        <span style="font-size:13px;font-weight:700;color:#e0e0e0;">${r.symbol}</span>
-        <span style="font-size:12px;color:var(--blue);text-align:right;">${Number(r.call_count).toLocaleString()}</span>
-        <span style="font-size:12px;color:var(--amber);text-align:right;">${Number(r.put_count).toLocaleString()}</span>
-        <span style="font-size:12px;font-weight:700;color:#e0e0e0;text-align:right;">${ratio}</span>
+      const cc = Number(r.call_contracts).toLocaleString();
+      const pc = Number(r.put_contracts).toLocaleString();
+      return `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
+          <span><span style="font-size:10px;color:#6080a0;margin-right:5px;">${i+1}</span><span style="font-size:13px;font-weight:700;color:#e0e0e0;">${r.symbol}</span></span>
+          <span style="font-size:10px;color:#6080a0;">${Number(r.total_entries).toLocaleString()} entries</span>
+        </div>
+        <div style="display:flex;gap:10px;font-size:11px;align-items:center;">
+          <span><span style="color:var(--blue);">calls</span> <span style="color:#e0e0e0;">${Number(r.call_count).toLocaleString()}</span> <span style="color:#6080a0;">/</span> <span style="color:var(--blue);font-weight:600;">${cc}</span></span>
+          <span><span style="color:var(--amber);">puts</span> <span style="color:#e0e0e0;">${Number(r.put_count).toLocaleString()}</span> <span style="color:#6080a0;">/</span> <span style="color:var(--amber);font-weight:600;">${pc}</span></span>
+          <span style="margin-left:auto;font-weight:700;color:#e0e0e0;">C/P ${ratio}</span>
+        </div>
       </div>`;
     }).join('');
-    el.innerHTML = header + body;
   }
 
   if (callsRes.error) console.error('[OFTopCalls]', callsRes.error.message);
