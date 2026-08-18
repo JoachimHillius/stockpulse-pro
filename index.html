@@ -13935,6 +13935,7 @@ async function _tosLoadSnapshots() {
     const { data, error } = await supa.rpc('list_options_snapshots');
     if (error) throw error;
     _tosSnapshots = data || [];
+    if (_tosSnapshots.length) console.log('[TOS CSV] list_options_snapshots first row:', _tosSnapshots[0]);
   } catch (e) {
     console.error('[TOS CSV] list_options_snapshots error:', e);
     _tosSnapshots = [];
@@ -13964,21 +13965,26 @@ function _tosRenderSnapshotsPanel() {
   const tdSL = tdS.replace('text-align:right', 'text-align:left');
 
   const rows = sorted.map(r => {
-    const cpOI = r.put_oi > 0 ? (r.call_oi / r.put_oi).toFixed(2) : '—';
-    const ticker = (r.ticker || '').replace(/'/g, "\\'");
-    const date   = (r.snapshot_date || '').replace(/'/g, "\\'");
-    const sc     = r.strike_count || 0;
-    const ec     = r.exp_count    || 0;
+    // bigint fields arrive from PostgREST as strings — coerce before arithmetic/formatting
+    const callOI  = Number(r.call_oi)   || 0;
+    const putOI   = Number(r.put_oi)    || 0;
+    const callVol = Number(r.call_volume) || 0;
+    const putVol  = Number(r.put_volume)  || 0;
+    const sc      = Number(r.strikes)   || 0;
+    const ec      = Number(r.expirations) || 0;
+    const cpOI    = putOI > 0 ? (callOI / putOI).toFixed(2) : '—';
+    const ticker  = (r.ticker || '').replace(/'/g, "\\'");
+    const date    = (r.snapshot_date || '').replace(/'/g, "\\'");
     return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
       <td style="${tdSL}font-weight:700;letter-spacing:1px;">${r.ticker || ''}</td>
       <td style="${tdS}">${r.snapshot_date || ''}</td>
       <td style="${tdS}font-variant-numeric:tabular-nums;">${r.spot != null ? r.spot : '—'}</td>
-      <td style="${tdS}">${ec}</td>
+      <td style="${tdS}">${ec || '—'}</td>
       <td style="${tdS}">${sc ? _tosFmtN(sc) : '—'}</td>
-      <td style="${tdS}color:var(--blue);">${r.call_vol != null ? _tosFmtN(r.call_vol) : '—'}</td>
-      <td style="${tdS}color:var(--blue);">${r.call_oi  != null ? _tosFmtN(r.call_oi)  : '—'}</td>
-      <td style="${tdS}color:var(--amber);">${r.put_vol  != null ? _tosFmtN(r.put_vol)  : '—'}</td>
-      <td style="${tdS}color:var(--amber);">${r.put_oi   != null ? _tosFmtN(r.put_oi)   : '—'}</td>
+      <td style="${tdS}color:var(--blue);">${callVol ? _tosFmtN(callVol) : '—'}</td>
+      <td style="${tdS}color:var(--blue);">${callOI  ? _tosFmtN(callOI)  : '—'}</td>
+      <td style="${tdS}color:var(--amber);">${putVol ? _tosFmtN(putVol)  : '—'}</td>
+      <td style="${tdS}color:var(--amber);">${putOI  ? _tosFmtN(putOI)   : '—'}</td>
       <td style="${tdS}">${cpOI}</td>
       <td style="padding:5px 6px;white-space:nowrap;">
         <button class="btn btn-ghost btn-sm" onclick="tosLoadSnapshot('${ticker}','${date}')" style="font-size:12px;padding:3px 10px;">Load</button>
@@ -14017,7 +14023,7 @@ function _tosCheckOverwrite() {
   const match = _tosSnapshots.find(s => s.ticker === ticker && s.snapshot_date === snapshotDate);
   if (match) {
     warnEl.style.display = 'block';
-    warnEl.textContent = `A snapshot for ${ticker} ${snapshotDate} already exists (${_tosFmtN(match.strike_count || 0)} rows). Saving will replace it.`;
+    warnEl.textContent = `A snapshot for ${ticker} ${snapshotDate} already exists (${_tosFmtN(Number(match.strikes) || 0)} rows). Saving will replace it.`;
     saveBtn.textContent = 'Overwrite snapshot';
   } else {
     warnEl.style.display = 'none';
