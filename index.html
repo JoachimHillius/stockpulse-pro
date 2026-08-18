@@ -1399,6 +1399,12 @@ select option{background:var(--bg2);}
       <div id="tos-picker" style="display:none;margin-top:10px;"></div>
     </div>
     <div id="tos-snap-banner"></div>
+    <div style="font-size:13px;color:#c0c8d0;line-height:1.6;margin-bottom:12px;padding:10px 14px;border:1px solid var(--border2);border-radius:6px;background:var(--bg3);">
+      <strong style="color:#fff;">★</strong> marks the strike with the strongest new-positioning signal in each expiration: volume relative to open interest, absolute volume, and delta near 0.35.
+      Volume does not reveal direction — heavy call volume may be selling, not buying.
+      No IV percentile is available in this export, so it cannot tell cheap premium from expensive.
+      Screening aid, not a recommendation.
+    </div>
     <div id="tos-body"></div>
   </div>
 </div>
@@ -13562,6 +13568,22 @@ function tosSelectNone() {
   _tosRender();
 }
 
+// Score one side of a row. Returns null if ineligible.
+function _tosScore(r, side) {
+  const vol   = side === 'call' ? r.call_volume : r.put_volume;
+  const oi    = side === 'call' ? r.call_oi     : r.put_oi;
+  const delta = side === 'call' ? r.call_delta  : r.put_delta;
+  if (vol == null || oi == null || delta == null) return null;
+  if (vol < 100 || oi < 100) return null;
+  const absDelta = Math.abs(delta);
+  if (absDelta < 0.20 || absDelta > 0.50) return null;
+  const volOi = vol / oi;
+  const s1 = Math.min(volOi, 3.0) / 3.0;
+  const s2 = Math.min(vol, 20000) / 20000;
+  const s3 = Math.max(0, 1 - (Math.abs(absDelta - 0.35) / 0.15));
+  return { score: 0.50 * s1 + 0.30 * s2 + 0.20 * s3, volOi, vol, oi, delta: absDelta };
+}
+
 // ── STEP B+C: Render ──────────────────────────────────────
 function _tosRender() {
   const body = document.getElementById('tos-body');
@@ -13615,7 +13637,13 @@ function _tosRender() {
     if (col5Type === 'implVol')   return _tosFmtIV(iv);
     return '';
   };
-  const mkRow = (r, bL, bR) => {
+  const mkRow = (r, bL, bR, winner) => {
+    const isWinner  = winner && winner.row === r;
+    const starColor = isWinner ? (winner.side === 'call' ? 'var(--blue)' : 'var(--amber)') : '';
+    const winBg     = isWinner ? (winner.side === 'call' ? 'rgba(61,158,255,0.09)' : 'rgba(255,176,32,0.09)') : '';
+    const rowSt     = `border-bottom:1px solid rgba(255,255,255,0.05);${winBg ? `background:${winBg};` : ''}`;
+    const hoverOut  = winBg ? `this.style.background='${winBg}'` : "this.style.background=''";
+    const star      = isWinner ? `<span style="color:${starColor};margin-right:3px;font-size:14px;">★</span>` : '';
     const callOIDelta = _tosHasPrev
       ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'call_oi', r.call_oi)}</td>`
       : '';
@@ -13624,7 +13652,7 @@ function _tosRender() {
       : '';
     const callCol5 = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.call_pct_change, r.call_impl_vol)}</td>` : '';
     const putCol5  = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.put_pct_change,  r.put_impl_vol)}</td>`  : '';
-    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
+    return `<tr style="${rowSt}" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="${hoverOut}">
       ${bL}
       ${callCol5}
       <td style="${cellBase}">${_tosFmtG(r.call_delta)}</td>
@@ -13634,7 +13662,7 @@ function _tosRender() {
       <td style="${cellQuote}">${_tosFmtG(r.call_bid)}</td>
       <td style="${cellQuote}">${_tosFmtG(r.call_ask)}</td>
       ${callOIDelta}
-      <td style="text-align:center;font-weight:700;padding:5px 28px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${r.strike}</td>
+      <td style="text-align:center;font-weight:700;padding:5px 28px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${star}${r.strike}</td>
       ${putCol5}
       <td style="${cellBase}">${_tosFmtG(r.put_delta)}</td>
       <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
@@ -13707,6 +13735,20 @@ function _tosRender() {
     const aPVol = above.reduce((s, r) => s + r.put_volume,  0);
     const aPOI  = above.reduce((s, r) => s + r.put_oi,      0);
 
+    // Winner: highest-scoring eligible side+row in displayed set
+    let winner = null;
+    for (const r of disp) {
+      for (const side of ['call', 'put']) {
+        const sc = _tosScore(r, side);
+        if (sc && (!winner || sc.score > winner.score)) {
+          winner = { row: r, side, ...sc };
+        }
+      }
+    }
+    const winnerLine = winner
+      ? `<div style="font-size:13px;color:#fff;margin-bottom:6px;">★ <strong style="color:${winner.side === 'call' ? 'var(--blue)' : 'var(--amber)'};">${winner.row.strike} ${winner.side.toUpperCase()}</strong> · ${_tosFmtN(winner.vol)} vol on ${_tosFmtN(winner.oi)} OI (${winner.volOi.toFixed(1)}x) · delta ${winner.delta.toFixed(2)} · score ${winner.score.toFixed(2)}</div>`
+      : '';
+
     // Shortfall note when forced depth exceeds available filtered rows
     let shortfallNote = '';
     if (_tosDepthMode !== 'auto' && (below.length < depth || above.length < depth)) {
@@ -13741,14 +13783,14 @@ function _tosRender() {
     const belowHtml = below.map((r, i) => {
       const bL = i === 0 ? mkBand('ITM', below.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.13)', 'var(--blue)',  bCVol, bCOI) : '';
       const bR = i === 0 ? mkBand('OTM', below.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.08)', 'var(--amber)', bPVol, bPOI) : '';
-      return mkRow(r, bL, bR);
+      return mkRow(r, bL, bR, winner);
     }).join('');
 
     // above: call-OTM (blue) left, put-ITM (amber) right
     const aboveHtml = above.map((r, i) => {
       const bL = i === 0 ? mkBand('OTM', above.length, 'left',  'var(--blue)',  'rgba(61,158,255,0.06)', 'var(--blue)',  aCVol, aCOI) : '';
       const bR = i === 0 ? mkBand('ITM', above.length, 'right', 'var(--amber)', 'rgba(255,176,32,0.13)', 'var(--amber)', aPVol, aPOI) : '';
-      return mkRow(r, bL, bR);
+      return mkRow(r, bL, bR, winner);
     }).join('');
 
     const divider = `<tr><td colspan="${totalCols}" style="border-top:2px solid var(--cyan);border-bottom:2px solid var(--cyan);text-align:center;padding:5px 0;background:rgba(0,212,255,0.06);"><span style="font-weight:700;color:var(--cyan);font-size:13px;">${spot} ← spot</span></td></tr>`;
@@ -13756,7 +13798,7 @@ function _tosRender() {
     return `
     <div data-tos-block style="margin-bottom:28px;overflow-x:auto;">
       <div style="display:inline-block;min-width:100%;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;flex-wrap:wrap;gap:8px;">
           <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}</span>
           <span style="font-size:14px;color:#fff;line-height:1.6;">
             <span style="color:var(--blue);">Calls <strong>${_tosFmtN(tCV)}</strong> vol / <strong>${_tosFmtN(tCOI)}</strong> OI</span>
@@ -13767,6 +13809,7 @@ function _tosRender() {
             &nbsp;<span style="font-size:13px;color:#fff;font-weight:400;">(${strikesLabel} · totals cover displayed strikes only)</span>
           </span>
         </div>
+        ${winnerLine}
         <div class="card" style="padding:0;">
           <table style="border-collapse:collapse;font-family:var(--font);table-layout:auto;">
             <thead>
