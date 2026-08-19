@@ -7831,7 +7831,8 @@ function renderSectorLeaderboard() {
 // ============================================================
 let _p1FlowData = null;          // raw omen_flow rows for Phase 1 computation
 const P1_ACTIVITY_FLOOR = 20;   // min total_size contracts to qualify (tunable)
-const P1_PAGE_SIZE = 20;
+const P1_PAGE_SIZE = 20;        // kept for reference; runtime uses _p1PageSize
+let _p1PageSize = 50;           // active page size; 50 | 100 | Infinity (all)
 let _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
 let _p1SelectedDate = null;  // null = use latest; set by date chips
 let _p1RecentDates = [];     // last 7 actual trading dates from omen_flow (for price-strip columns)
@@ -8278,6 +8279,12 @@ function setP1Page(section, page) {
   renderFlowPredictor();
 }
 
+function setP1PageSize(n) {
+  _p1PageSize = n;
+  _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
+  renderFlowPredictor();
+}
+
 async function setP1Date(date) {
   _p1SelectedDate = date;
   _p1Pages = { DAY_TRADE: 1, SWING: 1, LONG: 1, FADING: 1 };
@@ -8394,7 +8401,7 @@ let _predData=null;
 let _predTimeframe='D';
 let _fpSideFilter = 'all'; // 'all' | 'bullish' | 'neutral' | 'bearish'
 let _fpStrFilter  = 'all'; // 'all' | 'HIGH' | 'MEDIUM' | 'LOW'
-let _p1SortCol    = 'cleanCall';  // 'cleanCall' | 'conviction' | 'callPrem' | 'putPrem' | 'dayPrem' | 'swingPrem' | 'longPrem' | 'skewPct'
+let _p1SortCol    = 'callPrem';   // 'cleanCall' | 'conviction' | 'callPrem' | 'putPrem' | 'dayPrem' | 'swingPrem' | 'longPrem' | 'skewPct'
 let _p1SortDir    = -1;           // -1 = descending (largest on top), +1 = ascending
 let _topContractsByTicker = {};  // {SYMBOL: {Call:[...], Put:[...]}}
 let _p1TrendData = {};           // symbol → trend row from get_trends_for_symbols
@@ -9080,15 +9087,17 @@ function renderFlowPredictor(){
   // Build Phase 1 section HTML helper
   function p1Section(label, rows, bgColor, textColor, section) {
     const page = _p1Pages[section] || 1;
-    const start = (page - 1) * P1_PAGE_SIZE;
-    const pageRows = rows.slice(start, start + P1_PAGE_SIZE);
-    const totalPages = Math.ceil(rows.length / P1_PAGE_SIZE);
+    const isAll = !isFinite(_p1PageSize);
+    const start = isAll ? 0 : (page - 1) * _p1PageSize;
+    const pageRows = isAll ? rows : rows.slice(start, start + _p1PageSize);
+    const totalPages = isAll ? 1 : Math.ceil(rows.length / _p1PageSize);
+    const showingLabel = isAll ? `${rows.length} of ${rows.length}` : `${start+1}–${Math.min(start+_p1PageSize,rows.length)} of ${rows.length}`;
     const emptyMsg = `<tr><td colspan="${colCount}" style="padding:14px;text-align:center;color:#8090a0;">No ${label.toLowerCase()} setups today</td></tr>`;
     const pageControls = totalPages > 1 ? `<tr><td colspan="${colCount}" style="padding:6px 10px;background:#0a0a14;text-align:center;">
-      ${Array.from({length:totalPages},(_,i)=>`<button onclick="setP1Page('${section}',${i+1})" style="margin:0 2px;padding:3px 10px;border-radius:3px;border:1px solid var(--border);background:${page===i+1?'var(--cyan)':'var(--bg3)'};color:${page===i+1?'#000':'#c0c8d0'};font-size:10px;cursor:pointer;">${(i*P1_PAGE_SIZE+1)}–${Math.min((i+1)*P1_PAGE_SIZE,rows.length)}</button>`).join('')}
+      ${Array.from({length:totalPages},(_,i)=>`<button onclick="setP1Page('${section}',${i+1})" style="margin:0 2px;padding:3px 10px;border-radius:3px;border:1px solid var(--border);background:${page===i+1?'var(--cyan)':'var(--bg3)'};color:${page===i+1?'#000':'#c0c8d0'};font-size:10px;cursor:pointer;">${(i*_p1PageSize+1)}–${Math.min((i+1)*_p1PageSize,rows.length)}</button>`).join('')}
       <span style="font-size:10px;color:#8090a0;margin-left:8px;">${rows.length} total</span>
     </td></tr>` : '';
-    return `<tr><td colspan="${colCount}" style="padding:6px 10px;background:${bgColor};color:${textColor};font-size:11px;font-weight:700;letter-spacing:1px;">${label} · ${rows.length} setup${rows.length!==1?'s':''}</td></tr>
+    return `<tr><td colspan="${colCount}" style="padding:6px 10px;background:${bgColor};color:${textColor};font-size:11px;font-weight:700;letter-spacing:1px;">${label} · ${rows.length} setup${rows.length!==1?'s':''} · showing ${showingLabel}</td></tr>
       ${pageRows.length ? pageRows.map((r,i)=>renderP1Row(r,start+i+1,displayDates)).join('') : emptyMsg}
       ${pageControls}`;
   }
@@ -9137,6 +9146,15 @@ function renderFlowPredictor(){
     </tr>
   </thead>`;
 
+  // Compute median totalPrem from ALL qualified rows — used in cleanCall threshold
+  const _ccAllPrems = p1Rows.map(r => (r.callPrem ?? 0) + (r.putPrem ?? 0)).sort((a, b) => a - b);
+  const _ccMedian = _ccAllPrems.length ? _ccAllPrems[Math.floor(_ccAllPrems.length / 2)] : 0;
+  const _sortLabel = _p1SortCol === 'cleanCall'
+    ? `call $ desc · zero-put tiebreak · threshold ≥${fmtPremium(_ccMedian)} total`
+    : _p1SortCol === 'conviction'
+      ? 'ask-weighted conviction skew'
+      : `${_p1SortCol} ${_p1SortDir === -1 ? 'desc' : 'asc'}`;
+
   root.innerHTML=`
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
@@ -9184,8 +9202,8 @@ function renderFlowPredictor(){
     <div class="card" style="padding:14px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <div>
-          <div style="font-size:14px;font-weight:600;">PHASE 1 · ${_p1SortCol==='cleanCall'?'CLEAN CALL RANKING':_p1SortCol==='conviction'?'SIZE-BLIND CONVICTION RANKING':'FLOW RANKING'} · ${fmtDateHeader(todayDate)}</div>
-          <div style="font-size:10px;color:#8090a0;margin-top:2px;">${_p1SortCol==='cleanCall'?'Zero-put rows first · then CALL $ desc':_p1SortCol==='conviction'?'Ranked by ask-weighted conviction skew · Heuristic, not validated probability':'Sorted by column — click CONV.SKEW or SORT buttons to switch mode'} · Activity floor ≥${P1_ACTIVITY_FLOOR} contracts</div>
+          <div style="font-size:14px;font-weight:600;">PHASE 1 · FLOW RANKING · ${fmtDateHeader(todayDate)} · ${p1Rows.length} symbols</div>
+          <div style="font-size:10px;color:#8090a0;margin-top:2px;">Sorted by: ${_sortLabel} · activity floor ≥${P1_ACTIVITY_FLOOR} contracts${_p1SortCol==='cleanCall'?' · <span style="color:#ffb020;">⚠ cleanCall: call $ is primary · zero-put is tiebreak · below-median excluded</span>':''}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span id="alarm-count-badge" style="font-size:10px;font-weight:600;color:#ffb020;background:#ffb02018;border:1px solid #ffb02044;border-radius:12px;padding:3px 10px;display:${_armedCount>0?'inline':'none'};">${_armedCount>0?`🔔 ${_armedCount} armed`:''}</span>
@@ -9218,6 +9236,12 @@ function renderFlowPredictor(){
           const active = _p1SortCol === val;
           return `<button onclick="_p1SetSort('${val}')" style="background:${active?'rgba(0,212,255,0.15)':'transparent'};color:${active?'#00d4ff':'#6080a0'};border:1px solid ${active?'#00d4ff66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
         }).join('')}
+        <span style="margin:0 6px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>
+        <span style="font-size:10px;color:#8090a0;letter-spacing:0.5px;margin-right:2px;">ROWS:</span>
+        ${[[50,'50'],[100,'100'],[Infinity,'All']].map(([n,lbl])=>{
+          const active = _p1PageSize === n;
+          return `<button onclick="setP1PageSize(${n})" style="background:${active?'rgba(0,212,255,0.15)':'transparent'};color:${active?'#00d4ff':'#6080a0'};border:1px solid ${active?'#00d4ff66':'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active?'700':'400'};cursor:pointer;font-family:var(--font);">${lbl}</button>`;
+        }).join('')}
       </div>
       <div style="font-size:10px;color:#6080a0;margin-bottom:8px;padding:4px 0;">
         <span style="color:#00e5b0;margin-right:12px;">● green dot = fresh OI</span>
@@ -9245,26 +9269,34 @@ function renderFlowPredictor(){
                   // then abs(convictionSkew) desc. Dollar/skew columns sort purely by that value.
                   const dirRank = { UP: 0, FLAT: 1, DOWN: 2 };
                   const strRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
-                  const _sSort = rows => [...rows].sort((a, b) => {
-                    if (_p1SortCol === 'cleanCall') {
-                      // Zero-put rows first, then CALL $ desc within each group
-                      const aNoPuts = !(a.putPrem > 0);
-                      const bNoPuts = !(b.putPrem > 0);
-                      if (aNoPuts !== bNoPuts) return aNoPuts ? -1 : 1;
-                      return (b.callPrem ?? 0) - (a.callPrem ?? 0);
-                    }
-                    if (_p1SortCol === 'conviction') {
-                      const dr = (dirRank[a.direction] ?? 1) - (dirRank[b.direction] ?? 1);
-                      if (dr !== 0) return dr;
-                      const sr = (strRank[a.confidence] ?? 2) - (strRank[b.confidence] ?? 2);
-                      if (sr !== 0) return sr;
-                      return Math.abs(b.convictionSkew) - Math.abs(a.convictionSkew);
-                    }
-                    // Pure numeric sort — dir/strength grouping is intentionally bypassed
-                    const av = a[_p1SortCol] ?? 0;
-                    const bv = b[_p1SortCol] ?? 0;
-                    return _p1SortDir === -1 ? bv - av : av - bv;
-                  });
+                  const _sSort = rows => {
+                    // cleanCall: filter below-median first, then sort by callPrem desc with zero-put as tiebreak
+                    let out = _p1SortCol === 'cleanCall'
+                      ? rows.filter(r => (r.callPrem ?? 0) + (r.putPrem ?? 0) >= _ccMedian)
+                      : [...rows];
+                    return out.sort((a, b) => {
+                      if (_p1SortCol === 'cleanCall') {
+                        // Primary: call $ desc (magnitude is the signal)
+                        const diff = (b.callPrem ?? 0) - (a.callPrem ?? 0);
+                        if (Math.abs(diff) > 100) return diff;
+                        // Tiebreak only: zero-put wins ties
+                        const aNoPuts = !(a.putPrem > 0);
+                        const bNoPuts = !(b.putPrem > 0);
+                        return aNoPuts === bNoPuts ? 0 : (aNoPuts ? -1 : 1);
+                      }
+                      if (_p1SortCol === 'conviction') {
+                        const dr = (dirRank[a.direction] ?? 1) - (dirRank[b.direction] ?? 1);
+                        if (dr !== 0) return dr;
+                        const sr = (strRank[a.confidence] ?? 2) - (strRank[b.confidence] ?? 2);
+                        if (sr !== 0) return sr;
+                        return Math.abs(b.convictionSkew) - Math.abs(a.convictionSkew);
+                      }
+                      // Pure numeric sort — dir/strength grouping is intentionally bypassed
+                      const av = a[_p1SortCol] ?? 0;
+                      const bv = b[_p1SortCol] ?? 0;
+                      return _p1SortDir === -1 ? bv - av : av - bv;
+                    });
+                  };
                   // Direction + strength filters applied before the per-section top-20 page cut
                   const sideOk = r =>
                     (_fpSideFilter === 'all'     ||
