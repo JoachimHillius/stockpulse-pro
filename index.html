@@ -744,9 +744,12 @@ select option{background:var(--bg2);}
       <span id="of-cov-calls" style="font-weight:700;color:var(--blue);">—</span> call entries /
       <span id="of-cov-puts" style="font-weight:700;color:var(--amber);">—</span> put entries
       <span style="color:#6080a0;margin:0 4px;">|</span>
-      contracts: <span id="of-cov-call-contracts" style="font-weight:700;color:var(--blue);">—</span> calls /
-      <span id="of-cov-put-contracts" style="font-weight:700;color:var(--amber);">—</span> puts ·
+      premium: <span id="of-cov-call-premium" style="font-weight:700;color:var(--blue);">—</span> calls /
+      <span id="of-cov-put-premium" style="font-weight:700;color:var(--amber);">—</span> puts ·
       C/P <span id="of-cov-ratio" style="font-weight:700;color:#e0e0e0;">—</span>
+      <span style="color:#6080a0;margin:0 4px;">|</span>
+      contracts: <span id="of-cov-call-contracts" style="font-weight:700;color:var(--blue);">—</span> /
+      <span id="of-cov-put-contracts" style="font-weight:700;color:var(--amber);">—</span>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
       <span id="of-cov-date" style="font-size:10px;color:#8090a0;"></span>
@@ -761,7 +764,8 @@ select option{background:var(--bg2);}
         <span style="letter-spacing:1.2px;text-transform:uppercase;font-size:11px;color:#e0e0e0;font-weight:700;">TOP 10 CALL FLOW</span>
         <div style="display:flex;align-items:center;gap:6px;">
           <div style="display:flex;border:1px solid var(--border);border-radius:3px;overflow:hidden;font-size:10px;">
-            <button id="of-calls-by-contracts" onclick="setOfRankBy('calls','contracts')" style="padding:2px 7px;background:var(--blue);color:#fff;border:none;cursor:pointer;">by contracts</button>
+            <button id="of-calls-by-premium"   onclick="setOfRankBy('calls','premium')"   style="padding:2px 7px;background:var(--blue);color:#fff;border:none;cursor:pointer;">by premium</button>
+            <button id="of-calls-by-contracts" onclick="setOfRankBy('calls','contracts')" style="padding:2px 7px;background:var(--bg3);color:#8090a0;border:none;cursor:pointer;">by contracts</button>
             <button id="of-calls-by-entries"   onclick="setOfRankBy('calls','entries')"   style="padding:2px 7px;background:var(--bg3);color:#8090a0;border:none;cursor:pointer;">by entries</button>
           </div>
           <span style="font-size:10px;color:#8090a0;" id="of-top-calls-date"></span>
@@ -775,7 +779,8 @@ select option{background:var(--bg2);}
         <span style="letter-spacing:1.2px;text-transform:uppercase;font-size:11px;color:#e0e0e0;font-weight:700;">TOP 10 PUT FLOW</span>
         <div style="display:flex;align-items:center;gap:6px;">
           <div style="display:flex;border:1px solid var(--border);border-radius:3px;overflow:hidden;font-size:10px;">
-            <button id="of-puts-by-contracts" onclick="setOfRankBy('puts','contracts')" style="padding:2px 7px;background:var(--amber);color:#000;border:none;cursor:pointer;">by contracts</button>
+            <button id="of-puts-by-premium"   onclick="setOfRankBy('puts','premium')"   style="padding:2px 7px;background:var(--amber);color:#000;border:none;cursor:pointer;">by premium</button>
+            <button id="of-puts-by-contracts" onclick="setOfRankBy('puts','contracts')" style="padding:2px 7px;background:var(--bg3);color:#8090a0;border:none;cursor:pointer;">by contracts</button>
             <button id="of-puts-by-entries"   onclick="setOfRankBy('puts','entries')"   style="padding:2px 7px;background:var(--bg3);color:#8090a0;border:none;cursor:pointer;">by entries</button>
           </div>
           <span style="font-size:10px;color:#8090a0;" id="of-top-puts-date"></span>
@@ -1560,7 +1565,24 @@ ALL_TICKERS.forEach(s => { MOCK[s] = {p:null, dp:null, d:null}; });
 // VIX — index level, fetched separately, never treated as a stock price
 // Real value set via updateVix(). Default shown in VIX gauge only.
 
-let liveData = {};
+// Seed liveData from localStorage so prices appear immediately on page reload.
+// Entries without a price are stripped; loading flag is forced false (prior session is done).
+let liveData = (() => {
+  try {
+    const raw = localStorage.getItem('sp_liveCache');
+    if (!raw) return {};
+    const c = JSON.parse(raw);
+    const out = {};
+    for (const [sym, q] of Object.entries(c)) {
+      if (q?.p != null) out[sym] = { ...q, loading: false };
+    }
+    return out;
+  } catch(_) { return {}; }
+})();
+let _liveDataAsOf = (() => { // timestamp of last successful price fetch (for freshness display)
+  const times = Object.values(liveData).map(q => q.fetchedAt || 0).filter(Boolean);
+  return times.length ? Math.max(...times) : 0;
+})();
 function getQ(sym){return liveData[sym]||MOCK[sym]||{p:null,dp:null,d:null};}
 
 // ============================================================
@@ -9325,23 +9347,28 @@ function manualRefreshCarousel(){
 }
 
 // ── Coverage card + Top Flow cards ─────────────────────────────────
-let _ofCallsRankBy = 'contracts';
-let _ofPutsRankBy  = 'contracts';
+let _ofCallsRankBy = 'premium';
+let _ofPutsRankBy  = 'premium';
 let _ofTopDate     = null;
 
 async function setOfRankBy(card, mode) {
+  const MODES = ['premium', 'contracts', 'entries'];
   if (card === 'calls') {
     _ofCallsRankBy = mode;
-    document.getElementById('of-calls-by-contracts').style.background = mode==='contracts' ? 'var(--blue)' : 'var(--bg3)';
-    document.getElementById('of-calls-by-contracts').style.color      = mode==='contracts' ? '#fff'        : '#8090a0';
-    document.getElementById('of-calls-by-entries').style.background   = mode==='entries'   ? 'var(--blue)' : 'var(--bg3)';
-    document.getElementById('of-calls-by-entries').style.color        = mode==='entries'   ? '#fff'        : '#8090a0';
+    MODES.forEach(m => {
+      const btn = document.getElementById(`of-calls-by-${m}`);
+      if (!btn) return;
+      btn.style.background = m === mode ? 'var(--blue)' : 'var(--bg3)';
+      btn.style.color      = m === mode ? '#fff'        : '#8090a0';
+    });
   } else {
     _ofPutsRankBy = mode;
-    document.getElementById('of-puts-by-contracts').style.background = mode==='contracts' ? 'var(--amber)' : 'var(--bg3)';
-    document.getElementById('of-puts-by-contracts').style.color      = mode==='contracts' ? '#000'         : '#8090a0';
-    document.getElementById('of-puts-by-entries').style.background   = mode==='entries'   ? 'var(--amber)' : 'var(--bg3)';
-    document.getElementById('of-puts-by-entries').style.color        = mode==='entries'   ? '#000'         : '#8090a0';
+    MODES.forEach(m => {
+      const btn = document.getElementById(`of-puts-by-${m}`);
+      if (!btn) return;
+      btn.style.background = m === mode ? 'var(--amber)' : 'var(--bg3)';
+      btn.style.color      = m === mode ? '#000'          : '#8090a0';
+    });
   }
   if (_ofTopDate) await loadOfTopFlow(_ofTopDate);
 }
@@ -9367,12 +9394,16 @@ async function loadOfCoverage() {
     const row = data?.[0] || {};
     const callContracts = Number(row.call_contracts || 0);
     const putContracts  = Number(row.put_contracts  || 0);
-    const ratio = putContracts > 0 ? (callContracts / putContracts).toFixed(2) : '∞';
+    const callPrem      = Number(row.call_premium   || 0);
+    const putPrem       = Number(row.put_premium    || 0);
+    const ratio = putPrem > 0 ? (callPrem / putPrem).toFixed(2) : (callPrem > 0 ? '∞' : '—');
     const setEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
     setEl('of-cov-symbols',        Number(row.symbol_count || 0).toLocaleString());
     setEl('of-cov-total',          Number(row.total_count  || 0).toLocaleString());
     setEl('of-cov-calls',          Number(row.call_count   || 0).toLocaleString());
     setEl('of-cov-puts',           Number(row.put_count    || 0).toLocaleString());
+    setEl('of-cov-call-premium',   fmtPremium(callPrem));
+    setEl('of-cov-put-premium',    fmtPremium(putPrem));
     setEl('of-cov-call-contracts', callContracts.toLocaleString());
     setEl('of-cov-put-contracts',  putContracts.toLocaleString());
     setEl('of-cov-ratio',          ratio);
@@ -9385,11 +9416,17 @@ async function loadOfCoverage() {
   }
 }
 
+function fmtPremium(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+  return '$' + n.toFixed(0);
+}
+
 async function loadOfTopFlow(date) {
   _ofTopDate = date;
   const supa = await getSupabaseAsync();
   if (!supa) return;
-  // Fire both RPCs in parallel, passing current rank mode
   const [callsRes, putsRes] = await Promise.all([
     supa.rpc('get_omen_top_calls', { p_date: date, p_limit: 10, p_rank_by: _ofCallsRankBy }),
     supa.rpc('get_omen_top_puts',  { p_date: date, p_limit: 10, p_rank_by: _ofPutsRankBy  }),
@@ -9398,32 +9435,35 @@ async function loadOfTopFlow(date) {
   setEl('of-top-calls-date', date);
   setEl('of-top-puts-date',  date);
 
-  function renderRows(rows, el) {
+  function renderRows(rows, el, rankBy) {
     if (!el) return;
     if (!rows?.length) { el.innerHTML = '<div style="color:#8090a0;font-size:11px;">No data</div>'; return; }
     el.innerHTML = rows.map((r, i) => {
-      const ratio = r.ratio != null ? r.ratio : '∞';
+      const ratioLabel = r.ratio != null ? r.ratio : '—';
       const cc = Number(r.call_contracts).toLocaleString();
       const pc = Number(r.put_contracts).toLocaleString();
+      const cp = fmtPremium(r.call_premium);
+      const pp = fmtPremium(r.put_premium);
       return `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
           <span><span style="font-size:10px;color:#6080a0;margin-right:5px;">${i+1}</span><span style="font-size:13px;font-weight:700;color:#e0e0e0;">${r.symbol}</span></span>
           <span style="font-size:10px;color:#6080a0;">${Number(r.total_entries).toLocaleString()} entries</span>
         </div>
-        <div style="display:flex;gap:10px;font-size:11px;align-items:center;">
-          <span><span style="color:var(--blue);">calls</span> <span style="color:#e0e0e0;">${Number(r.call_count).toLocaleString()}</span> <span style="color:#6080a0;">/</span> <span style="color:var(--blue);font-weight:600;">${cc}</span></span>
-          <span><span style="color:var(--amber);">puts</span> <span style="color:#e0e0e0;">${Number(r.put_count).toLocaleString()}</span> <span style="color:#6080a0;">/</span> <span style="color:var(--amber);font-weight:600;">${pc}</span></span>
-          <span style="margin-left:auto;font-weight:700;color:#e0e0e0;">C/P ${ratio}</span>
+        <div style="display:flex;gap:8px;font-size:11px;align-items:center;flex-wrap:wrap;">
+          <span><span style="color:var(--blue);">calls</span> <span style="color:var(--blue);font-weight:600;">${cp}</span> <span style="color:#6080a0;">·</span> <span style="color:#c0c8d0;">${cc}</span> <span style="color:#6080a0;">·</span> <span style="color:#c0c8d0;">${Number(r.call_count).toLocaleString()}</span></span>
+          <span style="color:#6080a0;">|</span>
+          <span><span style="color:var(--amber);">puts</span> <span style="color:var(--amber);font-weight:600;">${pp}</span> <span style="color:#6080a0;">·</span> <span style="color:#c0c8d0;">${pc}</span> <span style="color:#6080a0;">·</span> <span style="color:#c0c8d0;">${Number(r.put_count).toLocaleString()}</span></span>
+          <span style="margin-left:auto;font-weight:700;color:#e0e0e0;">${ratioLabel}</span>
         </div>
       </div>`;
     }).join('');
   }
 
   if (callsRes.error) console.error('[OFTopCalls]', callsRes.error.message);
-  else renderRows(callsRes.data, document.getElementById('of-top-calls-body'));
+  else renderRows(callsRes.data, document.getElementById('of-top-calls-body'), _ofCallsRankBy);
 
   if (putsRes.error) console.error('[OFTopPuts]', putsRes.error.message);
-  else renderRows(putsRes.data, document.getElementById('of-top-puts-body'));
+  else renderRows(putsRes.data, document.getElementById('of-top-puts-body'), _ofPutsRankBy);
 }
 
 async function refreshOptionsFlow(){
