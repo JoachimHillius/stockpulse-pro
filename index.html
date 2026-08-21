@@ -13561,8 +13561,9 @@ async function showMarketMap() {
 // TOS CSV PAGE
 // ============================================================
 let _tosParsed = null;
-let _tosPrevMap = new Map();
-let _tosHasPrev = false;
+let _tosPrevMap  = new Map();
+let _tosHasPrev  = false;
+let _tosPrevDate = null;  // snapshot_date of the comparison snapshot (from get_options_prev_snapshot)
 let _tosSelectedExps = new Set();
 let _tosDepthMode = 'auto'; // 'auto' | '10' | '20' | '30'
 let _tosSnapshots = [];         // rows from list_options_snapshots()
@@ -13757,20 +13758,30 @@ function _tosFmtIV(v) {
   return v.toFixed(1) + '%';
 }
 
-function _tosDeltaHtml(expLabel, strike, field, currOI) {
-  if (!_tosHasPrev) return '—';
-  const prev = _tosPrevMap.get(`${expLabel}|${Number(strike)}`);
-  if (!prev) return '—';
-  const delta = currOI - (prev[field] || 0);
-  if (delta === 0) return '—';
-  const col = delta > 0 ? 'var(--green)' : 'var(--red)';
-  const sign = delta > 0 ? '+' : '';
-  return `<span style="color:${col};">${sign}${_tosFmtN(delta)}</span>`;
+// Renders a two-line VOL or OI cell: current value + previous value beneath it.
+// isCall=true → base color is var(--blue); isCall=false → var(--amber).
+function _tosPrevCell(expLabel, strike, currVal, field, isCall) {
+  const baseColor = isCall ? 'var(--blue)' : 'var(--amber)';
+  const currStr = _tosFmtN(currVal);
+  if (!_tosHasPrev) {
+    return `<span style="font-size:15px;font-weight:700;color:${baseColor};">${currStr}</span>`;
+  }
+  const prevRow = _tosPrevMap.get(`${expLabel}|${Number(strike)}`);
+  if (!prevRow) {
+    // Strike exists now but absent in prev snapshot
+    return `<span style="font-size:15px;font-weight:700;color:${baseColor};">${currStr}</span><br><span style="font-size:11px;color:rgba(255,255,255,0.35);">new</span>`;
+  }
+  const prevVal = prevRow[field] || 0;
+  let currColor = baseColor;
+  if (currVal > prevVal) currColor = 'var(--green)';
+  else if (currVal < prevVal) currColor = 'var(--red)';
+  return `<span style="font-size:15px;font-weight:700;color:${currColor};">${currStr}</span><br><span style="font-size:11px;color:rgba(255,255,255,0.5);">${_tosFmtN(prevVal)}</span>`;
 }
 
 async function _tosLoadPrev(supa, ticker, snapshotDate) {
-  _tosPrevMap = new Map();
-  _tosHasPrev = false;
+  _tosPrevMap  = new Map();
+  _tosHasPrev  = false;
+  _tosPrevDate = null;
   const all = [];
   let from = 0;
   const PAGE = 1000;
@@ -13787,7 +13798,8 @@ async function _tosLoadPrev(supa, ticker, snapshotDate) {
     from += PAGE;
   }
   if (all.length > 0) {
-    _tosHasPrev = true;
+    _tosHasPrev  = true;
+    _tosPrevDate = all[0].prev_date || null;
     all.forEach(r => _tosPrevMap.set(`${r.exp_label}|${Number(r.strike)}`, r));
   }
 }
@@ -13973,7 +13985,7 @@ function _tosRender() {
 
   // Column counts — needed for colspan in CALLS/PUTS header row and divider
   const sideBaseCols = hasCol5 ? 7 : 6;
-  const callCols  = _tosHasPrev ? sideBaseCols + 1 : sideBaseCols;
+  const callCols  = sideBaseCols;  // OI Δ1D column removed; change shown inline in VOL/OI cells
   const putCols   = callCols;
   const totalCols = 1 + callCols + 1 + putCols + 1;
 
@@ -14006,12 +14018,11 @@ function _tosRender() {
     const rowSt     = `border-bottom:1px solid rgba(255,255,255,0.05);${winBg ? `background:${winBg};` : ''}`;
     const hoverOut  = winBg ? `this.style.background='${winBg}'` : "this.style.background=''";
     const star      = isWinner ? `<span style="color:${starColor};margin-right:3px;font-size:14px;">★</span>` : '';
-    const callOIDelta = _tosHasPrev
-      ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'call_oi', r.call_oi)}</td>`
-      : '';
-    const putOIDelta = _tosHasPrev
-      ? `<td style="${cellBase}">${_tosDeltaHtml(r.exp_label, r.strike, 'put_oi', r.put_oi)}</td>`
-      : '';
+    // VOL and OI cells rendered via _tosPrevCell — two lines when a prior snapshot exists
+    const mkCallVol = () => _tosPrevCell(r.exp_label, r.strike, r.call_volume, 'call_volume', true);
+    const mkCallOI  = () => _tosPrevCell(r.exp_label, r.strike, r.call_oi,     'call_oi',     true);
+    const mkPutVol  = () => _tosPrevCell(r.exp_label, r.strike, r.put_volume,  'put_volume',  false);
+    const mkPutOI   = () => _tosPrevCell(r.exp_label, r.strike, r.put_oi,      'put_oi',      false);
     const callCol5 = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.call_pct_change, r.call_impl_vol)}</td>` : '';
     const putCol5  = hasCol5 ? `<td style="${cellBase}">${_fmtCol5(r.put_pct_change,  r.put_impl_vol)}</td>`  : '';
     return `<tr style="${rowSt}" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="${hoverOut}">
@@ -14019,20 +14030,18 @@ function _tosRender() {
       ${callCol5}
       <td style="${cellBase}">${_tosFmtG(r.call_delta)}</td>
       <td style="${cellBase}">${_tosFmtG(r.call_theta)}</td>
-      <td style="${cellVolC}">${_tosFmtN(r.call_volume)}</td>
-      <td style="${cellVolC}">${_tosFmtN(r.call_oi)}</td>
+      <td style="${cellVolC}">${mkCallVol()}</td>
+      <td style="${cellVolC}">${mkCallOI()}</td>
       <td style="${cellQuote}">${_tosFmtG(r.call_bid)}</td>
       <td style="${cellQuote}">${_tosFmtG(r.call_ask)}</td>
-      ${callOIDelta}
       <td style="text-align:center;font-weight:700;padding:5px 28px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:15px;${strikeSep}">${star}${r.strike}</td>
       ${putCol5}
       <td style="${cellBase}">${_tosFmtG(r.put_delta)}</td>
       <td style="${cellBase}">${_tosFmtG(r.put_theta)}</td>
-      <td style="${cellVolP}">${_tosFmtN(r.put_volume)}</td>
-      <td style="${cellVolP}">${_tosFmtN(r.put_oi)}</td>
+      <td style="${cellVolP}">${mkPutVol()}</td>
+      <td style="${cellVolP}">${mkPutOI()}</td>
       <td style="${cellQuote}">${_tosFmtG(r.put_bid)}</td>
       <td style="${cellQuote}">${_tosFmtG(r.put_ask)}</td>
-      ${putOIDelta}
       ${bR}
     </tr>`;
   };
@@ -14042,8 +14051,10 @@ function _tosRender() {
   const thSep    = `${thBase}border-left:2px solid rgba(255,255,255,0.2);`;
   const thStrike = `padding:5px 28px;font-size:13px;font-weight:700;color:#fff;text-transform:uppercase;white-space:nowrap;text-align:center;${strikeSep}`;
 
-  const hdrOIDeltaC = _tosHasPrev ? `<th style="${thBase}">OI Δ1D</th>` : '';
-  const hdrOIDeltaP = _tosHasPrev ? `<th style="${thBase}">OI Δ1D</th>` : '';
+  // OI Δ1D column removed — change is now shown inline in VOL/OI cells via _tosPrevCell
+  const prevDateLabel = _tosHasPrev && _tosPrevDate
+    ? `<span style="font-size:12px;color:rgba(255,255,255,0.5);margin-left:10px;">vs ${_tosPrevDate} snapshot</span>`
+    : (_tosHasPrev ? '' : `<span style="font-size:12px;color:rgba(255,255,255,0.35);margin-left:10px;">no prior snapshot — no comparison available</span>`);
   const hdrCol5Label = col5Type === 'pctChange' ? '% CHG' : col5Type === 'implVol' ? 'IV' : '';
   const hdrCol5C = hasCol5 ? `<th style="${thBase}">${hdrCol5Label}</th>` : '';
   const hdrCol5P = hasCol5 ? `<th style="${thBase}">${hdrCol5Label}</th>` : '';
@@ -14161,7 +14172,7 @@ function _tosRender() {
     <div data-tos-block style="margin-bottom:28px;overflow-x:auto;">
       <div style="display:inline-block;min-width:100%;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;flex-wrap:wrap;gap:8px;">
-          <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}</span>
+          <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.5px;">${expLabel}${dteStr}${autoTag}${prevDateLabel}</span>
           <span style="font-size:14px;color:#fff;line-height:1.6;">
             <span style="color:var(--blue);">Calls <strong>${_tosFmtN(tCV)}</strong> vol / <strong>${_tosFmtN(tCOI)}</strong> OI</span>
             &nbsp;·&nbsp;
@@ -14191,7 +14202,6 @@ function _tosRender() {
                 <th style="${thBase}">OI</th>
                 <th style="${thBase}">BID</th>
                 <th style="${thBase}">ASK</th>
-                ${hdrOIDeltaC}
                 <th style="${thStrike}">STRIKE</th>
                 ${hdrCol5P}
                 <th style="${thBase}">DELTA</th>
@@ -14200,7 +14210,6 @@ function _tosRender() {
                 <th style="${thBase}">OI</th>
                 <th style="${thBase}">BID</th>
                 <th style="${thBase}">ASK</th>
-                ${hdrOIDeltaP}
                 <th style="padding:0;min-width:46px;"></th>
               </tr>
             </thead>
@@ -14252,6 +14261,7 @@ async function tosHandleFile(input) {
   _tosParsed           = null;
   _tosPrevMap          = new Map();
   _tosHasPrev          = false;
+  _tosPrevDate         = null;
   _tosSelectedExps     = new Set();
   _tosViewingSnapshot  = null;
   if (picker)  { picker.innerHTML = ''; picker.style.display = 'none'; }
@@ -14375,11 +14385,19 @@ async function tosSaveSnapshot() {
         .upsert(chunk, { onConflict: 'ticker,snapshot_date,exp_label,strike' });
       if (error) throw error;
     }
+    // Regression guard: count distinct dates for this ticker before and after
+    const datesBefore = _tosSnapshots.filter(s => s.ticker === ticker).length;
     status.style.color = 'var(--green)';
     status.textContent = `Saved ${rows.length} rows for ${ticker} on ${snapshotDate}`;
     didSave = true;
     await _tosLoadPrev(supa, ticker, snapshotDate);
     await _tosLoadSnapshots();
+    const datesAfter = _tosSnapshots.filter(s => s.ticker === ticker).length;
+    console.log(`[TOS CSV] ${ticker} snapshot_dates: ${datesBefore} before → ${datesAfter} after (${isOverwrite ? 'overwrite' : 'new date'})`);
+    if (!isOverwrite && datesAfter <= datesBefore) {
+      // Saving a NEW date should have increased the count — if not, history was wiped
+      throw new Error(`REGRESSION: ${ticker} had ${datesBefore} snapshot date(s) before save, now has ${datesAfter}. History may have been overwritten. Check console and database immediately.`);
+    }
     _tosCheckOverwrite();
     _tosRender();
   } catch (e) {
@@ -14610,6 +14628,7 @@ function tosClearSnapshot() {
   _tosParsed           = null;
   _tosPrevMap          = new Map();
   _tosHasPrev          = false;
+  _tosPrevDate         = null;
   _tosSelectedExps     = new Set();
   _tosViewingSnapshot  = null;
 
