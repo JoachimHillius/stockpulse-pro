@@ -1424,10 +1424,13 @@ select option{background:var(--bg2);}
   <div style="max-width:1200px;">
     <!-- Saved Snapshots panel — collapsed by default -->
     <div class="card" style="margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;" onclick="tosToggleSnapPanel()">
-        <span class="card-title" style="margin:0;">SAVED SNAPSHOTS</span>
-        <span id="tos-snap-badge" style="background:var(--bg3);border:1px solid var(--border2);color:#fff;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:0.5px;">— saved</span>
-        <span id="tos-snap-chevron" style="margin-left:auto;color:#fff;font-size:12px;">▼</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;flex:1;" onclick="tosToggleSnapPanel()">
+          <span class="card-title" style="margin:0;">SAVED SNAPSHOTS</span>
+          <span id="tos-snap-badge" style="background:var(--bg3);border:1px solid var(--border2);color:#fff;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:0.5px;">— saved</span>
+          <span id="tos-snap-chevron" style="margin-left:auto;color:#fff;font-size:12px;">▼</span>
+        </div>
+        <button onclick="event.stopPropagation();_tosLoadSnapshots()" title="Re-query saved snapshots from database" style="background:var(--bg3);border:1px solid var(--border2);color:#c0c8d0;padding:3px 8px;border-radius:4px;font-size:12px;cursor:pointer;flex-shrink:0;">↻</button>
       </div>
       <div id="tos-snap-body" style="display:none;margin-top:12px;">
         <div id="tos-snap-table" style="overflow-x:auto;font-size:14px;color:#fff;"></div>
@@ -14402,8 +14405,10 @@ async function tosSaveSnapshot() {
     didSave = true;
     await _tosLoadPrev(supa, ticker, snapshotDate);
     await _tosLoadSnapshots();
-    const datesAfter = _tosSnapshots.filter(s => s.ticker === ticker).length;
-    console.log(`[TOS CSV] ${ticker} snapshot_dates: ${datesBefore} before → ${datesAfter} after (${isOverwrite ? 'overwrite' : 'new date'})`);
+    const afterEntries = _tosSnapshots.filter(s => s.ticker === ticker);
+    const datesAfter   = afterEntries.length;
+    const dateList     = [...afterEntries].sort((a,b)=>(a.snapshot_date||'').localeCompare(b.snapshot_date||'')).map(s=>s.snapshot_date).join(', ');
+    console.log(`[TOS CSV] ${ticker} now has ${datesAfter} snapshot date(s): ${dateList} (${isOverwrite ? 'overwrite' : 'new date'})`);
     if (!isOverwrite && datesAfter <= datesBefore) {
       // Saving a NEW date should have increased the count — if not, history was wiped
       throw new Error(`REGRESSION: ${ticker} had ${datesBefore} snapshot date(s) before save, now has ${datesAfter}. History may have been overwritten. Check console and database immediately.`);
@@ -14437,10 +14442,31 @@ async function _tosLoadSnapshots() {
   try {
     const supa = await getSupabaseAsync();
     if (!supa) return;
-    const { data, error } = await supa.rpc('list_options_snapshots');
-    if (error) throw error;
-    _tosSnapshots = data || [];
-    if (_tosSnapshots.length) console.log('[TOS CSV] list_options_snapshots first row:', _tosSnapshots[0]);
+    // Paginate: list_options_snapshots returns one row per (ticker, snapshot_date)
+    // and could exceed PostgREST's default row cap on large collections.
+    const PAGE = 500;
+    let from = 0, all = [];
+    while (true) {
+      const { data, error } = await supa.rpc('list_options_snapshots').range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || !data.length) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    _tosSnapshots = all;
+    // Log per-ticker date summary so regressions (missing dates) are visible in console
+    if (_tosSnapshots.length) {
+      const byTicker = {};
+      for (const s of _tosSnapshots) {
+        if (!byTicker[s.ticker]) byTicker[s.ticker] = [];
+        byTicker[s.ticker].push(s.snapshot_date);
+      }
+      for (const [t, dates] of Object.entries(byTicker).sort()) {
+        const sorted = [...dates].sort();
+        console.log(`[TOS CSV] ${t} has ${sorted.length} snapshot date(s): ${sorted.join(', ')}`);
+      }
+    }
   } catch (e) {
     console.error('[TOS CSV] list_options_snapshots error:', e);
     _tosSnapshots = [];
@@ -14603,8 +14629,12 @@ async function tosLoadSnapshot(ticker, snapshotDate) {
     _tosParsed = { ticker, capturedAt: allRows[0].captured_at || null, snapshotDate, spot, rows, collapsedExps: [], col5Type };
     _tosPrevMap          = new Map();
     _tosHasPrev          = false;
+    _tosPrevDate         = null;
     _tosSelectedExps     = new Set();
     _tosViewingSnapshot  = { ticker, snapshotDate };
+
+    // Load comparison data (prior snapshot) so VOL/OI cells show change vs previous date
+    await _tosLoadPrev(supa, ticker, snapshotDate);
 
     const tickerEl = document.getElementById('tos-ticker');
     const priceEl  = document.getElementById('tos-price');
