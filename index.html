@@ -13758,24 +13758,34 @@ function _tosFmtIV(v) {
   return v.toFixed(1) + '%';
 }
 
-// Renders a two-line VOL or OI cell: current value + previous value beneath it.
+// Renders a two-line VOL or OI cell: current value + comparison line beneath it.
+// The second line is ALWAYS present so row height never shifts when a snapshot arrives.
 // isCall=true → base color is var(--blue); isCall=false → var(--amber).
 function _tosPrevCell(expLabel, strike, currVal, field, isCall) {
   const baseColor = isCall ? 'var(--blue)' : 'var(--amber)';
   const currStr = _tosFmtN(currVal);
-  if (!_tosHasPrev) {
-    return `<span style="font-size:15px;font-weight:700;color:${baseColor};">${currStr}</span>`;
-  }
-  const prevRow = _tosPrevMap.get(`${expLabel}|${Number(strike)}`);
-  if (!prevRow) {
-    // Strike exists now but absent in prev snapshot
-    return `<span style="font-size:15px;font-weight:700;color:${baseColor};">${currStr}</span><br><span style="font-size:11px;color:rgba(255,255,255,0.35);">new</span>`;
-  }
-  const prevVal = prevRow[field] || 0;
+  const dimStyle = 'font-size:11px;color:rgba(255,255,255,0.5);';
+
   let currColor = baseColor;
-  if (currVal > prevVal) currColor = 'var(--green)';
-  else if (currVal < prevVal) currColor = 'var(--red)';
-  return `<span style="font-size:15px;font-weight:700;color:${currColor};">${currStr}</span><br><span style="font-size:11px;color:rgba(255,255,255,0.5);">${_tosFmtN(prevVal)}</span>`;
+  let prevLine;
+
+  if (!_tosHasPrev) {
+    // No prior snapshot at all
+    prevLine = `<span style="${dimStyle}">—</span>`;
+  } else {
+    const prevRow = _tosPrevMap.get(`${expLabel}|${Number(strike)}`);
+    if (!prevRow) {
+      // Strike is new — absent from prior snapshot
+      prevLine = `<span style="${dimStyle}">new</span>`;
+    } else {
+      const prevVal = prevRow[field] || 0;
+      if (currVal > prevVal) currColor = 'var(--green)';
+      else if (currVal < prevVal) currColor = 'var(--red)';
+      prevLine = `<span style="${dimStyle}">${_tosFmtN(prevVal)}</span>`;
+    }
+  }
+
+  return `<span style="font-size:15px;font-weight:700;color:${currColor};">${currStr}</span><br>${prevLine}`;
 }
 
 async function _tosLoadPrev(supa, ticker, snapshotDate) {
@@ -14054,7 +14064,7 @@ function _tosRender() {
   // OI Δ1D column removed — change is now shown inline in VOL/OI cells via _tosPrevCell
   const prevDateLabel = _tosHasPrev && _tosPrevDate
     ? `<span style="font-size:12px;color:rgba(255,255,255,0.5);margin-left:10px;">vs ${_tosPrevDate} snapshot</span>`
-    : (_tosHasPrev ? '' : `<span style="font-size:12px;color:rgba(255,255,255,0.35);margin-left:10px;">no prior snapshot — no comparison available</span>`);
+    : `<span style="font-size:12px;color:rgba(255,255,255,0.35);margin-left:10px;">no prior snapshot — comparison starts on your next upload for this ticker</span>`;
   const hdrCol5Label = col5Type === 'pctChange' ? '% CHG' : col5Type === 'implVol' ? 'IV' : '';
   const hdrCol5C = hasCol5 ? `<th style="${thBase}">${hdrCol5Label}</th>` : '';
   const hdrCol5P = hasCol5 ? `<th style="${thBase}">${hdrCol5Label}</th>` : '';
