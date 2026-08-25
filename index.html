@@ -11071,13 +11071,10 @@ function _scRowTenx(row) {
 }
 
 function setScSearch(val) {
-  console.log('[SEARCH LOG A] handler fired, val=', val);
   clearTimeout(_scSearchTimer);
   _scSearchTimer = setTimeout(() => {
     _scSearch = (val || '').trim().toLowerCase();
-    console.log('[SEARCH LOG B] _scSearch set to:', _scSearch);
     const el = document.getElementById('sc-blk-main');
-    console.log('[SEARCH LOG D] el found:', !!el, el ? el.id : 'null');
     if (el) { el.outerHTML = _scBuildMainBlock(_scGetFilteredRows()); return; }
     renderScanners();
   }, 150);
@@ -11217,7 +11214,6 @@ function _scBuildMainBlock(rows) {
   const filtered = term
     ? rows.filter(r => (r.symbol || '').toLowerCase().includes(term) || (r.security || '').toLowerCase().includes(term))
     : rows;
-  console.log('[SEARCH LOG C] rows.length=', rows.length, 'term=', JSON.stringify(term), 'filtered.length=', filtered.length);
   const sorted = _scApplySort(_scannerView, filtered);
   const isTenx = _scannerView === 'money_markets';
   const rowFn = isTenx ? _scRowTenx : _scRow;
@@ -11269,48 +11265,35 @@ function _scBuildPosBlock() {
   </div>`;
 }
 
+function _scBuildFilterBar() {
+  const btnStyle = (active) =>
+    `background:${active ? 'rgba(0,212,255,0.18)' : 'transparent'};color:${active ? '#00d4ff' : '#6080a0'};border:1px solid ${active ? '#00d4ff66' : 'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active ? '700' : '400'};cursor:pointer;font-family:var(--font);letter-spacing:0.4px;`;
+  const scannerBar = (_scannerView === 'xgpt_iris') ? `
+    <span style="font-size:10px;color:#6080a0;margin-right:4px;">SCANNER:</span>
+    <button style="${btnStyle(_scFilterScanner==='all')}"   onclick="setScannerFilter('all')">All</button>
+    <button style="${btnStyle(_scFilterScanner==='xgpt')}"  onclick="setScannerFilter('xgpt')">XGPT</button>
+    <button style="${btnStyle(_scFilterScanner==='iris')}"  onclick="setScannerFilter('iris')">Iris</button>
+    <span style="margin:0 8px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>` : '';
+  const dateBar = `
+    <span style="font-size:10px;color:#6080a0;margin-right:4px;">FIRST SEEN:</span>
+    <button style="${btnStyle(_scFilterDate==='all')}"   onclick="setScannerDateFilter('all')">All</button>
+    <button style="${btnStyle(_scFilterDate==='today')}" onclick="setScannerDateFilter('today')">Today</button>
+    <button style="${btnStyle(_scFilterDate==='7d')}"    onclick="setScannerDateFilter('7d')">7d</button>
+    <button style="${btnStyle(_scFilterDate==='30d')}"   onclick="setScannerDateFilter('30d')">30d</button>`;
+  const legend = (_scannerView === 'xgpt_iris') ? `
+    <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:10px;color:#6080a0;">
+      <span style="color:var(--text);">▪</span> Iris
+      <span style="color:#4da6ff;">▪</span> XGPT
+      <span style="color:#ffb020;">▪</span> Momentum
+    </span>` : '';
+  return `<div id="sc-filter-bar" style="display:flex;align-items:center;gap:6px;padding:6px 10px 8px;flex-wrap:wrap;">${scannerBar}${dateBar}${legend}</div>`;
+}
+
 function renderScanners() {
   const body = document.getElementById('sc-body');
   if (!body) return;
   try {
     const rows = _scGetFilteredRows();
-
-    const btnStyle = (active) =>
-      `background:${active ? 'rgba(0,212,255,0.18)' : 'transparent'};color:${active ? '#00d4ff' : '#6080a0'};border:1px solid ${active ? '#00d4ff66' : 'var(--border2)'};border-radius:4px;padding:2px 9px;font-size:10px;font-weight:${active ? '700' : '400'};cursor:pointer;font-family:var(--font);letter-spacing:0.4px;`;
-
-    const scannerBar = (_scannerView === 'xgpt_iris') ? `
-      <span style="font-size:10px;color:#6080a0;margin-right:4px;">SCANNER:</span>
-      <button style="${btnStyle(_scFilterScanner==='all')}"   onclick="setScannerFilter('all')">All</button>
-      <button style="${btnStyle(_scFilterScanner==='xgpt')}"  onclick="setScannerFilter('xgpt')">XGPT</button>
-      <button style="${btnStyle(_scFilterScanner==='iris')}"  onclick="setScannerFilter('iris')">Iris</button>
-      <span style="margin:0 8px;border-left:1px solid var(--border2);height:14px;display:inline-block;vertical-align:middle;"></span>` : '';
-
-    const dateBar = `
-      <span style="font-size:10px;color:#6080a0;margin-right:4px;">FIRST SEEN:</span>
-      <button style="${btnStyle(_scFilterDate==='all')}"   onclick="setScannerDateFilter('all')">All</button>
-      <button style="${btnStyle(_scFilterDate==='today')}" onclick="setScannerDateFilter('today')">Today</button>
-      <button style="${btnStyle(_scFilterDate==='7d')}"    onclick="setScannerDateFilter('7d')">7d</button>
-      <button style="${btnStyle(_scFilterDate==='30d')}"   onclick="setScannerDateFilter('30d')">30d</button>`;
-
-    const legend = (_scannerView === 'xgpt_iris') ? `
-      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:10px;color:#6080a0;">
-        <span style="color:var(--text);">▪</span> Iris
-        <span style="color:#4da6ff;">▪</span> XGPT
-        <span style="color:#ffb020;">▪</span> Momentum
-      </span>` : '';
-
-    const searchBar = `<span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
-      <input id="sc-search" type="text" value="${_scSearch.replace(/"/g,'&quot;')}"
-        placeholder="Search symbol or company…"
-        oninput="setScSearch(this.value)"
-        onkeydown="if(event.key==='Escape')scClearSearch()"
-        style="background:var(--bg2);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 8px;font-size:10px;font-family:var(--font);width:170px;outline:none;">
-    </span>`;
-
-    const filterBar = `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 8px;flex-wrap:wrap;">
-      ${scannerBar}${dateBar}${legend}${searchBar}
-    </div>`;
-
     const positionsBlock = _scannerView === 'momentum' ? _scBuildPosBlock() : '';
 
     // Update 10X count badge
@@ -11320,7 +11303,32 @@ function renderScanners() {
       tenxCountEl.textContent = tenxCount > 0 ? tenxCount : '';
     }
 
-    body.innerHTML = `<div style="min-width:1100px;">${filterBar}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
+    const filterEl = document.getElementById('sc-filter-bar');
+    const mainEl   = document.getElementById('sc-blk-main');
+
+    if (filterEl && mainEl) {
+      // Partial update — sc-search-wrap is never touched, preserving focus and caret
+      filterEl.outerHTML = _scBuildFilterBar();
+      document.getElementById('sc-blk-main').outerHTML = _scBuildMainBlock(rows);
+      const posEl = document.getElementById('sc-blk-positions');
+      if (posEl) {
+        if (positionsBlock) posEl.outerHTML = positionsBlock;
+        else posEl.remove();
+      } else if (positionsBlock) {
+        document.getElementById('sc-blk-main').insertAdjacentHTML('afterend', positionsBlock);
+      }
+      return;
+    }
+
+    // Full build (first render for this tab visit)
+    const searchWrap = `<div id="sc-search-wrap" style="display:flex;justify-content:flex-end;padding:2px 10px 4px;">
+      <input id="sc-search" type="text" value=""
+        placeholder="Search symbol or company…"
+        oninput="setScSearch(this.value)"
+        onkeydown="if(event.key==='Escape')scClearSearch()"
+        style="background:var(--bg2);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 8px;font-size:10px;font-family:var(--font);width:170px;outline:none;">
+    </div>`;
+    body.innerHTML = `<div style="min-width:1100px;">${_scBuildFilterBar()}${searchWrap}${_scBuildMainBlock(rows)}${positionsBlock}</div>`;
   } catch (err) {
     console.error('[Scanners] renderScanners error:', err);
     body.innerHTML = `<div style="padding:40px;text-align:center;">
