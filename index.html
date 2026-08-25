@@ -10928,15 +10928,17 @@ function _scRow(row) {
     // iris-only → default (var(--text))
   }
 
-  // Source badge (All view only)
-  const srcBadge = _scannerView === 'all' ? (() => {
-    const src = row.source_scanner || (row.list_name === 'momentum' ? 'momentum' : row.list_name === 'money_markets' ? 'tenx' : '');
-    if (src === 'xgpt')     return '<span style="font-size:7px;font-weight:700;background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">XG</span>';
-    if (src === 'iris')     return '<span style="font-size:7px;font-weight:700;background:rgba(160,200,255,0.15);color:#a0c8ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">IR</span>';
-    if (src === 'tenx')     return '<span style="font-size:7px;font-weight:700;background:rgba(0,229,176,0.15);color:#00e5b0;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">10X</span>';
-    if (src === 'momentum') return '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>';
-    return '';
-  })() : '';
+  // Source badges — data-driven, never gated on current view
+  const srcBadge = [
+    (row.xgpt_count ?? 0) > 0
+      ? '<span style="font-size:7px;font-weight:700;background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">XG</span>' : '',
+    (row.iris_count ?? 0) > 0
+      ? '<span style="font-size:7px;font-weight:700;background:rgba(160,200,255,0.15);color:#a0c8ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">IR</span>' : '',
+    (row.list_name === 'money_markets' || row.source_scanner === 'tenx')
+      ? '<span style="font-size:7px;font-weight:700;background:rgba(0,229,176,0.15);color:#00e5b0;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">10X</span>' : '',
+    (row.momentum_count ?? 0) > 0
+      ? '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>' : '',
+  ].join('');
 
   return `<div style="display:grid;grid-template-columns:${SC_GRID};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;${reviewStyle}"
     onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background='${row.needs_review && _scannerView==='momentum' ? 'rgba(255,176,32,0.08)' : ''}'">
@@ -11027,11 +11029,20 @@ function _scRowTenx(row) {
     ? `<button onclick="scClearNew('${safeId}')" title="Clear new flag" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:10px;padding:1px 3px;" onmouseenter="this.style.color='#ff3d5a'" onmouseleave="this.style.color='#6080a0'">✕</button>`
     : '';
   const noteText = row.notes || '—';
+  const srcBadge = [
+    (row.xgpt_count ?? 0) > 0
+      ? '<span style="font-size:7px;font-weight:700;background:rgba(0,212,255,0.15);color:#00d4ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">XG</span>' : '',
+    (row.iris_count ?? 0) > 0
+      ? '<span style="font-size:7px;font-weight:700;background:rgba(160,200,255,0.15);color:#a0c8ff;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">IR</span>' : '',
+    '<span style="font-size:7px;font-weight:700;background:rgba(0,229,176,0.15);color:#00e5b0;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">10X</span>',
+    (row.momentum_count ?? 0) > 0
+      ? '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>' : '',
+  ].join('');
 
   return `<div style="display:grid;grid-template-columns:${SC_GRID_TENX};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;"
     onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background=''">
     <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">
-      ${newBadge}<span>${sym}</span>
+      ${newBadge}<span>${sym}</span>${srcBadge}
     </span>
     <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
@@ -11208,7 +11219,8 @@ function _scBuildMainBlock(rows) {
   const rowFn = isTenx ? _scRowTenx : _scRow;
   const grid  = isTenx ? SC_GRID_TENX : SC_GRID;
   const countLabel = term
-    ? `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${filtered.length} of ${total}</span>`
+    ? `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${filtered.length} of ${total}</span>
+       <button onclick="scClearSearch()" title="Clear search" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:12px;padding:1px 4px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✕</button>`
     : `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${total}</span>`;
   const content = sorted.length
     ? sorted.map(row => {
@@ -11289,7 +11301,6 @@ function renderScanners() {
         oninput="setScSearch(this.value)"
         onkeydown="if(event.key==='Escape')scClearSearch()"
         style="background:var(--bg2);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 8px;font-size:10px;font-family:var(--font);width:170px;outline:none;">
-      ${_scSearch ? `<button onclick="scClearSearch()" title="Clear search" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:12px;padding:1px 4px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✕</button>` : ''}
     </span>`;
 
     const filterBar = `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 8px;flex-wrap:wrap;">
