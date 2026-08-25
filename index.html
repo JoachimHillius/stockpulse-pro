@@ -10788,6 +10788,7 @@ let _scannerView       = 'xgpt_iris'; // active sub-view list_name
 let _scFilterScanner   = 'all';     // 'all' | 'xgpt' | 'iris'
 let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
 let _scSearch          = '';        // live search term (lowercased)
+let _scSector          = '';        // active sector filter ('' = all)
 let _scSearchTimer     = null;
 // N/A checkbox state for the edit modal — avoids DOM re-query at save time
 let _scRatingNa        = { iris: false, xgpt: false, gz: false, omen: false };
@@ -10882,6 +10883,25 @@ function _scPctCell(val, extraStyle) {
   return `<span style="text-align:right;font-size:10px;font-weight:600;color:${col}${xtra}">${n >= 0 ? '+' : ''}${n.toFixed(1)}%</span>`;
 }
 
+function _scSectorBadge(sector) {
+  if (!sector) return '';
+  const colors = {
+    'Healthcare': '#4ade80', 'Technology': '#38bdf8', 'Semiconductors': '#22d3ee',
+    'AI': '#a78bfa', 'Industrials': '#94a3b8', 'Energy': '#fb923c',
+    'Materials': '#d6b370', 'Financials': '#60a5fa',
+    'Consumer Discretionary': '#f472b6', 'Consumer Staples': '#fbbf24',
+    'Real Estate': '#c084fc', 'Communication Services': '#2dd4bf',
+    'Telecom': '#2dd4bf', 'Packaging': '#d6b370',
+  };
+  const abbrs = {
+    'Consumer Discretionary': 'CONS DISC', 'Consumer Staples': 'CONS STPL',
+    'Communication Services': 'COMM', 'Semiconductors': 'SEMI', 'Real Estate': 'REIT',
+  };
+  const color = colors[sector] || '#8090a0';
+  const label = abbrs[sector] || sector.toUpperCase();
+  return `<span title="${sector.replace(/"/g,'&quot;')}" style="font-size:7px;font-weight:700;color:${color};background:${color}14;border:1px solid ${color}40;border-radius:2px;padding:0 3px;margin-left:2px;flex-shrink:0;">${label}</span>`;
+}
+
 function _scRow(row) {
   const sym     = row.symbol || '';
   const safeId  = String(row.id).replace(/'/g, "\\'");
@@ -10940,10 +10960,11 @@ function _scRow(row) {
       ? '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>' : '',
   ].join('');
 
+  const sectorBadge = _scSectorBadge(row.sector);
   return `<div style="display:grid;grid-template-columns:${SC_GRID};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;${reviewStyle}"
     onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background='${row.needs_review && _scannerView==='momentum' ? 'rgba(255,176,32,0.08)' : ''}'">
     <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:${symColor};white-space:nowrap;">
-      ${actionBadge}${newBadge}<span>${sym}</span>${srcBadge}
+      ${actionBadge}${newBadge}<span>${sym}</span>${sectorBadge}${srcBadge}
     </span>
     <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
@@ -11039,10 +11060,11 @@ function _scRowTenx(row) {
       ? '<span style="font-size:7px;font-weight:700;background:rgba(255,176,32,0.15);color:#ffb020;border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">MOM</span>' : '',
   ].join('');
 
+  const sectorBadge = _scSectorBadge(row.sector);
   return `<div style="display:grid;grid-template-columns:${SC_GRID_TENX};gap:2px;padding:5px 10px;border-radius:2px;align-items:center;border-bottom:1px solid var(--border);transition:background 0.08s;"
     onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background=''">
     <span style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">
-      ${newBadge}<span>${sym}</span>${srcBadge}
+      ${newBadge}<span>${sym}</span>${sectorBadge}${srcBadge}
     </span>
     <span style="font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(row.security||'').replace(/"/g,'&quot;')}">${row.security||'—'}</span>
     <span style="font-size:10px;color:#9aa8bc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.sector||''}">${row.sector||'—'}</span>
@@ -11088,6 +11110,28 @@ function scClearSearch() {
   const el = document.getElementById('sc-blk-main');
   if (el) { el.outerHTML = _scBuildMainBlock(_scGetFilteredRows()); return; }
   renderScanners();
+}
+
+function setSectorFilter(val) {
+  _scSector = val;
+  const el = document.getElementById('sc-blk-main');
+  if (el) { el.outerHTML = _scBuildMainBlock(_scGetFilteredRows()); return; }
+  renderScanners();
+}
+
+function _scBuildSectorOptions(baseRows) {
+  const counts = {};
+  for (const r of baseRows) { const s = r.sector || ''; if (s) counts[s] = (counts[s] || 0) + 1; }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return '<option value="">All sectors</option>' +
+    sorted.map(([s, n]) => `<option value="${s.replace(/"/g,'&quot;')}" ${_scSector === s ? 'selected' : ''}>${s} (${n})</option>`).join('');
+}
+
+function _scUpdateSectorDropdown() {
+  const sel = document.getElementById('sc-sector');
+  if (!sel) return;
+  sel.innerHTML = _scBuildSectorOptions(_scGetFilteredRows());
+  sel.value = _scSector;
 }
 
 function setScannerFilter(val) {
@@ -11211,17 +11255,23 @@ function _scSortDropdown(blockId) {
 function _scBuildMainBlock(rows) {
   const total = rows.length;
   const term = _scSearch;
-  const filtered = term
-    ? rows.filter(r => (r.symbol || '').toLowerCase().includes(term) || (r.security || '').toLowerCase().includes(term))
-    : rows;
+  const sector = _scSector;
+  let filtered = rows;
+  if (term) filtered = filtered.filter(r => (r.symbol || '').toLowerCase().includes(term) || (r.security || '').toLowerCase().includes(term));
+  if (sector) filtered = filtered.filter(r => (r.sector || '') === sector);
   const sorted = _scApplySort(_scannerView, filtered);
   const isTenx = _scannerView === 'money_markets';
   const rowFn = isTenx ? _scRowTenx : _scRow;
   const grid  = isTenx ? SC_GRID_TENX : SC_GRID;
-  const countLabel = term
-    ? `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${filtered.length} of ${total}</span>
-       <button onclick="scClearSearch()" title="Clear search" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:12px;padding:1px 4px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✕</button>`
+  const hasFilter = !!(term || sector);
+  const countLabel = hasFilter
+    ? `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${filtered.length} of ${total}</span>` +
+      (term ? `<button onclick="scClearSearch()" title="Clear search" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:12px;padding:1px 4px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✕</button>` : '')
     : `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${total}</span>`;
+  let emptyMsg = 'No rows match';
+  if (term && sector) emptyMsg = `No matches for '${term}' in ${sector}`;
+  else if (term) emptyMsg = `No matches for '${term}'`;
+  else if (sector) emptyMsg = `No rows in ${sector}`;
   const content = sorted.length
     ? sorted.map(row => {
         try { return rowFn(row); }
@@ -11232,7 +11282,7 @@ function _scBuildMainBlock(rows) {
             `<span style="color:#6080a0;font-size:10px;grid-column:2/-1;">render error — ${e.message}</span></div>`;
         }
       }).join('')
-    : `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">${term ? `No matches for '${term}'` : 'No rows match'}</div>`;
+    : `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">${emptyMsg}</div>`;
   return `<div id="sc-blk-main">
     <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.10);">
       ${_scSortDropdown(_scannerView)}
@@ -11310,6 +11360,7 @@ function renderScanners() {
       // Partial update — sc-search-wrap is never touched, preserving focus and caret
       filterEl.outerHTML = _scBuildFilterBar();
       document.getElementById('sc-blk-main').outerHTML = _scBuildMainBlock(rows);
+      _scUpdateSectorDropdown();
       const posEl = document.getElementById('sc-blk-positions');
       if (posEl) {
         if (positionsBlock) posEl.outerHTML = positionsBlock;
@@ -11321,7 +11372,11 @@ function renderScanners() {
     }
 
     // Full build (first render for this tab visit)
-    const searchWrap = `<div id="sc-search-wrap" style="display:flex;justify-content:flex-end;padding:2px 10px 4px;">
+    const searchWrap = `<div id="sc-search-wrap" style="display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:2px 10px 4px;">
+      <select id="sc-sector" onchange="setSectorFilter(this.value)"
+        style="background:var(--bg2);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:10px;font-family:var(--font);cursor:pointer;max-width:170px;">
+        ${_scBuildSectorOptions(rows)}
+      </select>
       <input id="sc-search" type="text" value=""
         placeholder="Search symbol or company…"
         oninput="setScSearch(this.value)"
