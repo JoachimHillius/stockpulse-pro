@@ -11071,10 +11071,13 @@ function _scRowTenx(row) {
 }
 
 function setScSearch(val) {
+  console.log('[SEARCH LOG A] handler fired, val=', val);
   clearTimeout(_scSearchTimer);
   _scSearchTimer = setTimeout(() => {
     _scSearch = (val || '').trim().toLowerCase();
+    console.log('[SEARCH LOG B] _scSearch set to:', _scSearch);
     const el = document.getElementById('sc-blk-main');
+    console.log('[SEARCH LOG D] el found:', !!el, el ? el.id : 'null');
     if (el) { el.outerHTML = _scBuildMainBlock(_scGetFilteredRows()); return; }
     renderScanners();
   }, 150);
@@ -11214,6 +11217,7 @@ function _scBuildMainBlock(rows) {
   const filtered = term
     ? rows.filter(r => (r.symbol || '').toLowerCase().includes(term) || (r.security || '').toLowerCase().includes(term))
     : rows;
+  console.log('[SEARCH LOG C] rows.length=', rows.length, 'term=', JSON.stringify(term), 'filtered.length=', filtered.length);
   const sorted = _scApplySort(_scannerView, filtered);
   const isTenx = _scannerView === 'money_markets';
   const rowFn = isTenx ? _scRowTenx : _scRow;
