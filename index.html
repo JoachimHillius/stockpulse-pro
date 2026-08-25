@@ -53,6 +53,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .dot.on{background:var(--green);animation:blink 2s infinite;}
 .dot.off{background:var(--red);}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes rs-pulse{0%,100%{opacity:1}50%{opacity:0.15}}
 .clock{font-size:11px;color:#ffffff;letter-spacing:1px;}
 .vix-pill{padding:5px 10px;border-radius:3px;font-size:13px;font-weight:600;letter-spacing:0.5px;}
 
@@ -469,6 +470,12 @@ select option{background:var(--bg2);}
       <span id="fh-dot" style="width:6px;height:6px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
       <span id="fh-txt">No API Key</span>
     </div>
+    <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+      <div id="rs-dot" style="width:8px;height:8px;border-radius:50%;background:#606878;flex-shrink:0;" title="IDLE"></div>
+      <button id="rs-btn" onclick="runRangeScan(false)" title="Sync price history then run range scan" style="background:rgba(100,120,140,0.15);border:1px solid rgba(128,144,160,0.3);border-radius:4px;color:#9aa8bc;padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:0.5px;cursor:pointer;font-family:var(--font);white-space:nowrap;">RANGE SCAN</button>
+      <span onclick="if(!_rsRunning)runRangeScan(true)" title="Run scan only — skip sync" style="font-size:9px;color:#6080a0;cursor:pointer;text-decoration:underline;white-space:nowrap;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">scan only</span>
+    </div>
+    <span id="rs-progress" style="font-size:9px;color:#6080a0;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;"></span>
     <div id="hdr-datetime" style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;">—</div>
   </div>
 </div>
@@ -14867,6 +14874,328 @@ async function tosDeleteSnapshot(ticker, snapshotDate, strikeCount, expCount) {
 
 // Load snapshot list on startup so the panel is populated immediately
 _tosLoadSnapshots();
+
+// ══ RANGE SCAN ═══════════════════════════════════════════════════════════
+
+let _rsRunning    = false;
+let _rsDoneTimer  = null;
+let _rsEscHandler = null;
+let _rsResults    = null;
+let _rsNearPct    = 2.0;
+let _rsSource     = 'all';
+let _rsChip       = 'AT_HIGH_90';
+let _rsHideStale  = true;
+let _rsSector     = '';
+let _rsSort       = 'signal';
+
+function _rsSetState(state) {
+  const dot = document.getElementById('rs-dot');
+  const btn = document.getElementById('rs-btn');
+  if (!dot) return;
+  clearTimeout(_rsDoneTimer);
+  dot.style.animation = 'none';
+  dot.title = state.toUpperCase();
+  if (state === 'idle') {
+    dot.style.background = '#606878';
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+  } else if (state === 'scanning') {
+    dot.style.background = '#38bdf8';
+    dot.style.animation = 'rs-pulse 1s infinite';
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+  } else if (state === 'done') {
+    dot.style.background = '#4ade80';
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+    _rsDoneTimer = setTimeout(() => _rsSetState('idle'), 60000);
+  } else if (state === 'error') {
+    dot.style.background = '#fb923c';
+    dot.style.animation = 'rs-pulse 1s infinite';
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+  }
+}
+
+function _rsSetProgress(msg) {
+  const el = document.getElementById('rs-progress');
+  if (el) el.textContent = msg;
+}
+
+async function runRangeScan(scanOnly) {
+  if (_rsRunning) return;
+  _rsRunning = true;
+  _rsSetState('scanning');
+  _rsSetProgress('');
+  let hadError = false;
+  try {
+    if (!scanOnly) {
+      const result = await _rsSyncPhase();
+      if (result.failed > 0 || result.hitCap) hadError = true;
+      _rsSetProgress('Synced: ' + result.succeeded + ' ok · ' + result.failed + ' failed');
+    } else {
+      _rsSetProgress('Scanning…');
+    }
+    const scanOk = await _rsScanPhase();
+    if (!scanOk) hadError = true;
+    _rsSetState(hadError ? 'error' : 'done');
+    _rsSetProgress('');
+  } catch (e) {
+    console.error('[RangeScan] run error:', e);
+    _rsSetState('error');
+    _rsSetProgress('');
+  } finally {
+    _rsRunning = false;
+  }
+}
+
+async function _rsSyncPhase() {
+  const supa = await getSupabaseAsync();
+  if (!supa) throw new Error('[RangeScan] No Supabase client');
+  const { data: universe, error: uErr } = await supa.rpc('get_range_scan_universe',
+    { p_source: 'all', p_only_stale: true, p_stale_days: 1 });
+  if (uErr) { console.error('[RangeScan] universe RPC error:', uErr.message); throw uErr; }
+  if (!universe || universe.length === 0) {
+    _rsSetProgress('All up to date — skipping sync');
+    return { succeeded: 0, failed: 0, hitCap: false };
+  }
+  const syms = universe.map(r => r.symbol);
+  const CHUNK = 30, MAX_CHUNKS = 20;
+  let succeeded = 0, failed = 0, chunksDone = 0, hitCap = false;
+  for (let i = 0; i < syms.length; i += CHUNK) {
+    if (chunksDone >= MAX_CHUNKS) { hitCap = true; console.warn('[RangeScan] hit 20-chunk hard cap'); break; }
+    const chunk = syms.slice(i, i + CHUNK);
+    chunksDone++;
+    _rsSetProgress('Syncing ' + Math.min(i + CHUNK, syms.length) + '/' + syms.length + ' · ' + failed + ' failed');
+    try {
+      const ctrl = new AbortController();
+      const tId = setTimeout(() => ctrl.abort(), 90000);
+      const resp = await fetch(PRICE_SYNC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + PRICE_SYNC_ANON_KEY, 'apikey': PRICE_SYNC_ANON_KEY },
+        body: JSON.stringify({ tickers: chunk, max_batch: 30, stale_days: 1 }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(tId);
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => String(resp.status));
+        console.error('[RangeScan] chunk HTTP error:', resp.status, txt);
+        failed += chunk.length;
+      } else {
+        const d = await resp.json();
+        succeeded += d.succeeded || 0;
+        failed += d.failed || 0;
+        console.log('[RangeScan] chunk ' + chunksDone + ': ok=' + (d.succeeded||0) + ' fail=' + (d.failed||0) + ' remaining=' + (d.remaining||0));
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') console.error('[RangeScan] chunk timed out after 90s');
+      else console.error('[RangeScan] chunk error:', e.message);
+      failed += chunk.length;
+    }
+  }
+  return { succeeded, failed, hitCap };
+}
+
+async function _rsScanPhase() {
+  const supa = await getSupabaseAsync();
+  if (!supa) { console.error('[RangeScan] No Supabase client'); return false; }
+  _rsSetProgress('Scanning…');
+  const { data, error } = await supa.rpc('get_morning_range_scan',
+    { p_near_pct: _rsNearPct, p_min_bars: 25, p_source: _rsSource, p_max_stale_days: 5 });
+  if (error) { console.error('[RangeScan] scan RPC error:', error.message); return false; }
+  _rsResults = data || [];
+  if (document.getElementById('rs-panel')) _rsRefreshPanel();
+  else _rsOpenPanel();
+  return true;
+}
+
+function _rsOpenPanel() {
+  document.getElementById('rs-panel')?.remove();
+  if (_rsEscHandler) { document.removeEventListener('keydown', _rsEscHandler); _rsEscHandler = null; }
+  const panel = document.createElement('div');
+  panel.id = 'rs-panel';
+  panel.style.cssText = 'position:fixed;top:0;right:0;bottom:0;width:920px;max-width:100vw;z-index:9998;background:var(--bg);border-left:2px solid var(--border2);display:flex;flex-direction:column;animation:slide-in 0.22s ease-out;box-shadow:-8px 0 32px rgba(0,0,0,0.4);';
+  panel.innerHTML = _rsBuildPanelInner();
+  document.body.appendChild(panel);
+  _rsEscHandler = e => { if (e.key === 'Escape') _rsClosePanel(); };
+  document.addEventListener('keydown', _rsEscHandler);
+}
+
+function _rsRefreshPanel() {
+  const panel = document.getElementById('rs-panel');
+  if (!panel) { _rsOpenPanel(); return; }
+  panel.innerHTML = _rsBuildPanelInner();
+}
+
+function _rsClosePanel() {
+  document.getElementById('rs-panel')?.remove();
+  if (_rsEscHandler) { document.removeEventListener('keydown', _rsEscHandler); _rsEscHandler = null; }
+}
+
+function _rsBuildPanelInner() {
+  const rows = _rsResults || [];
+  const maxBar = rows.reduce((m, r) => r.last_bar && r.last_bar > m ? r.last_bar : m, '');
+  const baseForChips = _rsHideStale ? rows.filter(r => !r.stale) : rows;
+
+  const chipDefs = [
+    { key: 'AT_HIGH_90',   label: 'HIGHS',      fn: r => r.signal === 'AT_HIGH_90' },
+    { key: 'NEAR_HIGH_90', label: 'NEAR HIGHS', fn: r => r.signal === 'NEAR_HIGH_90' },
+    { key: 'AT_LOW_90',    label: '90D LOWS',   fn: r => r.signal === 'AT_LOW_90' },
+    { key: 'AT_LOW_60',    label: '60D LOWS',   fn: r => r.signal === 'AT_LOW_60' },
+    { key: 'AT_LOW_30',    label: '30D LOWS',   fn: r => r.signal === 'AT_LOW_30' },
+    { key: 'NEAR_LOW',     label: 'NEAR LOWS',  fn: r => (r.signal || '').startsWith('NEAR_LOW') },
+    { key: 'ALL',          label: 'ALL',         fn: () => true },
+  ];
+  const chips = chipDefs.map(c => {
+    const n = baseForChips.filter(c.fn).length;
+    const a = _rsChip === c.key;
+    return '<button onclick="_rsSetChip(\'' + c.key + '\')" style="background:' + (a ? 'rgba(0,212,255,0.18)' : 'transparent') + ';color:' + (a ? '#00d4ff' : '#6080a0') + ';border:1px solid ' + (a ? '#00d4ff66' : 'var(--border2)') + ';border-radius:4px;padding:2px 8px;font-size:10px;font-weight:' + (a ? '700' : '400') + ';cursor:pointer;font-family:var(--font);white-space:nowrap;">' + c.label + ' <span style="font-weight:400;opacity:0.8">' + n + '</span></button>';
+  }).join('');
+
+  const nearBtns = [1.0, 2.0, 5.0].map(v => {
+    const a = _rsNearPct === v;
+    return '<button onclick="_rsSetNearPct(' + v + ')" style="background:' + (a ? 'rgba(0,212,255,0.18)' : 'transparent') + ';color:' + (a ? '#00d4ff' : '#6080a0') + ';border:1px solid ' + (a ? '#00d4ff66' : 'var(--border2)') + ';border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:var(--font);">' + v + '%</button>';
+  }).join('');
+
+  const srcBtns = [['all','ALL'],['scanner','SCANNERS'],['watchlist','WATCHLIST']].map(([v, l]) => {
+    const a = _rsSource === v;
+    return '<button onclick="_rsSetSource(\'' + v + '\')" style="background:' + (a ? 'rgba(0,212,255,0.18)' : 'transparent') + ';color:' + (a ? '#00d4ff' : '#6080a0') + ';border:1px solid ' + (a ? '#00d4ff66' : 'var(--border2)') + ';border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:var(--font);">' + l + '</button>';
+  }).join('');
+
+  const sectorCounts = {};
+  for (const r of rows) { if (r.sector) sectorCounts[r.sector] = (sectorCounts[r.sector] || 0) + 1; }
+  const sectorOpts = '<option value="">All sectors</option>' +
+    Object.entries(sectorCounts).sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => '<option value="' + s.replace(/"/g, '&quot;') + '"' + (_rsSector === s ? ' selected' : '') + '>' + s + ' (' + n + ')</option>').join('');
+
+  const cs = 'font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.5px;';
+  const sa = k => _rsSort === k ? ' ▲' : '';
+
+  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2);">' +
+    '<span style="font-size:13px;font-weight:800;color:var(--text);letter-spacing:1px;">RANGE SCAN</span>' +
+    '<span style="font-size:11px;color:#6080a0;">as of ' + (maxBar || '—') + '</span>' +
+    '<span style="flex:1;"></span>' +
+    '<button onclick="if(!_rsRunning)runRangeScan(true)" title="Re-run scan (skip sync)" style="background:rgba(0,212,255,0.10);border:1px solid #00d4ff44;border-radius:4px;color:#00d4ff;padding:3px 10px;font-size:10px;cursor:pointer;font-family:var(--font);">↻ Refresh</button>' +
+    '<button onclick="_rsClosePanel()" title="Close (Esc)" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:18px;padding:0 4px;line-height:1;" onmouseenter="this.style.color=\'#ff3d5a\'" onmouseleave="this.style.color=\'#6080a0\'">✕</button>' +
+  '</div>' +
+  '<div style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;background:var(--bg2);">' +
+    chips +
+    '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+    '<span style="font-size:9px;color:#6080a0;font-weight:700;letter-spacing:0.5px;white-space:nowrap;">SENSITIVITY</span>' + nearBtns +
+    '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+    '<span style="font-size:9px;color:#6080a0;font-weight:700;letter-spacing:0.5px;white-space:nowrap;">SOURCE</span>' + srcBtns +
+    '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+    '<label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#c4d2e0;cursor:pointer;white-space:nowrap;">' +
+      '<input type="checkbox" ' + (_rsHideStale ? 'checked' : '') + ' onchange="_rsToggleStale(this.checked)" style="cursor:pointer;"> Hide stale' +
+    '</label>' +
+    '<select onchange="_rsSetSector(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:10px;font-family:var(--font);cursor:pointer;max-width:160px;">' + sectorOpts + '</select>' +
+  '</div>' +
+  '<div style="display:grid;grid-template-columns:110px 80px 110px 70px 150px 90px 90px 80px;gap:4px;padding:5px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:rgba(0,0,0,0.12);">' +
+    '<span onclick="_rsSetSort(\'sym\')" style="' + cs + 'cursor:pointer;">SYMBOL' + sa('sym') + '</span>' +
+    '<span style="' + cs + '">SECTOR</span>' +
+    '<span style="' + cs + '">IN</span>' +
+    '<span style="' + cs + 'text-align:right;">LAST</span>' +
+    '<span style="' + cs + '">SIGNAL</span>' +
+    '<span onclick="_rsSetSort(\'pct_hi\')" style="' + cs + 'cursor:pointer;text-align:right;">%FROM HIGH' + sa('pct_hi') + '</span>' +
+    '<span onclick="_rsSetSort(\'pct_lo\')" style="' + cs + 'cursor:pointer;text-align:right;">%ABOVE LOW' + sa('pct_lo') + '</span>' +
+    '<span style="' + cs + 'text-align:right;">AS OF</span>' +
+  '</div>' +
+  '<div id="rs-rows" style="flex:1;overflow-y:auto;">' + _rsRenderRows() + '</div>';
+}
+
+function _rsRenderRows() {
+  const rows = _rsResults || [];
+  const chipFns = {
+    AT_HIGH_90:   r => r.signal === 'AT_HIGH_90',
+    NEAR_HIGH_90: r => r.signal === 'NEAR_HIGH_90',
+    AT_LOW_90:    r => r.signal === 'AT_LOW_90',
+    AT_LOW_60:    r => r.signal === 'AT_LOW_60',
+    AT_LOW_30:    r => r.signal === 'AT_LOW_30',
+    NEAR_LOW:     r => (r.signal || '').startsWith('NEAR_LOW'),
+    ALL:          () => true,
+  };
+  let filtered = rows;
+  if (_rsHideStale) filtered = filtered.filter(r => !r.stale);
+  if (_rsSector) filtered = filtered.filter(r => (r.sector || '') === _rsSector);
+  const chipFn = chipFns[_rsChip] || (() => true);
+  filtered = filtered.filter(chipFn);
+  filtered = [...filtered].sort((a, b) => {
+    if (_rsSort === 'sym')    return (a.symbol || '').localeCompare(b.symbol || '');
+    if (_rsSort === 'pct_hi') return (a.pct_from_hi90 ?? 9999) - (b.pct_from_hi90 ?? 9999);
+    if (_rsSort === 'pct_lo') return (b.pct_above_lo90 ?? -9999) - (a.pct_above_lo90 ?? -9999);
+    return (a.signal_rank ?? 99) - (b.signal_rank ?? 99) || (a.symbol || '').localeCompare(b.symbol || '');
+  });
+  if (!filtered.length) return '<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No results match the current filters</div>';
+  return filtered.map(_rsRenderRow).join('');
+}
+
+function _rsRenderRow(r) {
+  const staleBadge = r.stale
+    ? '<span title="price data older than 5 days — not a live high/low" style="font-size:7px;font-weight:700;color:#fb923c;background:rgba(251,146,60,0.12);border:1px solid rgba(251,146,60,0.3);border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">STALE</span>'
+    : '';
+  const srcBadges = (r.source_list || '').split('/').map(s => {
+    const clean = s.replace(/^(scanner|watchlist):/i, '').trim();
+    if (!clean) return '';
+    return '<span style="font-size:7px;font-weight:700;color:#a0b8d0;background:rgba(160,180,200,0.12);border:1px solid rgba(160,180,200,0.25);border-radius:2px;padding:0 3px;margin-right:2px;white-space:nowrap;">' + clean.toUpperCase() + '</span>';
+  }).join('');
+  const sigMap = {
+    AT_HIGH_90:   { label: '90D HIGH',      solid: true,  color: '#4ade80' },
+    NEAR_HIGH_90: { label: 'NEAR 90D HIGH', solid: false, color: '#4ade80' },
+    AT_LOW_90:    { label: '90D LOW',       solid: true,  color: '#ff3d5a' },
+    AT_LOW_60:    { label: '60D LOW',       solid: true,  color: '#ff3d5a' },
+    AT_LOW_30:    { label: '30D LOW',       solid: true,  color: '#ff3d5a' },
+    NEAR_LOW_90:  { label: 'NEAR 90D LOW',  solid: false, color: '#ff3d5a' },
+    NEAR_LOW_60:  { label: 'NEAR 60D LOW',  solid: false, color: '#ff3d5a' },
+    NEAR_LOW_30:  { label: 'NEAR 30D LOW',  solid: false, color: '#ff3d5a' },
+  };
+  const sig = sigMap[r.signal] || { label: r.signal || '—', solid: false, color: '#8090a0' };
+  const signalBadge = '<span style="font-size:10px;font-weight:700;color:' + sig.color + ';background:' + (sig.solid ? sig.color + '22' : 'transparent') + ';border:1px solid ' + sig.color + '55;border-radius:3px;padding:2px 6px;white-space:nowrap;">' + sig.label + '</span>';
+  const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  const dimStyle = r.stale ? 'opacity:0.55;' : '';
+  return '<div style="display:grid;grid-template-columns:110px 80px 110px 70px 150px 90px 90px 80px;gap:4px;padding:4px 14px;border-bottom:1px solid var(--border);align-items:center;' + dimStyle + 'transition:background 0.08s;" onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'\'">' +
+    '<span style="font-size:12px;font-weight:700;color:var(--text);display:flex;align-items:center;white-space:nowrap;">' + (r.symbol || '—') + staleBadge + '</span>' +
+    '<span>' + _scSectorBadge(r.sector) + '</span>' +
+    '<span style="display:flex;flex-wrap:wrap;gap:2px;">' + srcBadges + '</span>' +
+    '<span style="font-size:11px;font-weight:600;color:var(--text);text-align:right;">' + (r.last_close != null ? '$' + Number(r.last_close).toFixed(2) : '—') + '</span>' +
+    '<span>' + signalBadge + '</span>' +
+    '<span style="font-size:11px;font-weight:600;color:#c4d2e0;text-align:right;">' + fmtPct(r.pct_from_hi90) + '</span>' +
+    '<span style="font-size:11px;font-weight:600;color:#c4d2e0;text-align:right;">' + fmtPct(r.pct_above_lo90) + '</span>' +
+    '<span style="font-size:10px;color:#6080a0;text-align:right;">' + (r.last_bar || '—') + '</span>' +
+  '</div>';
+}
+
+function _rsSetChip(key)          { _rsChip = key;     _rsRefreshPanel(); }
+function _rsToggleStale(checked)  { _rsHideStale = checked; _rsRefreshPanel(); }
+function _rsSetSector(val)        { _rsSector = val;   _rsRefreshPanel(); }
+function _rsSetSort(key)          { _rsSort = key;     _rsRefreshPanel(); }
+
+async function _rsSetNearPct(v) {
+  if (_rsRunning) return;
+  _rsNearPct = v;
+  _rsRunning = true;
+  _rsSetState('scanning');
+  try {
+    const ok = await _rsScanPhase();
+    _rsSetState(ok ? 'done' : 'error');
+  } catch (e) {
+    console.error('[RangeScan] refetch error:', e);
+    _rsSetState('error');
+  } finally {
+    _rsRunning = false;
+  }
+}
+
+async function _rsSetSource(v) {
+  if (_rsRunning) return;
+  _rsSource = v;
+  _rsRunning = true;
+  _rsSetState('scanning');
+  try {
+    const ok = await _rsScanPhase();
+    _rsSetState(ok ? 'done' : 'error');
+  } catch (e) {
+    console.error('[RangeScan] refetch error:', e);
+    _rsSetState('error');
+  } finally {
+    _rsRunning = false;
+  }
+}
 </script>
 
 <!-- Hover popup for Gainers/Losers -->
