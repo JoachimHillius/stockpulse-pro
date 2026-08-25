@@ -10787,6 +10787,8 @@ let _scannerData       = [];        // all rows from scanner_watchlist
 let _scannerView       = 'xgpt_iris'; // active sub-view list_name
 let _scFilterScanner   = 'all';     // 'all' | 'xgpt' | 'iris'
 let _scFilterDate      = 'all';     // 'all' | 'today' | '7d' | '30d'
+let _scSearch          = '';        // live search term (lowercased)
+let _scSearchTimer     = null;
 // N/A checkbox state for the edit modal — avoids DOM re-query at save time
 let _scRatingNa        = { iris: false, xgpt: false, gz: false, omen: false };
 
@@ -11057,6 +11059,26 @@ function _scRowTenx(row) {
   </div>`;
 }
 
+function setScSearch(val) {
+  clearTimeout(_scSearchTimer);
+  _scSearchTimer = setTimeout(() => {
+    _scSearch = (val || '').trim().toLowerCase();
+    const el = document.getElementById('sc-blk-main');
+    if (el) { el.outerHTML = _scBuildMainBlock(_scGetFilteredRows()); return; }
+    renderScanners();
+  }, 150);
+}
+
+function scClearSearch() {
+  clearTimeout(_scSearchTimer);
+  _scSearch = '';
+  const inp = document.getElementById('sc-search');
+  if (inp) inp.value = '';
+  const el = document.getElementById('sc-blk-main');
+  if (el) { el.outerHTML = _scBuildMainBlock(_scGetFilteredRows()); return; }
+  renderScanners();
+}
+
 function setScannerFilter(val) {
   _scFilterScanner = val;
   renderScanners();
@@ -11138,7 +11160,7 @@ function _scGetFilteredRows() {
   if (_scFilterDate !== 'all') {
     const days = _scFilterDate === 'today' ? 0 : _scFilterDate === '7d' ? 7 : 30;
     rows = rows.filter(r => {
-      if (!r.first_seen_date) return false;
+      if (!r.first_seen_date) return true; // no date → always show regardless of filter
       const d = new Date(r.first_seen_date);
       if (_scFilterDate === 'today') { d.setHours(0,0,0,0); return d.getTime() === today.getTime(); }
       return (today - d) / 86400000 <= days;
@@ -11176,10 +11198,18 @@ function _scSortDropdown(blockId) {
 }
 
 function _scBuildMainBlock(rows) {
-  const sorted = _scApplySort(_scannerView, rows);
+  const total = rows.length;
+  const term = _scSearch;
+  const filtered = term
+    ? rows.filter(r => (r.symbol || '').toLowerCase().includes(term) || (r.security || '').toLowerCase().includes(term))
+    : rows;
+  const sorted = _scApplySort(_scannerView, filtered);
   const isTenx = _scannerView === 'money_markets';
   const rowFn = isTenx ? _scRowTenx : _scRow;
   const grid  = isTenx ? SC_GRID_TENX : SC_GRID;
+  const countLabel = term
+    ? `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${filtered.length} of ${total}</span>`
+    : `<span style="font-size:10px;color:#6080a0;white-space:nowrap;">${total}</span>`;
   const content = sorted.length
     ? sorted.map(row => {
         try { return rowFn(row); }
@@ -11190,10 +11220,11 @@ function _scBuildMainBlock(rows) {
             `<span style="color:#6080a0;font-size:10px;grid-column:2/-1;">render error — ${e.message}</span></div>`;
         }
       }).join('')
-    : `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No rows match</div>`;
+    : `<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">${term ? `No matches for '${term}'` : 'No rows match'}</div>`;
   return `<div id="sc-blk-main">
     <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.10);">
       ${_scSortDropdown(_scannerView)}
+      ${countLabel}
     </div>
     ${isTenx ? _scColHdrTenx() : _scColHdr()}${content}
   </div>`;
@@ -11252,8 +11283,17 @@ function renderScanners() {
         <span style="color:#ffb020;">▪</span> Momentum
       </span>` : '';
 
+    const searchBar = `<span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+      <input id="sc-search" type="text" value="${_scSearch.replace(/"/g,'&quot;')}"
+        placeholder="Search symbol or company…"
+        oninput="setScSearch(this.value)"
+        onkeydown="if(event.key==='Escape')scClearSearch()"
+        style="background:var(--bg2);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 8px;font-size:10px;font-family:var(--font);width:170px;outline:none;">
+      ${_scSearch ? `<button onclick="scClearSearch()" title="Clear search" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:12px;padding:1px 4px;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">✕</button>` : ''}
+    </span>`;
+
     const filterBar = `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 8px;flex-wrap:wrap;">
-      ${scannerBar}${dateBar}${legend}
+      ${scannerBar}${dateBar}${legend}${searchBar}
     </div>`;
 
     const positionsBlock = _scannerView === 'momentum' ? _scBuildPosBlock() : '';
