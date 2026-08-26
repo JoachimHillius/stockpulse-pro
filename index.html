@@ -14887,6 +14887,37 @@ let _rsHideStale  = true;
 let _rsSector     = '';
 let _rsSort       = 'signal';
 
+// Sub-tab routing
+let _rsSubTab = 'range';
+
+// 3Y HIGHS state
+let _athResults   = null;
+let _athRunning   = false;
+let _athStateStr  = 'idle';
+let _athDoneTimer = null;
+let _athNearPct   = 3.0;
+let _athChip      = 'AT_ATH';
+let _athSector    = '';
+let _athSearch    = '';
+let _athSearchTmr = null;
+
+// UNUSUAL MOVERS state
+let _umResults       = null;
+let _umRunning       = false;
+let _umStateStr      = 'idle';
+let _umDoneTimer     = null;
+let _umLookback      = 30;
+let _umMinMove       = 15.0;
+let _umOnlyUntracked = false;
+let _umChip          = 'ALL';
+let _umSector        = '';
+let _umSearch        = '';
+let _umSearchTmr     = null;
+let _umSort          = 'vol';
+
+// Inline add-error map
+const _rsAddErrMap = {};
+
 function _rsSetState(state) {
   _rsStateStr = state;
   const dot = document.getElementById('rs-dot');
@@ -14926,7 +14957,63 @@ function initRangeScan() {
 function renderRangeScanPage() {
   const page = document.getElementById('page-rangescan');
   if (!page) return;
-  page.innerHTML = _rsBuildPageContent();
+  page.innerHTML = _rsPageShell();
+  _rsRenderActiveTab();
+}
+
+function _rsPageShell() {
+  const tabs = [
+    { key: 'range',   label: 'RANGE 30/60/90' },
+    { key: '3yhigh',  label: '3Y HIGHS'        },
+    { key: 'unusual', label: 'UNUSUAL MOVERS'  },
+  ];
+  return '<div style="display:flex;gap:0;border-bottom:2px solid var(--border2);background:var(--bg2);">' +
+    tabs.map(t => {
+      const a = _rsSubTab === t.key;
+      return '<button id="rs-subtab-' + t.key + '" onclick="_rsSetSubTab(\'' + t.key + '\')" style="padding:9px 18px;font-size:11px;font-weight:' + (a?'700':'400') + ';color:' + (a?'#00d4ff':'#6080a0') + ';background:' + (a?'rgba(0,212,255,0.08)':'transparent') + ';border:none;border-bottom:2px solid ' + (a?'#00d4ff':'transparent') + ';margin-bottom:-2px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;white-space:nowrap;">' + t.label + '</button>';
+    }).join('') +
+  '</div>' +
+  '<div id="rs-tab-content"></div>';
+}
+
+function _rsSetSubTab(name) {
+  _rsSubTab = name;
+  ['range','3yhigh','unusual'].forEach(k => {
+    const b = document.getElementById('rs-subtab-' + k);
+    if (!b) return;
+    const a = k === name;
+    b.style.fontWeight = a ? '700' : '400';
+    b.style.color = a ? '#00d4ff' : '#6080a0';
+    b.style.background = a ? 'rgba(0,212,255,0.08)' : 'transparent';
+    b.style.borderBottom = a ? '2px solid #00d4ff' : '2px solid transparent';
+  });
+  const el = document.getElementById('rs-tab-content');
+  if (!el) return;
+  if (name === 'range') {
+    el.innerHTML = _rsBuildRangeTab();
+  } else if (name === '3yhigh') {
+    el.innerHTML = _rsBuildAthTabShell();
+    if (_athResults) _rsRenderAthContent();
+    else if (!_athRunning) _rsRunAthScan();
+  } else if (name === 'unusual') {
+    el.innerHTML = _rsBuildUmTabShell();
+    if (_umResults) _rsRenderUmContent();
+    else if (!_umRunning) _rsRunUmScan();
+  }
+}
+
+function _rsRenderActiveTab() {
+  const el = document.getElementById('rs-tab-content');
+  if (!el) return;
+  if (_rsSubTab === 'range') {
+    el.innerHTML = _rsBuildRangeTab();
+  } else if (_rsSubTab === '3yhigh') {
+    el.innerHTML = _rsBuildAthTabShell();
+    if (_athResults) _rsRenderAthContent();
+  } else if (_rsSubTab === 'unusual') {
+    el.innerHTML = _rsBuildUmTabShell();
+    if (_umResults) _rsRenderUmContent();
+  }
 }
 
 async function runRangeScan(scanOnly) {
@@ -15015,7 +15102,7 @@ async function _rsScanPhase() {
   return true;
 }
 
-function _rsBuildPageContent() {
+function _rsBuildRangeTab() {
   const rows = _rsResults || [];
   const maxBar = rows.reduce((m, r) => r.last_bar && r.last_bar > m ? r.last_bar : m, '');
   const baseForChips = _rsHideStale ? rows.filter(r => !r.stale) : rows;
@@ -15187,6 +15274,462 @@ async function _rsSetSource(v) {
   } finally {
     _rsRunning = false;
   }
+}
+
+// ══ 3Y HIGHS ══════════════════════════════════════════════════════════════
+
+function _rsAthSetState(state) {
+  _athStateStr = state;
+  clearTimeout(_athDoneTimer);
+  const dot = document.getElementById('rs-ath-dot');
+  const btn = document.getElementById('rs-ath-btn');
+  const colors = { idle: '#606878', scanning: '#38bdf8', done: '#4ade80', error: '#fb923c' };
+  if (dot) {
+    dot.style.background = colors[state] || '#606878';
+    dot.style.animation = (state === 'scanning' || state === 'error') ? 'rs-pulse 1s infinite' : 'none';
+    dot.title = state.toUpperCase();
+  }
+  if (btn) { btn.disabled = state === 'scanning'; btn.style.opacity = state === 'scanning' ? '0.6' : '1'; }
+  if (state === 'done') _athDoneTimer = setTimeout(() => _rsAthSetState('idle'), 60000);
+}
+
+async function _rsRunAthScan() {
+  if (_athRunning) return;
+  _athRunning = true;
+  _rsAthSetState('scanning');
+  const prog = document.getElementById('rs-ath-progress');
+  if (prog) prog.textContent = 'Scanning…';
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) { console.error('[RangeScan/ATH] No Supabase client'); _rsAthSetState('error'); return; }
+    const { data, error } = await supa.rpc('get_ath_breakout_scan',
+      { p_near_pct: _athNearPct, p_min_bars: 100, p_max_stale_days: 3,
+        p_unusual_pct: 15.0, p_min_price: 1.0, p_min_vol_mult: 3.0, p_max_sane_move: 100.0 });
+    if (error) { console.error('[RangeScan/ATH] RPC error:', error.message); _rsAthSetState('error'); return; }
+    _athResults = data || [];
+    _rsAthSetState('done');
+    if (_rsSubTab === '3yhigh') _rsRenderAthContent();
+  } catch (e) {
+    console.error('[RangeScan/ATH] error:', e);
+    _rsAthSetState('error');
+  } finally {
+    _athRunning = false;
+    const p2 = document.getElementById('rs-ath-progress');
+    if (p2) p2.textContent = '';
+  }
+}
+
+function _rsBuildAthTabShell() {
+  const dc = { idle: '#606878', scanning: '#38bdf8', done: '#4ade80', error: '#fb923c' }[_athStateStr] || '#606878';
+  const da = (_athStateStr === 'scanning' || _athStateStr === 'error') ? 'rs-pulse 1s infinite' : 'none';
+  return '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-wrap:wrap;">' +
+    '<div id="rs-ath-dot" style="width:10px;height:10px;border-radius:50%;background:' + dc + ';flex-shrink:0;animation:' + da + ';" title="' + _athStateStr.toUpperCase() + '"></div>' +
+    '<button id="rs-ath-btn" onclick="_rsRunAthScan()" ' + (_athRunning ? 'disabled' : '') + ' style="background:rgba(0,212,255,0.10);border:1px solid #00d4ff44;border-radius:4px;color:#00d4ff;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:0.5px;cursor:pointer;font-family:var(--font);opacity:' + (_athRunning ? '0.6' : '1') + ';">REFRESH</button>' +
+    '<span style="font-size:10px;color:#6080a0;font-style:italic;">3-year high — price history begins 2023-05-15</span>' +
+    '<span style="flex:1;"></span>' +
+    '<span id="rs-ath-progress" style="font-size:10px;color:#6080a0;white-space:nowrap;"></span>' +
+  '</div>' +
+  '<div id="rs-ath-search-wrap" style="display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--border);background:var(--bg2);">' +
+    '<input id="rs-ath-search" type="text" placeholder="Search symbol…" value="' + _athSearch.replace(/"/g,'&quot;') + '" oninput="_rsAthSetSearch(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:4px 10px;font-size:11px;font-family:var(--font);width:140px;">' +
+    '<select id="rs-ath-sector" onchange="_rsAthSetSector(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 8px;font-size:10px;font-family:var(--font);cursor:pointer;max-width:160px;"><option value="">All sectors</option></select>' +
+  '</div>' +
+  '<div id="rs-ath-content">' +
+    (_athResults ? '' : '<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">Loading…</div>') +
+  '</div>';
+}
+
+function _rsRenderAthContent() {
+  const el = document.getElementById('rs-ath-content');
+  if (!el) return;
+  el.innerHTML = _rsBuildAthContent();
+  _rsAthUpdateSectorDropdown();
+}
+
+function _rsAthUpdateSectorDropdown() {
+  const sel = document.getElementById('rs-ath-sector');
+  if (!sel) return;
+  const rows = _athResults || [];
+  const counts = {};
+  for (const r of rows) { if (r.sector) counts[r.sector] = (counts[r.sector] || 0) + 1; }
+  sel.innerHTML = '<option value="">All sectors</option>' +
+    Object.entries(counts).sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => '<option value="' + s.replace(/"/g,'&quot;') + '"' + (_athSector === s ? ' selected' : '') + '>' + s + ' (' + n + ')</option>').join('');
+}
+
+function _rsBuildAthContent() {
+  const rows = _athResults || [];
+  const chipDefs = [
+    { key: 'AT_ATH',    label: 'AT HIGH',   fn: r => r.signal === 'AT_ATH' },
+    { key: 'NEAR_ATH',  label: 'NEAR HIGH', fn: r => r.signal === 'NEAR_ATH' },
+    { key: 'UNTRACKED', label: 'UNTRACKED', fn: r => !r.tracked },
+    { key: 'SPLIT',     label: 'SPLIT?',    fn: r => !!r.suspect_split },
+    { key: 'ALL',       label: 'ALL',       fn: () => true },
+  ];
+  const chips = chipDefs.map(c => {
+    const n = rows.filter(c.fn).length;
+    const a = _athChip === c.key;
+    return '<button onclick="_rsAthSetChip(\'' + c.key + '\')" style="background:' + (a?'rgba(0,212,255,0.18)':'transparent') + ';color:' + (a?'#00d4ff':'#6080a0') + ';border:1px solid ' + (a?'#00d4ff66':'var(--border2)') + ';border-radius:4px;padding:2px 8px;font-size:10px;font-weight:' + (a?'700':'400') + ';cursor:pointer;font-family:var(--font);white-space:nowrap;">' + c.label + ' <span style="font-weight:400;opacity:0.8">' + n + '</span></button>';
+  }).join('');
+  const nearBtns = [1.0, 3.0, 5.0].map(v => {
+    const a = _athNearPct === v;
+    return '<button onclick="_rsAthSetNearPct(' + v + ')" style="background:' + (a?'rgba(0,212,255,0.18)':'transparent') + ';color:' + (a?'#00d4ff':'#6080a0') + ';border:1px solid ' + (a?'#00d4ff66':'var(--border2)') + ';border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:var(--font);">' + v + '%</button>';
+  }).join('');
+  const cs = 'font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.5px;';
+  const grid = '110px 80px 110px 70px 80px 85px 95px 70px 60px';
+  return '<div style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--bg2);">' +
+      chips +
+      '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+      '<span style="font-size:9px;color:#6080a0;font-weight:700;letter-spacing:0.5px;white-space:nowrap;">PROXIMITY</span>' + nearBtns +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:' + grid + ';gap:4px;padding:5px 14px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.12);">' +
+      '<span style="' + cs + '">SYMBOL</span>' +
+      '<span style="' + cs + '">SECTOR</span>' +
+      '<span style="' + cs + '">IN</span>' +
+      '<span style="' + cs + 'text-align:right;">LAST</span>' +
+      '<span style="' + cs + 'text-align:right;">3Y HIGH</span>' +
+      '<span style="' + cs + '">ON</span>' +
+      '<span style="' + cs + 'text-align:right;">% FROM HIGH</span>' +
+      '<span style="' + cs + 'text-align:right;">DAY %</span>' +
+      '<span style="' + cs + 'text-align:right;">VOL x</span>' +
+    '</div>' +
+    '<div>' + _rsBuildAthRows() + '</div>';
+}
+
+function _rsBuildAthRows() {
+  let rows = _athResults || [];
+  const chipFns = {
+    AT_ATH:    r => r.signal === 'AT_ATH',
+    NEAR_ATH:  r => r.signal === 'NEAR_ATH',
+    UNTRACKED: r => !r.tracked,
+    SPLIT:     r => !!r.suspect_split,
+    ALL:       () => true,
+  };
+  rows = rows.filter(chipFns[_athChip] || (() => true));
+  if (_athSector) rows = rows.filter(r => (r.sector || '') === _athSector);
+  if (_athSearch) { const q = _athSearch.toLowerCase(); rows = rows.filter(r => (r.symbol || '').toLowerCase().includes(q)); }
+  if (!rows.length) return '<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No results match the current filters</div>';
+  return rows.map(_rsBuildAthRow).join('');
+}
+
+function _rsBuildAthRow(r) {
+  const grid = '110px 80px 110px 70px 80px 85px 95px 70px 60px';
+  const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  const isSplit = !!r.suspect_split;
+  const dim = isSplit ? 'opacity:0.55;' : '';
+  const splitBadge = isSplit
+    ? '<span title="large move without volume confirmation — likely a stock split, not price action" style="font-size:7px;font-weight:700;color:#fb923c;background:rgba(251,146,60,0.12);border:1px solid rgba(251,146,60,0.3);border-radius:2px;padding:0 3px;margin-left:3px;flex-shrink:0;">SPLIT?</span>'
+    : '';
+  const pct = r.pct_from_ath;
+  let pctCell;
+  if (pct == null) {
+    pctCell = '<span style="color:#6080a0;">—</span>';
+  } else if (pct === 0) {
+    pctCell = '<span style="font-size:10px;font-weight:700;color:#4ade80;background:#4ade8022;border:1px solid #4ade8055;border-radius:3px;padding:2px 6px;white-space:nowrap;">AT HIGH</span>';
+  } else {
+    pctCell = '<span style="font-size:11px;font-weight:600;color:#c4d2e0;">' + fmtPct(pct) + '</span>';
+  }
+  const dm = r.day_move_pct;
+  const dmColor = dm == null ? '' : (dm >= 0 ? '#4ade80' : '#ff3d5a');
+  const dmCell = dm == null ? '<span style="color:#6080a0;">—</span>'
+    : (r.unusual
+      ? '<strong style="color:' + dmColor + ';">' + fmtPct(dm) + '</strong>'
+      : '<span style="color:' + dmColor + ';">' + fmtPct(dm) + '</span>');
+  const vm = r.vol_mult;
+  const vmCell = vm == null ? '<span style="color:#6080a0;">—</span>'
+    : '<span style="color:' + (vm >= 3 ? '#c4d2e0' : '#6080a0') + ';">' + Number(vm).toFixed(1) + 'x</span>';
+  const addErr = _rsAddErrMap[r.symbol];
+  let inCell;
+  if (r.tracked === false) {
+    inCell = '<span style="color:#6080a0;margin-right:4px;">—</span>' +
+      (addErr
+        ? '<span style="font-size:9px;color:#fb923c;" title="' + String(addErr).replace(/"/g,'&quot;') + '">ERR</span>'
+        : '<button onclick="_rsAddToWatchlist(\'' + (r.symbol||'').replace(/'/g,"\\'") + '\',\'ath\')" style="font-size:9px;color:#00d4ff;background:transparent;border:1px solid #00d4ff44;border-radius:2px;padding:1px 5px;cursor:pointer;font-family:var(--font);">+ ADD</button>');
+  } else {
+    inCell = (r.source_list || '').split('/').map(s => {
+      const clean = s.replace(/^(scanner|watchlist):/i,'').trim();
+      return clean ? '<span style="font-size:7px;font-weight:700;color:#a0b8d0;background:rgba(160,180,200,0.12);border:1px solid rgba(160,180,200,0.25);border-radius:2px;padding:0 3px;margin-right:2px;white-space:nowrap;">' + clean.toUpperCase() + '</span>' : '';
+    }).join('');
+  }
+  return '<div style="display:grid;grid-template-columns:' + grid + ';gap:4px;padding:4px 14px;border-bottom:1px solid var(--border);align-items:center;' + dim + 'transition:background 0.08s;" onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'\'">' +
+    '<span style="font-size:12px;font-weight:700;color:var(--text);display:flex;align-items:center;white-space:nowrap;">' + (r.symbol || '—') + splitBadge + '</span>' +
+    '<span>' + _scSectorBadge(r.sector) + '</span>' +
+    '<span style="display:flex;flex-wrap:wrap;gap:2px;align-items:center;">' + inCell + '</span>' +
+    '<span style="font-size:11px;font-weight:600;color:var(--text);text-align:right;">' + (r.last_close != null ? '$'+Number(r.last_close).toFixed(2) : '—') + '</span>' +
+    '<span style="font-size:11px;color:#c4d2e0;text-align:right;">' + (r.ath != null ? '$'+Number(r.ath).toFixed(2) : '—') + '</span>' +
+    '<span style="font-size:10px;color:#6080a0;">' + (r.ath_date || '—') + '</span>' +
+    '<span style="text-align:right;">' + pctCell + '</span>' +
+    '<span style="text-align:right;">' + dmCell + '</span>' +
+    '<span style="text-align:right;">' + vmCell + '</span>' +
+  '</div>';
+}
+
+function _rsAthSetChip(key)   { _athChip = key;   _rsRenderAthContent(); }
+function _rsAthSetSector(val) { _athSector = val;  _rsRenderAthContent(); }
+function _rsAthSetSearch(val) {
+  _athSearch = val;
+  clearTimeout(_athSearchTmr);
+  _athSearchTmr = setTimeout(_rsRenderAthContent, 80);
+}
+async function _rsAthSetNearPct(v) {
+  if (_athRunning) return;
+  _athNearPct = v;
+  await _rsRunAthScan();
+}
+
+// ══ UNUSUAL MOVERS ════════════════════════════════════════════════════════
+
+function _rsUmSetState(state) {
+  _umStateStr = state;
+  clearTimeout(_umDoneTimer);
+  const dot = document.getElementById('rs-um-dot');
+  const btn = document.getElementById('rs-um-btn');
+  const colors = { idle: '#606878', scanning: '#38bdf8', done: '#4ade80', error: '#fb923c' };
+  if (dot) {
+    dot.style.background = colors[state] || '#606878';
+    dot.style.animation = (state === 'scanning' || state === 'error') ? 'rs-pulse 1s infinite' : 'none';
+    dot.title = state.toUpperCase();
+  }
+  if (btn) { btn.disabled = state === 'scanning'; btn.style.opacity = state === 'scanning' ? '0.6' : '1'; }
+  if (state === 'done') _umDoneTimer = setTimeout(() => _rsUmSetState('idle'), 60000);
+}
+
+async function _rsRunUmScan() {
+  if (_umRunning) return;
+  _umRunning = true;
+  _rsUmSetState('scanning');
+  const prog = document.getElementById('rs-um-progress');
+  if (prog) prog.textContent = 'Scanning…';
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) { console.error('[RangeScan/UM] No Supabase client'); _rsUmSetState('error'); return; }
+    const { data, error } = await supa.rpc('get_unusual_movers',
+      { p_lookback_days: _umLookback, p_min_move_pct: _umMinMove, p_min_vol_mult: 3.0,
+        p_min_price: 2.0, p_max_sane_move: 100.0, p_only_untracked: _umOnlyUntracked });
+    if (error) { console.error('[RangeScan/UM] RPC error:', error.message); _rsUmSetState('error'); return; }
+    _umResults = data || [];
+    _rsUmSetState('done');
+    if (_rsSubTab === 'unusual') _rsRenderUmContent();
+  } catch (e) {
+    console.error('[RangeScan/UM] error:', e);
+    _rsUmSetState('error');
+  } finally {
+    _umRunning = false;
+    const p2 = document.getElementById('rs-um-progress');
+    if (p2) p2.textContent = '';
+  }
+}
+
+function _rsBuildUmTabShell() {
+  const dc = { idle: '#606878', scanning: '#38bdf8', done: '#4ade80', error: '#fb923c' }[_umStateStr] || '#606878';
+  const da = (_umStateStr === 'scanning' || _umStateStr === 'error') ? 'rs-pulse 1s infinite' : 'none';
+  return '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-wrap:wrap;">' +
+    '<div id="rs-um-dot" style="width:10px;height:10px;border-radius:50%;background:' + dc + ';flex-shrink:0;animation:' + da + ';" title="' + _umStateStr.toUpperCase() + '"></div>' +
+    '<button id="rs-um-btn" onclick="_rsRunUmScan()" ' + (_umRunning ? 'disabled' : '') + ' style="background:rgba(0,212,255,0.10);border:1px solid #00d4ff44;border-radius:4px;color:#00d4ff;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:0.5px;cursor:pointer;font-family:var(--font);opacity:' + (_umRunning ? '0.6' : '1') + ';">REFRESH</button>' +
+    '<span style="flex:1;"></span>' +
+    '<span id="rs-um-progress" style="font-size:10px;color:#6080a0;white-space:nowrap;"></span>' +
+  '</div>' +
+  '<div id="rs-um-search-wrap" style="display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--border);background:var(--bg2);">' +
+    '<input id="rs-um-search" type="text" placeholder="Search symbol…" value="' + _umSearch.replace(/"/g,'&quot;') + '" oninput="_rsUmSetSearch(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:4px 10px;font-size:11px;font-family:var(--font);width:140px;">' +
+    '<select id="rs-um-sector" onchange="_rsUmSetSector(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 8px;font-size:10px;font-family:var(--font);cursor:pointer;max-width:160px;"><option value="">All sectors</option></select>' +
+  '</div>' +
+  '<div id="rs-um-content">' +
+    (_umResults ? '' : '<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">Loading…</div>') +
+  '</div>';
+}
+
+function _rsRenderUmContent() {
+  const el = document.getElementById('rs-um-content');
+  if (!el) return;
+  el.innerHTML = _rsBuildUmContent();
+  _rsUmUpdateSectorDropdown();
+}
+
+function _rsUmUpdateSectorDropdown() {
+  const sel = document.getElementById('rs-um-sector');
+  if (!sel) return;
+  const rows = _umResults || [];
+  const counts = {};
+  for (const r of rows) { if (r.sector) counts[r.sector] = (counts[r.sector] || 0) + 1; }
+  sel.innerHTML = '<option value="">All sectors</option>' +
+    Object.entries(counts).sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => '<option value="' + s.replace(/"/g,'&quot;') + '"' + (_umSector === s ? ' selected' : '') + '>' + s + ' (' + n + ')</option>').join('');
+}
+
+function _rsBuildUmContent() {
+  const rows = _umResults || [];
+  const chipDefs = [
+    { key: 'ALL',       label: 'ALL',       fn: () => true },
+    { key: 'UP',        label: 'UP',        fn: r => r.direction === 'UP' },
+    { key: 'DOWN',      label: 'DOWN',      fn: r => r.direction === 'DOWN' },
+    { key: 'UNTRACKED', label: 'UNTRACKED', fn: r => !r.tracked },
+    { key: 'RECOVERED', label: 'RECOVERED', fn: r => r.direction === 'DOWN' && (r.pct_since_spike || 0) > 10 },
+  ];
+  const chips = chipDefs.map(c => {
+    const n = rows.filter(c.fn).length;
+    const a = _umChip === c.key;
+    return '<button onclick="_rsUmSetChip(\'' + c.key + '\')" style="background:' + (a?'rgba(0,212,255,0.18)':'transparent') + ';color:' + (a?'#00d4ff':'#6080a0') + ';border:1px solid ' + (a?'#00d4ff66':'var(--border2)') + ';border-radius:4px;padding:2px 8px;font-size:10px;font-weight:' + (a?'700':'400') + ';cursor:pointer;font-family:var(--font);white-space:nowrap;">' + c.label + ' <span style="font-weight:400;opacity:0.8">' + n + '</span></button>';
+  }).join('');
+  const lkBtns = [7, 30, 90].map(v => {
+    const a = _umLookback === v;
+    return '<button onclick="_rsUmSetLookback(' + v + ')" style="background:' + (a?'rgba(0,212,255,0.18)':'transparent') + ';color:' + (a?'#00d4ff':'#6080a0') + ';border:1px solid ' + (a?'#00d4ff66':'var(--border2)') + ';border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:var(--font);">' + v + 'd</button>';
+  }).join('');
+  const mmBtns = [10.0, 15.0, 25.0].map(v => {
+    const a = _umMinMove === v;
+    return '<button onclick="_rsUmSetMinMove(' + v + ')" style="background:' + (a?'rgba(0,212,255,0.18)':'transparent') + ';color:' + (a?'#00d4ff':'#6080a0') + ';border:1px solid ' + (a?'#00d4ff66':'var(--border2)') + ';border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:var(--font);">' + v + '%</button>';
+  }).join('');
+  const sortBtns = [['vol','VOL x'],['move','MOVE %'],['date','DATE']].map(([k,l]) => {
+    const a = _umSort === k;
+    return '<button onclick="_rsUmSetSort(\'' + k + '\')" style="background:' + (a?'rgba(0,212,255,0.18)':'transparent') + ';color:' + (a?'#00d4ff':'#6080a0') + ';border:1px solid ' + (a?'#00d4ff66':'var(--border2)') + ';border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;font-family:var(--font);">' + l + '</button>';
+  }).join('');
+  const cs = 'font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.5px;';
+  const grid = '110px 80px 110px 90px 70px 60px 85px 70px 90px 90px';
+  return '<div style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--bg2);">' +
+      chips +
+      '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+      '<span style="font-size:9px;color:#6080a0;font-weight:700;letter-spacing:0.5px;white-space:nowrap;">LOOKBACK</span>' + lkBtns +
+      '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+      '<span style="font-size:9px;color:#6080a0;font-weight:700;letter-spacing:0.5px;white-space:nowrap;">MIN MOVE</span>' + mmBtns +
+      '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+      '<label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#c4d2e0;cursor:pointer;white-space:nowrap;">' +
+        '<input type="checkbox" ' + (_umOnlyUntracked ? 'checked' : '') + ' onchange="_rsUmSetOnlyUntracked(this.checked)" style="cursor:pointer;"> Untracked only' +
+      '</label>' +
+      '<span style="width:1px;height:16px;background:var(--border2);flex-shrink:0;margin:0 2px;"></span>' +
+      '<span style="font-size:9px;color:#6080a0;font-weight:700;letter-spacing:0.5px;white-space:nowrap;">SORT</span>' + sortBtns +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:' + grid + ';gap:4px;padding:5px 14px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.12);">' +
+      '<span style="' + cs + '">SYMBOL</span>' +
+      '<span style="' + cs + '">SECTOR</span>' +
+      '<span style="' + cs + '">IN</span>' +
+      '<span style="' + cs + '">SPIKE DATE</span>' +
+      '<span style="' + cs + 'text-align:right;">MOVE %</span>' +
+      '<span style="' + cs + 'text-align:right;">VOL x</span>' +
+      '<span style="' + cs + 'text-align:right;">SPIKE CLOSE</span>' +
+      '<span style="' + cs + 'text-align:right;">NOW</span>' +
+      '<span style="' + cs + 'text-align:right;">SINCE SPIKE</span>' +
+      '<span style="' + cs + 'text-align:right;">% FROM 3Y HIGH</span>' +
+    '</div>' +
+    '<div>' + _rsBuildUmRows() + '</div>';
+}
+
+function _rsBuildUmRows() {
+  let rows = _umResults || [];
+  const chipFns = {
+    ALL:       () => true,
+    UP:        r => r.direction === 'UP',
+    DOWN:      r => r.direction === 'DOWN',
+    UNTRACKED: r => !r.tracked,
+    RECOVERED: r => r.direction === 'DOWN' && (r.pct_since_spike || 0) > 10,
+  };
+  rows = rows.filter(chipFns[_umChip] || (() => true));
+  if (_umSector) rows = rows.filter(r => (r.sector || '') === _umSector);
+  if (_umSearch) { const q = _umSearch.toLowerCase(); rows = rows.filter(r => (r.symbol || '').toLowerCase().includes(q)); }
+  rows = [...rows].sort((a, b) => {
+    if (_umSort === 'move') return Math.abs(b.move_pct || 0) - Math.abs(a.move_pct || 0);
+    if (_umSort === 'date') return (b.spike_date || '').localeCompare(a.spike_date || '');
+    return (b.vol_mult || 0) - (a.vol_mult || 0);
+  });
+  if (!rows.length) return '<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">No results match the current filters</div>';
+  return rows.map(_rsBuildUmRow).join('');
+}
+
+function _rsBuildUmRow(r) {
+  const grid = '110px 80px 110px 90px 70px 60px 85px 70px 90px 90px';
+  const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  const isUp = r.direction === 'UP';
+  const moveColor = isUp ? '#4ade80' : '#ff3d5a';
+  const moveCell = '<strong style="color:' + moveColor + ';">' + fmtPct(r.move_pct) + '</strong>';
+  const vm = r.vol_mult;
+  const vmBold = vm != null && vm >= 10;
+  const vmCell = vm == null ? '<span style="color:#6080a0;">—</span>'
+    : (vmBold
+      ? '<strong style="color:#e2c96a;font-size:12px;">' + Number(vm).toFixed(1) + 'x</strong>'
+      : '<span style="color:#c4d2e0;">' + Number(vm).toFixed(1) + 'x</span>');
+  const since = r.pct_since_spike;
+  const sinceCell = since == null ? '<span style="color:#6080a0;">—</span>'
+    : '<span style="color:' + (since >= 0 ? '#4ade80' : '#ff3d5a') + ';">' + fmtPct(since) + '</span>';
+  const pftath = r.pct_from_ath;
+  const pftathCell = pftath == null ? '<span style="color:#6080a0;">—</span>'
+    : '<span style="color:#c4d2e0;">' + fmtPct(pftath) + '</span>';
+  const addErr = _rsAddErrMap[r.symbol];
+  let inCell;
+  if (r.tracked === false) {
+    inCell = '<span style="color:#6080a0;margin-right:4px;">—</span>' +
+      (addErr
+        ? '<span style="font-size:9px;color:#fb923c;" title="' + String(addErr).replace(/"/g,'&quot;') + '">ERR</span>'
+        : '<button onclick="_rsAddToWatchlist(\'' + (r.symbol||'').replace(/'/g,"\\'") + '\',\'unusual\')" style="font-size:9px;color:#00d4ff;background:transparent;border:1px solid #00d4ff44;border-radius:2px;padding:1px 5px;cursor:pointer;font-family:var(--font);">+ ADD</button>');
+  } else {
+    inCell = (r.source_list || '').split('/').map(s => {
+      const clean = s.replace(/^(scanner|watchlist):/i,'').trim();
+      return clean ? '<span style="font-size:7px;font-weight:700;color:#a0b8d0;background:rgba(160,180,200,0.12);border:1px solid rgba(160,180,200,0.25);border-radius:2px;padding:0 3px;margin-right:2px;white-space:nowrap;">' + clean.toUpperCase() + '</span>' : '';
+    }).join('');
+  }
+  return '<div style="display:grid;grid-template-columns:' + grid + ';gap:4px;padding:4px 14px;border-bottom:1px solid var(--border);align-items:center;transition:background 0.08s;" onmouseenter="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseleave="this.style.background=\'\'">' +
+    '<span style="font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;">' + (r.symbol || '—') + '</span>' +
+    '<span>' + _scSectorBadge(r.sector) + '</span>' +
+    '<span style="display:flex;flex-wrap:wrap;gap:2px;align-items:center;">' + inCell + '</span>' +
+    '<span style="font-size:10px;color:#6080a0;">' + (r.spike_date || '—') + '</span>' +
+    '<span style="text-align:right;">' + moveCell + '</span>' +
+    '<span style="text-align:right;">' + vmCell + '</span>' +
+    '<span style="font-size:11px;color:#c4d2e0;text-align:right;">' + (r.spike_close != null ? '$'+Number(r.spike_close).toFixed(2) : '—') + '</span>' +
+    '<span style="font-size:11px;font-weight:600;color:var(--text);text-align:right;">' + (r.last_close != null ? '$'+Number(r.last_close).toFixed(2) : '—') + '</span>' +
+    '<span style="text-align:right;">' + sinceCell + '</span>' +
+    '<span style="text-align:right;">' + pftathCell + '</span>' +
+  '</div>';
+}
+
+function _rsUmSetChip(key)   { _umChip = key;   _rsRenderUmContent(); }
+function _rsUmSetSector(val) { _umSector = val;  _rsRenderUmContent(); }
+function _rsUmSetSort(key)   { _umSort = key;    _rsRenderUmContent(); }
+function _rsUmSetSearch(val) {
+  _umSearch = val;
+  clearTimeout(_umSearchTmr);
+  _umSearchTmr = setTimeout(_rsRenderUmContent, 80);
+}
+async function _rsUmSetLookback(v)      { if (_umRunning) return; _umLookback = v;      await _rsRunUmScan(); }
+async function _rsUmSetMinMove(v)       { if (_umRunning) return; _umMinMove = v;       await _rsRunUmScan(); }
+async function _rsUmSetOnlyUntracked(v) { if (_umRunning) return; _umOnlyUntracked = v; await _rsRunUmScan(); }
+
+// ══ Shared: + ADD to watchlist ════════════════════════════════════════════
+
+async function _rsAddToWatchlist(symbol, section) {
+  const supa = await getSupabaseAsync();
+  if (!supa) {
+    console.error('[RangeScan] No Supabase client for watchlist add');
+    _rsAddErrMap[symbol] = 'No DB connection';
+    if (section === 'ath') _rsRenderAthContent(); else _rsRenderUmContent();
+    return;
+  }
+  const { data: existing, error: chkErr } = await supa
+    .from('swing_watchlist').select('id').eq('symbol', symbol).eq('category', 'all_market').limit(1);
+  if (chkErr) {
+    console.error('[RangeScan] watchlist check error:', chkErr.message);
+    _rsAddErrMap[symbol] = chkErr.message;
+    if (section === 'ath') _rsRenderAthContent(); else _rsRenderUmContent();
+    return;
+  }
+  if (existing && existing.length > 0) {
+    _rsFlipToTracked(symbol, section);
+    return;
+  }
+  const { error: insErr } = await supa.from('swing_watchlist').insert({ symbol, category: 'all_market' });
+  if (insErr) {
+    console.error('[RangeScan] watchlist insert error:', insErr.message);
+    _rsAddErrMap[symbol] = insErr.message;
+    if (section === 'ath') _rsRenderAthContent(); else _rsRenderUmContent();
+    return;
+  }
+  _rsFlipToTracked(symbol, section);
+}
+
+function _rsFlipToTracked(symbol, section) {
+  delete _rsAddErrMap[symbol];
+  const results = section === 'ath' ? _athResults : _umResults;
+  if (results) {
+    const row = results.find(r => r.symbol === symbol);
+    if (row) row.tracked = true;
+  }
+  if (section === 'ath') _rsRenderAthContent();
+  else _rsRenderUmContent();
 }
 </script>
 
