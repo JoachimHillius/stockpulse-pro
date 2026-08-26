@@ -15276,6 +15276,13 @@ async function _rsSetSource(v) {
   }
 }
 
+function _rsRpcWithTimeout(rpcPromise, ms) {
+  return Promise.race([
+    rpcPromise,
+    new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('RPC timeout after ' + ms + 'ms'), { code: 'RS_TIMEOUT' })), ms))
+  ]);
+}
+
 // ══ 3Y HIGHS ══════════════════════════════════════════════════════════════
 
 function _rsAthSetState(state) {
@@ -15298,19 +15305,28 @@ async function _rsRunAthScan() {
   _athRunning = true;
   _rsAthSetState('scanning');
   const prog = document.getElementById('rs-ath-progress');
-  if (prog) prog.textContent = 'Scanning…';
+  if (prog) prog.textContent = 'Scanning (~4s)…';
+  const contentEl = document.getElementById('rs-ath-content');
+  if (contentEl && !_athResults) contentEl.innerHTML = '<div style="padding:60px;text-align:center;color:#505060;font-size:12px;"><div style="margin-bottom:6px;color:#6080a0;font-size:13px;">Loading 3Y highs…</div><div style="font-size:10px;">Scanning 2,331 symbols · ~4 seconds</div></div>';
   try {
     const supa = await getSupabaseAsync();
     if (!supa) { console.error('[RangeScan/ATH] No Supabase client'); _rsAthSetState('error'); return; }
-    const { data, error } = await supa.rpc('get_ath_breakout_scan',
-      { p_near_pct: _athNearPct, p_min_bars: 100, p_max_stale_days: 3,
-        p_unusual_pct: 15.0, p_min_price: 1.0, p_min_vol_mult: 3.0, p_max_sane_move: 100.0 });
+    const { data, error } = await _rsRpcWithTimeout(
+      supa.rpc('get_ath_breakout_scan',
+        { p_near_pct: _athNearPct, p_min_bars: 100, p_max_stale_days: 3,
+          p_unusual_pct: 15.0, p_min_price: 1.0, p_min_vol_mult: 3.0, p_max_sane_move: 100.0 }),
+      60000);
     if (error) { console.error('[RangeScan/ATH] RPC error:', error.message); _rsAthSetState('error'); return; }
     _athResults = data || [];
     _rsAthSetState('done');
     if (_rsSubTab === '3yhigh') _rsRenderAthContent();
   } catch (e) {
-    console.error('[RangeScan/ATH] error:', e);
+    if (e.code === 'RS_TIMEOUT') {
+      const el = document.getElementById('rs-ath-content');
+      if (el) el.innerHTML = '<div style="padding:60px;text-align:center;color:#505060;font-size:12px;">Scan timed out — try Refresh</div>';
+    } else {
+      console.error('[RangeScan/ATH] error:', e);
+    }
     _rsAthSetState('error');
   } finally {
     _athRunning = false;
@@ -15334,7 +15350,7 @@ function _rsBuildAthTabShell() {
     '<select id="rs-ath-sector" onchange="_rsAthSetSector(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 8px;font-size:10px;font-family:var(--font);cursor:pointer;max-width:160px;"><option value="">All sectors</option></select>' +
   '</div>' +
   '<div id="rs-ath-content">' +
-    (_athResults ? '' : '<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">Loading…</div>') +
+    (_athResults ? '' : '<div style="padding:60px;text-align:center;color:#505060;font-size:12px;"><div style="margin-bottom:6px;color:#6080a0;font-size:13px;">Loading 3Y highs…</div><div style="font-size:10px;">Scanning 2,331 symbols · ~4 seconds</div></div>') +
   '</div>';
 }
 
@@ -15498,19 +15514,28 @@ async function _rsRunUmScan() {
   _umRunning = true;
   _rsUmSetState('scanning');
   const prog = document.getElementById('rs-um-progress');
-  if (prog) prog.textContent = 'Scanning…';
+  if (prog) prog.textContent = 'Scanning (~3s)…';
+  const contentEl = document.getElementById('rs-um-content');
+  if (contentEl && !_umResults) contentEl.innerHTML = '<div style="padding:60px;text-align:center;color:#505060;font-size:12px;"><div style="margin-bottom:6px;color:#6080a0;font-size:13px;">Loading unusual movers…</div><div style="font-size:10px;">Scanning 2,331 symbols · ~3 seconds</div></div>';
   try {
     const supa = await getSupabaseAsync();
     if (!supa) { console.error('[RangeScan/UM] No Supabase client'); _rsUmSetState('error'); return; }
-    const { data, error } = await supa.rpc('get_unusual_movers',
-      { p_lookback_days: _umLookback, p_min_move_pct: _umMinMove, p_min_vol_mult: 3.0,
-        p_min_price: 2.0, p_max_sane_move: 100.0, p_only_untracked: _umOnlyUntracked });
+    const { data, error } = await _rsRpcWithTimeout(
+      supa.rpc('get_unusual_movers',
+        { p_lookback_days: _umLookback, p_min_move_pct: _umMinMove, p_min_vol_mult: 3.0,
+          p_min_price: 2.0, p_max_sane_move: 100.0, p_only_untracked: _umOnlyUntracked }),
+      60000);
     if (error) { console.error('[RangeScan/UM] RPC error:', error.message); _rsUmSetState('error'); return; }
     _umResults = data || [];
     _rsUmSetState('done');
     if (_rsSubTab === 'unusual') _rsRenderUmContent();
   } catch (e) {
-    console.error('[RangeScan/UM] error:', e);
+    if (e.code === 'RS_TIMEOUT') {
+      const el = document.getElementById('rs-um-content');
+      if (el) el.innerHTML = '<div style="padding:60px;text-align:center;color:#505060;font-size:12px;">Scan timed out — try Refresh</div>';
+    } else {
+      console.error('[RangeScan/UM] error:', e);
+    }
     _rsUmSetState('error');
   } finally {
     _umRunning = false;
@@ -15533,7 +15558,7 @@ function _rsBuildUmTabShell() {
     '<select id="rs-um-sector" onchange="_rsUmSetSector(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:3px 8px;font-size:10px;font-family:var(--font);cursor:pointer;max-width:160px;"><option value="">All sectors</option></select>' +
   '</div>' +
   '<div id="rs-um-content">' +
-    (_umResults ? '' : '<div style="padding:40px;text-align:center;color:#505060;font-size:12px;">Loading…</div>') +
+    (_umResults ? '' : '<div style="padding:60px;text-align:center;color:#505060;font-size:12px;"><div style="margin-bottom:6px;color:#6080a0;font-size:13px;">Loading unusual movers…</div><div style="font-size:10px;">Scanning 2,331 symbols · ~3 seconds</div></div>') +
   '</div>';
 }
 
