@@ -455,6 +455,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('tradelog',this)" style="white-space:normal;line-height:1.2;padding:0 10px;font-size:10px;">Trade<br>Log</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
     <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
+    <button class="nav-btn" onclick="goPage('rangescan',this)">Range Scan</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -470,12 +471,6 @@ select option{background:var(--bg2);}
       <span id="fh-dot" style="width:6px;height:6px;border-radius:50%;background:#ff3d5a;flex-shrink:0;"></span>
       <span id="fh-txt">No API Key</span>
     </div>
-    <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
-      <div id="rs-dot" style="width:8px;height:8px;border-radius:50%;background:#606878;flex-shrink:0;" title="IDLE"></div>
-      <button id="rs-btn" onclick="runRangeScan(false)" title="Sync price history then run range scan" style="background:rgba(100,120,140,0.15);border:1px solid rgba(128,144,160,0.3);border-radius:4px;color:#9aa8bc;padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:0.5px;cursor:pointer;font-family:var(--font);white-space:nowrap;">RANGE SCAN</button>
-      <span onclick="if(!_rsRunning)runRangeScan(true)" title="Run scan only — skip sync" style="font-size:9px;color:#6080a0;cursor:pointer;text-decoration:underline;white-space:nowrap;" onmouseenter="this.style.color='#00d4ff'" onmouseleave="this.style.color='#6080a0'">scan only</span>
-    </div>
-    <span id="rs-progress" style="font-size:9px;color:#6080a0;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;"></span>
     <div id="hdr-datetime" style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;">—</div>
   </div>
 </div>
@@ -1427,6 +1422,7 @@ select option{background:var(--bg2);}
 </div>
 
 <!-- ============ PAGE: TOS CSV ============ -->
+<div id="page-rangescan" class="page" style="padding:0;"></div>
 <div id="page-toscsv" class="page">
   <div style="max-width:1200px;">
     <!-- Saved Snapshots panel — collapsed by default -->
@@ -5271,6 +5267,9 @@ function goPage(name,btn){
   }
   if(name==='flow'){
     setTimeout(loadOfCoverage,100);
+  }
+  if(name==='rangescan'){
+    setTimeout(initRangeScan,50);
   }
 }
 
@@ -14879,7 +14878,7 @@ _tosLoadSnapshots();
 
 let _rsRunning    = false;
 let _rsDoneTimer  = null;
-let _rsEscHandler = null;
+let _rsStateStr   = 'idle';
 let _rsResults    = null;
 let _rsNearPct    = 2.0;
 let _rsSource     = 'all';
@@ -14889,6 +14888,7 @@ let _rsSector     = '';
 let _rsSort       = 'signal';
 
 function _rsSetState(state) {
+  _rsStateStr = state;
   const dot = document.getElementById('rs-dot');
   const btn = document.getElementById('rs-btn');
   if (!dot) return;
@@ -14916,6 +14916,17 @@ function _rsSetState(state) {
 function _rsSetProgress(msg) {
   const el = document.getElementById('rs-progress');
   if (el) el.textContent = msg;
+}
+
+function initRangeScan() {
+  renderRangeScanPage();
+  if (!_rsResults && !_rsRunning) runRangeScan(true);
+}
+
+function renderRangeScanPage() {
+  const page = document.getElementById('page-rangescan');
+  if (!page) return;
+  page.innerHTML = _rsBuildPageContent();
 }
 
 async function runRangeScan(scanOnly) {
@@ -15000,38 +15011,18 @@ async function _rsScanPhase() {
     { p_near_pct: _rsNearPct, p_min_bars: 25, p_source: _rsSource, p_max_stale_days: 5 });
   if (error) { console.error('[RangeScan] scan RPC error:', error.message); return false; }
   _rsResults = data || [];
-  if (document.getElementById('rs-panel')) _rsRefreshPanel();
-  else _rsOpenPanel();
+  renderRangeScanPage();
   return true;
 }
 
-function _rsOpenPanel() {
-  document.getElementById('rs-panel')?.remove();
-  if (_rsEscHandler) { document.removeEventListener('keydown', _rsEscHandler); _rsEscHandler = null; }
-  const panel = document.createElement('div');
-  panel.id = 'rs-panel';
-  panel.style.cssText = 'position:fixed;top:0;right:0;bottom:0;width:920px;max-width:100vw;z-index:9998;background:var(--bg);border-left:2px solid var(--border2);display:flex;flex-direction:column;animation:slide-in 0.22s ease-out;box-shadow:-8px 0 32px rgba(0,0,0,0.4);';
-  panel.innerHTML = _rsBuildPanelInner();
-  document.body.appendChild(panel);
-  _rsEscHandler = e => { if (e.key === 'Escape') _rsClosePanel(); };
-  document.addEventListener('keydown', _rsEscHandler);
-}
-
-function _rsRefreshPanel() {
-  const panel = document.getElementById('rs-panel');
-  if (!panel) { _rsOpenPanel(); return; }
-  panel.innerHTML = _rsBuildPanelInner();
-}
-
-function _rsClosePanel() {
-  document.getElementById('rs-panel')?.remove();
-  if (_rsEscHandler) { document.removeEventListener('keydown', _rsEscHandler); _rsEscHandler = null; }
-}
-
-function _rsBuildPanelInner() {
+function _rsBuildPageContent() {
   const rows = _rsResults || [];
   const maxBar = rows.reduce((m, r) => r.last_bar && r.last_bar > m ? r.last_bar : m, '');
   const baseForChips = _rsHideStale ? rows.filter(r => !r.stale) : rows;
+  const dotColor = { idle: '#606878', scanning: '#38bdf8', done: '#4ade80', error: '#fb923c' }[_rsStateStr] || '#606878';
+  const dotAnim = (_rsStateStr === 'scanning' || _rsStateStr === 'error') ? 'rs-pulse 1s infinite' : 'none';
+  const btnDisabled = _rsRunning ? 'disabled' : '';
+  const btnOpacity = _rsRunning ? '0.6' : '1';
 
   const chipDefs = [
     { key: 'AT_HIGH_90',   label: 'HIGHS',      fn: r => r.signal === 'AT_HIGH_90' },
@@ -15067,12 +15058,13 @@ function _rsBuildPanelInner() {
   const cs = 'font-size:9px;font-weight:700;color:#6080a0;letter-spacing:0.5px;';
   const sa = k => _rsSort === k ? ' ▲' : '';
 
-  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2);">' +
-    '<span style="font-size:13px;font-weight:800;color:var(--text);letter-spacing:1px;">RANGE SCAN</span>' +
-    '<span style="font-size:11px;color:#6080a0;">as of ' + (maxBar || '—') + '</span>' +
+  return '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2);flex-wrap:wrap;">' +
+    '<div id="rs-dot" style="width:10px;height:10px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;animation:' + dotAnim + ';" title="' + _rsStateStr.toUpperCase() + '"></div>' +
+    '<button id="rs-btn" onclick="runRangeScan(false)" ' + btnDisabled + ' style="background:rgba(0,212,255,0.10);border:1px solid #00d4ff44;border-radius:4px;color:#00d4ff;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:0.5px;cursor:pointer;font-family:var(--font);opacity:' + btnOpacity + ';">RUN FULL SCAN</button>' +
+    '<button onclick="if(!_rsRunning)runRangeScan(true)" style="background:transparent;border:1px solid var(--border2);border-radius:4px;color:#8090a0;padding:4px 12px;font-size:11px;cursor:pointer;font-family:var(--font);">SCAN ONLY</button>' +
     '<span style="flex:1;"></span>' +
-    '<button onclick="if(!_rsRunning)runRangeScan(true)" title="Re-run scan (skip sync)" style="background:rgba(0,212,255,0.10);border:1px solid #00d4ff44;border-radius:4px;color:#00d4ff;padding:3px 10px;font-size:10px;cursor:pointer;font-family:var(--font);">↻ Refresh</button>' +
-    '<button onclick="_rsClosePanel()" title="Close (Esc)" style="background:none;border:none;cursor:pointer;color:#6080a0;font-size:18px;padding:0 4px;line-height:1;" onmouseenter="this.style.color=\'#ff3d5a\'" onmouseleave="this.style.color=\'#6080a0\'">✕</button>' +
+    '<span style="font-size:11px;color:#6080a0;">as of ' + (maxBar || '—') + '</span>' +
+    '<span id="rs-progress" style="font-size:10px;color:#6080a0;white-space:nowrap;margin-left:8px;"></span>' +
   '</div>' +
   '<div style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;background:var(--bg2);">' +
     chips +
@@ -15096,7 +15088,7 @@ function _rsBuildPanelInner() {
     '<span onclick="_rsSetSort(\'pct_lo\')" style="' + cs + 'cursor:pointer;text-align:right;">%ABOVE LOW' + sa('pct_lo') + '</span>' +
     '<span style="' + cs + 'text-align:right;">AS OF</span>' +
   '</div>' +
-  '<div id="rs-rows" style="flex:1;overflow-y:auto;">' + _rsRenderRows() + '</div>';
+  '<div id="rs-rows">' + _rsRenderRows() + '</div>';
 }
 
 function _rsRenderRows() {
@@ -15160,10 +15152,10 @@ function _rsRenderRow(r) {
   '</div>';
 }
 
-function _rsSetChip(key)          { _rsChip = key;     _rsRefreshPanel(); }
-function _rsToggleStale(checked)  { _rsHideStale = checked; _rsRefreshPanel(); }
-function _rsSetSector(val)        { _rsSector = val;   _rsRefreshPanel(); }
-function _rsSetSort(key)          { _rsSort = key;     _rsRefreshPanel(); }
+function _rsSetChip(key)          { _rsChip = key;     renderRangeScanPage(); }
+function _rsToggleStale(checked)  { _rsHideStale = checked; renderRangeScanPage(); }
+function _rsSetSector(val)        { _rsSector = val;   renderRangeScanPage(); }
+function _rsSetSort(key)          { _rsSort = key;     renderRangeScanPage(); }
 
 async function _rsSetNearPct(v) {
   if (_rsRunning) return;
