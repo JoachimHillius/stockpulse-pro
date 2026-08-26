@@ -5274,7 +5274,7 @@ function goPage(name,btn){
   }
   if(name==='toscsv'){
     setTimeout(()=>{
-      _fetchSwingSetup().then(()=>_tosRenderSwingTable());
+      Promise.all([_fetchSwingSetup(), _fetchSectorStrength()]).then(()=>_tosRenderSwingTable());
     },50);
   }
 }
@@ -8384,8 +8384,8 @@ function renderP1Row(r, rank, visibleDates) {
     onclick="showHoverPopup('${r.symbol}',this)">
     <td style="position:sticky;left:0;background:var(--bg);padding:6px;font-weight:600;color:#8090a0;z-index:1;">${rank}</td>
     <td style="position:sticky;left:30px;background:var(--bg);padding:6px;z-index:1;min-width:130px;">
-      <div style="font-weight:700;color:var(--text);">${r.symbol}${_swingBadge(r.symbol)}${freshDot}${erPill}${tapePill}${sectorBadge}${alignBadge}${divBadge}</div>
-      <div style="font-size:9px;color:${scColor};font-weight:600;letter-spacing:0.5px;margin-top:2px;">${scLabel}${accumBadge}</div>
+      <div style="font-weight:700;color:var(--text);">${r.symbol}${_swingBadge(r.symbol)}${_extendedChip(r.symbol)}${freshDot}${erPill}${tapePill}${sectorBadge}${alignBadge}${divBadge}</div>
+      <div style="font-size:9px;color:${scColor};font-weight:600;letter-spacing:0.5px;margin-top:2px;">${scLabel}${accumBadge}${_sectorChipForTicker(r.symbol,r.sectorEtf)}</div>
     </td>
     <td style="padding:6px;text-align:right;color:#7fd0a8;">${fmtMoney(r.callPrem)}</td>
     <td style="padding:6px;text-align:right;color:#d97f8a;">${fmtMoney(r.putPrem)}</td>
@@ -9538,11 +9538,11 @@ async function refreshFlowPredictor(){
 
 async function initFlowPredictor(){
   if(!_predData || !_p1FlowData)await loadPredictorData();
-  if(!_swingSetupCache){
-    _fetchSwingSetup().then(()=>{
-      if(document.getElementById('page-flowpredict')?.classList.contains('active'))renderFlowPredictor();
-    });
-  }
+  const _fpRerender = () => {
+    if(document.getElementById('page-flowpredict')?.classList.contains('active'))renderFlowPredictor();
+  };
+  if(!_swingSetupCache)    _fetchSwingSetup().then(_fpRerender);
+  if(!_sectorStrengthByEtf) _fetchSectorStrength().then(_fpRerender);
   renderFlowPredictor();
 }
 
@@ -9727,6 +9727,11 @@ let _swingSetupFetching = false;
 let _ssTblSort = 'score';
 let _ssTblDir  = -1;
 
+// SECTOR STRENGTH — get_sector_strength() cache
+let _sectorStrengthByEtf    = null; // Map<etf_symbol, row>
+let _sectorStrengthBySector = null; // Map<sector_name, row>
+let _sectorStrengthFetching = false;
+
 function _escAttr(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
 async function _fetchSwingSetup(){
@@ -9749,6 +9754,67 @@ async function _fetchSwingSetup(){
   }finally{
     _swingSetupFetching = false;
   }
+}
+
+async function _fetchSectorStrength(){
+  if(_sectorStrengthByEtf) return _sectorStrengthByEtf;
+  if(_sectorStrengthFetching) return null;
+  _sectorStrengthFetching = true;
+  try{
+    const supa = await getSupabaseAsync();
+    if(!supa) return null;
+    const { data, error } = await supa.rpc('get_sector_strength',{});
+    if(error){ console.error('[SectorStrength] RPC error:', error.message); return null; }
+    const byEtf    = new Map();
+    const bySector = new Map();
+    for(const row of (data||[])){
+      if(row.etf)    byEtf.set(row.etf, row);
+      if(row.sector) bySector.set(row.sector, row);
+    }
+    _sectorStrengthByEtf    = byEtf;
+    _sectorStrengthBySector = bySector;
+    console.log('[SectorStrength] cached', byEtf.size, 'ETFs');
+    return byEtf;
+  }catch(e){
+    console.error('[SectorStrength] fetch error:', e);
+    return null;
+  }finally{
+    _sectorStrengthFetching = false;
+  }
+}
+
+function _sectorChipFromRow(row){
+  const toneColors = { hot:'#4ade80', firm:'#86efac', flat:'#8090a0', weak:'#f87171' };
+  const color = toneColors[row.tone] || '#8090a0';
+  const retStr = row.ret_20d != null ? (row.ret_20d >= 0 ? '+' : '') + row.ret_20d.toFixed(2) + '%' : '';
+  const tip = _escAttr(`${row.sector||''} (${row.etf||''}) ${retStr} over 20 days · rank ${row.rank||'?'} of 12`);
+  return `<span title="${tip}" style="display:inline-block;font-size:8px;font-weight:700;background:${color}22;color:${color};padding:1px 5px;border-radius:3px;margin-left:4px;white-space:nowrap;">${row.sector||row.etf||''} ${retStr}</span>`;
+}
+
+function _sectorChipForTicker(symbol, etf){
+  // Try ETF first (available in Flow Predictor rows)
+  if(etf && _sectorStrengthByEtf){
+    const row = _sectorStrengthByEtf.get(etf);
+    if(row) return _sectorChipFromRow(row);
+  }
+  // Fallback: look up sector name via swing_watchlist
+  if(_sectorStrengthBySector){
+    const swingRow = (_swingData||[]).find(r => r.symbol === symbol);
+    const sector = swingRow?.sector;
+    if(sector){
+      const row = _sectorStrengthBySector.get(sector);
+      if(row) return _sectorChipFromRow(row);
+    }
+  }
+  return '';
+}
+
+function _extendedChip(ticker){
+  if(!_swingSetupCache) return '';
+  const row = _swingSetupCache.get(ticker);
+  if(!row || row.range_pos == null || row.range_pos < 90) return '';
+  const tip = _escAttr('at 90d high — historically 46.8% lower after 20 days, so this is a caution against buying, not a short signal (n=11,350)');
+  return `<span title="${tip}" style="display:inline-block;font-size:8px;font-weight:700;background:var(--amber,#f59e0b)33;color:var(--amber,#f59e0b);padding:1px 5px;border-radius:3px;margin-left:4px;">EXTENDED</span>`;
 }
 
 function _swingBadge(ticker){
@@ -9837,9 +9903,12 @@ function _tosRenderSwingTable(){
     const rp   = r.range_pos  != null ? Math.round(r.range_pos)  : null;
     const rp30 = r.rpos30     != null ? Math.round(r.rpos30)     : null;
     const badge = _swingBadge(r.ticker);
+    const extChip = _extendedChip(r.ticker);
+    const secChip = _sectorChipForTicker(r.ticker, null);
     return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);" onmouseenter="this.style.background='rgba(0,212,255,0.04)'" onmouseleave="this.style.background=''">
-      <td style="${tdL}font-weight:700;letter-spacing:0.5px;">${r.ticker}${badge}</td>
+      <td style="${tdL}font-weight:700;letter-spacing:0.5px;">${r.ticker}${badge}${extChip}</td>
       <td style="${tdBase}text-align:left;color:${setupColor};">${setupLabel}</td>
+      <td style="${tdBase}text-align:left;">${secChip}</td>
       <td style="${tdBase}color:${rp!=null?posColor(rp):'#6080a0'};">${rp!=null?rp:'—'}</td>
       <td style="${tdBase}color:${rp30!=null?posColor(rp30):'#6080a0'};">${rp30!=null?rp30:'—'}</td>
       <td style="${tdBase}text-align:center;">${streakHTML(r.streak_dir,r.streak_len)}</td>
@@ -9855,12 +9924,13 @@ function _tosRenderSwingTable(){
   <div style="overflow-x:auto;border:1px solid var(--border2);border-radius:6px;">
     <table style="border-collapse:collapse;table-layout:auto;width:100%;">
       <thead>
-        <tr><th colspan="10" style="padding:4px 10px;font-size:10px;font-weight:600;color:#6080a0;text-align:left;background:var(--bg3);border-bottom:1px solid var(--border2);">Historical: % of similar past setups that were higher after N days</th></tr>
+        <tr><th colspan="2" style="padding:4px 10px;font-size:10px;font-weight:600;color:#8090a0;text-align:left;background:var(--bg3);border-bottom:1px solid var(--border2);"></th><th colspan="9" style="padding:4px 10px;font-size:10px;font-weight:600;color:#6080a0;text-align:left;background:var(--bg3);border-bottom:1px solid var(--border2);">Historical: % of similar past setups higher after N days</th></tr>
         <tr style="background:var(--bg3);">
           <th style="${thL}">SYMBOL</th>
           <th style="${thL}">SETUP</th>
-          <th style="${thBase}" onclick="_ssTblSetSort('90dp')">90D POS${ind('90dp')}</th>
-          <th style="${thBase}">30D POS</th>
+          <th style="${thL}">SECTOR</th>
+          <th style="${thBase}" onclick="_ssTblSetSort('90dp')">90D${ind('90dp')}</th>
+          <th style="${thBase}">30D</th>
           <th style="${thBase}text-align:center;">STREAK</th>
           <th style="${thBase}">5D</th>
           <th style="${thBase}">10D</th>
@@ -9873,7 +9943,7 @@ function _tosRenderSwingTable(){
     </table>
   </div>
   <div style="margin-top:8px;font-size:10px;color:#506070;line-height:1.5;padding:8px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;">
-    Base rates from 261,788 past setups since 2023. Not a prediction — this stock&apos;s outcome is not one of those cases. Median return shown because averages are skewed by rare large rebounds.
+    Base rates from 261,788 setups since 2023. Not a prediction — this stock is not one of those cases. Median shown because averages are skewed by rare large rebounds.
   </div>`;
 }
 
