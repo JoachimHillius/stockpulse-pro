@@ -1477,6 +1477,7 @@ select option{background:var(--bg2);}
       Screening aid, not a recommendation.
     </div>
     <div id="tos-body"></div>
+    <div id="tos-swing-wrap" style="margin-top:24px;"></div>
   </div>
 </div>
 
@@ -5271,6 +5272,11 @@ function goPage(name,btn){
   if(name==='rangescan'){
     setTimeout(initRangeScan,50);
   }
+  if(name==='toscsv'){
+    setTimeout(()=>{
+      _fetchSwingSetup().then(()=>_tosRenderSwingTable());
+    },50);
+  }
 }
 
 // ============================================================
@@ -8378,7 +8384,7 @@ function renderP1Row(r, rank, visibleDates) {
     onclick="showHoverPopup('${r.symbol}',this)">
     <td style="position:sticky;left:0;background:var(--bg);padding:6px;font-weight:600;color:#8090a0;z-index:1;">${rank}</td>
     <td style="position:sticky;left:30px;background:var(--bg);padding:6px;z-index:1;min-width:130px;">
-      <div style="font-weight:700;color:var(--text);">${r.symbol}${freshDot}${erPill}${tapePill}${sectorBadge}${alignBadge}${divBadge}</div>
+      <div style="font-weight:700;color:var(--text);">${r.symbol}${_swingBadge(r.symbol)}${freshDot}${erPill}${tapePill}${sectorBadge}${alignBadge}${divBadge}</div>
       <div style="font-size:9px;color:${scColor};font-weight:600;letter-spacing:0.5px;margin-top:2px;">${scLabel}${accumBadge}</div>
     </td>
     <td style="padding:6px;text-align:right;color:#7fd0a8;">${fmtMoney(r.callPrem)}</td>
@@ -9532,6 +9538,11 @@ async function refreshFlowPredictor(){
 
 async function initFlowPredictor(){
   if(!_predData || !_p1FlowData)await loadPredictorData();
+  if(!_swingSetupCache){
+    _fetchSwingSetup().then(()=>{
+      if(document.getElementById('page-flowpredict')?.classList.contains('active'))renderFlowPredictor();
+    });
+  }
   renderFlowPredictor();
 }
 
@@ -9707,6 +9718,190 @@ window.checkAndShowUnusualVolume = async function(tradingDate){
 // ============================================================
 // MOMENTUM SWING WATCHLIST
 // ============================================================
+
+// ============================================================
+// SWING SETUP — get_swing_setup RPC cache + badge helpers
+// ============================================================
+let _swingSetupCache    = null;   // Map<ticker, row> once fetched
+let _swingSetupFetching = false;
+let _ssTblSort = 'score';
+let _ssTblDir  = -1;
+
+function _escAttr(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+async function _fetchSwingSetup(){
+  if(_swingSetupCache) return _swingSetupCache;
+  if(_swingSetupFetching) return null;
+  _swingSetupFetching = true;
+  try{
+    const supa = await getSupabaseAsync();
+    if(!supa) return null;
+    const { data, error } = await supa.rpc('get_swing_setup',{ p_ticker: null, p_max_dte: 45, p_moneyness: 0.10 });
+    if(error){ console.error('[SwingSetup] RPC error:', error.message); return null; }
+    const map = new Map();
+    for(const row of (data||[])) map.set(row.ticker, row);
+    _swingSetupCache = map;
+    console.log('[SwingSetup] cached', map.size, 'tickers');
+    return map;
+  }catch(e){
+    console.error('[SwingSetup] fetch error:', e);
+    return null;
+  }finally{
+    _swingSetupFetching = false;
+  }
+}
+
+function _swingBadge(ticker){
+  if(!_swingSetupCache) return '';
+  const row = _swingSetupCache.get(ticker);
+  if(!row) return '';
+  const score   = row.score ?? 0;
+  const daysOld = row.days_old ?? 0;
+  if(daysOld > 7){
+    return '<span title="chain data too old" style="color:#6080a0;font-size:10px;margin-left:4px;vertical-align:middle;">⧗</span>';
+  }
+  const stale    = daysOld > 2;
+  const baseTip  = _escAttr((row.reasons||'') + ' · ' + (row.setup_label||'') + ' · ' + (row.verdict||''));
+  const fullTip  = stale ? baseTip + _escAttr(' · chain data ' + daysOld + ' days old') : baseTip;
+  if(score >= 4){
+    const color = stale ? '#6080a0' : '#fbbf24';
+    const glow  = stale ? '' : 'text-shadow:0 0 6px #fbbf2480;';
+    return `<span title="${fullTip}" style="color:${color};font-size:12px;font-weight:700;margin-left:4px;vertical-align:middle;${glow}">★</span>`;
+  }
+  if(score === 3){
+    const color = stale ? '#6080a0' : '#fbbf24';
+    return `<span title="${fullTip}" style="color:${color};font-size:12px;margin-left:4px;vertical-align:middle;">★</span>`;
+  }
+  if(score === 2){
+    const color = stale ? '#6080a0' : '#4ade80';
+    return `<span title="${fullTip}" style="color:${color};font-size:12px;margin-left:4px;vertical-align:middle;">★</span>`;
+  }
+  if(score === 1){
+    const color = stale ? '#6080a0' : '#4ade80';
+    return `<span title="${fullTip}" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${color};margin-left:4px;vertical-align:middle;"></span>`;
+  }
+  if(score <= -1){
+    return `<span title="${fullTip}" style="color:#f87171;font-size:10px;margin-left:4px;vertical-align:middle;">▼</span>`;
+  }
+  return ''; // score 0
+}
+
+function _ssTblSetSort(col){
+  if(_ssTblSort === col) _ssTblDir = -_ssTblDir;
+  else { _ssTblSort = col; _ssTblDir = -1; }
+  _tosRenderSwingTable();
+}
+
+function _tosRenderSwingTable(){
+  const wrap = document.getElementById('tos-swing-wrap');
+  if(!wrap) return;
+  if(!_swingSetupCache || !_swingSetupCache.size){
+    wrap.innerHTML = '';
+    return;
+  }
+  const rows = [..._swingSetupCache.values()];
+  const sorted = [...rows].sort((a,b)=>{
+    let av,bv;
+    if(_ssTblSort==='score')     { av=a.score??0;           bv=b.score??0; }
+    else if(_ssTblSort==='20d')  { av=a.hist_up_20d??0;     bv=b.hist_up_20d??0; }
+    else if(_ssTblSort==='90dp') { av=a.range_pos??0;       bv=b.range_pos??0; }
+    else                         { av=a.score??0;           bv=b.score??0; }
+    return (bv-av)*_ssTblDir;
+  });
+
+  const setupColors = {
+    'At 90d low + down streak':'#fbbf24',
+    'At 90d low':'#4ade80',
+    'Low zone + down streak':'#4ade80',
+    'At 90d high':'#f87171',
+  };
+
+  const thBase = 'padding:7px 10px;font-size:11px;font-weight:700;color:#8090b0;text-transform:uppercase;letter-spacing:0.5px;text-align:right;cursor:pointer;white-space:nowrap;border-bottom:1px solid var(--border2);';
+  const thL    = thBase.replace('text-align:right','text-align:left');
+  const ind = (col) => _ssTblSort===col ? (_ssTblDir===-1?' ▼':' ▲') : '';
+  const tdBase = 'padding:6px 10px;font-size:12px;color:#c0c8d0;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;';
+  const tdL    = tdBase.replace('text-align:right','text-align:left');
+
+  const posColor = (v) => v<=10?'#4ade80':v>=91?'#f87171':'#c0c8d0';
+  const streakHTML = (dir,len) => {
+    if(!dir||!len) return '—';
+    const dDown = dir==='D' && len>=3;
+    const color = dDown?'#4ade80':'#c0c8d0';
+    return `<span style="color:${color}">${dir}${len}</span>`;
+  };
+  const pctFmt = (v) => v!=null ? Math.round(v)+'%' : '—';
+
+  const rowsHtml = sorted.map(r=>{
+    const setupLabel = r.setup_label || '—';
+    const setupColor = setupColors[setupLabel] || '#8090a0';
+    const rp   = r.range_pos  != null ? Math.round(r.range_pos)  : null;
+    const rp30 = r.rpos30     != null ? Math.round(r.rpos30)     : null;
+    const badge = _swingBadge(r.ticker);
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);" onmouseenter="this.style.background='rgba(0,212,255,0.04)'" onmouseleave="this.style.background=''">
+      <td style="${tdL}font-weight:700;letter-spacing:0.5px;">${r.ticker}${badge}</td>
+      <td style="${tdBase}text-align:left;color:${setupColor};">${setupLabel}</td>
+      <td style="${tdBase}color:${rp!=null?posColor(rp):'#6080a0'};">${rp!=null?rp:'—'}</td>
+      <td style="${tdBase}color:${rp30!=null?posColor(rp30):'#6080a0'};">${rp30!=null?rp30:'—'}</td>
+      <td style="${tdBase}text-align:center;">${streakHTML(r.streak_dir,r.streak_len)}</td>
+      <td style="${tdBase}">${pctFmt(r.hist_up_5d)}</td>
+      <td style="${tdBase}">${pctFmt(r.hist_up_10d)}</td>
+      <td style="${tdBase}font-weight:700;color:#c0c8d0;">${pctFmt(r.hist_up_20d)}</td>
+      <td style="${tdBase}color:#d4b070;">${r.hist_median_20d!=null?r.hist_median_20d.toFixed(2)+'%':'—'}</td>
+      <td style="${tdBase}font-weight:700;color:${(r.score??0)>=3?'#fbbf24':(r.score??0)>=2?'#4ade80':'#8090a0'};">${r.score??0}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<div style="margin-bottom:8px;font-size:10px;color:#6080a0;letter-spacing:0.5px;font-weight:700;text-transform:uppercase;">Swing Setup Scoring</div>
+  <div style="overflow-x:auto;border:1px solid var(--border2);border-radius:6px;">
+    <table style="border-collapse:collapse;table-layout:auto;width:100%;">
+      <thead>
+        <tr><th colspan="10" style="padding:4px 10px;font-size:10px;font-weight:600;color:#6080a0;text-align:left;background:var(--bg3);border-bottom:1px solid var(--border2);">Historical: % of similar past setups that were higher after N days</th></tr>
+        <tr style="background:var(--bg3);">
+          <th style="${thL}">SYMBOL</th>
+          <th style="${thL}">SETUP</th>
+          <th style="${thBase}" onclick="_ssTblSetSort('90dp')">90D POS${ind('90dp')}</th>
+          <th style="${thBase}">30D POS</th>
+          <th style="${thBase}text-align:center;">STREAK</th>
+          <th style="${thBase}">5D</th>
+          <th style="${thBase}">10D</th>
+          <th style="${thBase}" onclick="_ssTblSetSort('20d')">20D${ind('20d')}</th>
+          <th style="${thBase}">MED</th>
+          <th style="${thBase}" onclick="_ssTblSetSort('score')">SCORE${ind('score')}</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  </div>
+  <div style="margin-top:8px;font-size:10px;color:#506070;line-height:1.5;padding:8px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;">
+    Base rates from 261,788 past setups since 2023. Not a prediction — this stock&apos;s outcome is not one of those cases. Median return shown because averages are skewed by rare large rebounds.
+  </div>`;
+}
+
+async function _tosSaveSwingHistory(ticker){
+  try{
+    const supa = await getSupabaseAsync();
+    if(!supa) return;
+    const { data, error } = await supa.rpc('get_swing_setup',{ p_ticker: ticker, p_max_dte: 45, p_moneyness: 0.10 });
+    if(error) throw error;
+    if(!data||!data.length) return;
+    const r = data[0];
+    const { error: upsertErr } = await supa.from('chain_score_history').upsert({
+      ticker: r.ticker, snapshot_date: r.snapshot_date,
+      spot: r.spot, call_vol_pct: r.call_vol_pct, dw_call_pct: r.dw_call_pct,
+      range_pos: r.range_pos, pct_from_hi90: r.pct_from_hi90,
+      streak_dir: r.streak_dir, streak_len: r.streak_len,
+      score: r.score, verdict: r.verdict, reasons: r.reasons,
+    },{ onConflict: 'ticker,snapshot_date' });
+    if(upsertErr) throw upsertErr;
+    console.log('[SwingHistory] saved:', ticker, r.snapshot_date, 'score:', r.score);
+    // Invalidate cache — fresh upload may have updated the setup score
+    _swingSetupCache = null;
+  }catch(e){
+    console.error('[SwingHistory] error:', e);
+    const el = document.getElementById('tos-status');
+    if(el) el.textContent += ' · setup score save failed (see console)';
+  }
+}
 
 let _swingData       = [];            // all rows from swing_watchlist
 let _optionsSymbolsSet = new Set();   // distinct symbols seen in omen_flow (for OP badge)
@@ -14566,6 +14761,8 @@ async function tosSaveSnapshot() {
     }
     _tosCheckOverwrite();
     _tosRender();
+    // Fire-and-forget swing score history — must not block or fail the upload
+    _tosSaveSwingHistory(ticker);
   } catch (e) {
     console.error('[TOS CSV] Save error:', e);
     status.style.color = 'var(--red)';
