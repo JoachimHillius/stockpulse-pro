@@ -1436,8 +1436,9 @@ select option{background:var(--bg2);}
     <div id="tos-jump-bar" style="position:sticky;top:0;z-index:20;display:flex;gap:16px;padding:6px 12px;background:var(--bg2,#1a2030);border:1px solid var(--border2);border-radius:6px;margin-bottom:12px;">
       <a onclick="tosJumpTo('upload')"    style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Upload</a>
       <a onclick="tosJumpTo('tickers')"   style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Tickers</a>
-      <a onclick="tosJumpTo('swing')"     style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Swing</a>
       <a onclick="tosJumpTo('snapshots')" style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Snapshots</a>
+      <a onclick="tosJumpTo('chain')"     style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Chain</a>
+      <a onclick="tosJumpTo('swing')"     style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Swing</a>
     </div>
 
     <!-- Section: Upload (EXPANDED) -->
@@ -1488,6 +1489,24 @@ select option{background:var(--bg2);}
       </div>
     </div>
 
+    <!-- Section: Saved Snapshots (EXPANDED) -->
+    <div id="tos-sec-snapshots" class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('snapshots')">
+        <div style="display:flex;align-items:baseline;gap:10px;">
+          <span class="card-title" id="tos-sec-snap-title" style="margin:0;">SAVED SNAPSHOTS</span>
+          <span style="color:#8090a0;font-size:12px;">all expirations · 1–294 DTE · all strikes</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
+          <button onclick="_tosLoadSnapshots()" title="Re-query saved snapshots from database" style="background:var(--bg3);border:1px solid var(--border2);color:#c0c8d0;padding:3px 8px;border-radius:4px;font-size:12px;cursor:pointer;">↻</button>
+          <span id="tos-sec-snap-chev" style="color:#fff;font-size:12px;cursor:pointer;" onclick="event.stopPropagation();tosToggleSec('snapshots')">▼</span>
+        </div>
+      </div>
+      <div id="tos-sec-snapshots-body" style="margin-top:12px;">
+        <div id="tos-snap-controls"></div>
+        <div id="tos-snap-table"></div>
+      </div>
+    </div>
+
     <div id="tos-snap-banner"></div>
 
     <!-- Section: Expirations to display (COLLAPSED) -->
@@ -1526,24 +1545,6 @@ select option{background:var(--bg2);}
       </div>
       <div id="tos-sec-swing-body" style="margin-top:8px;">
         <div id="tos-swing-wrap"></div>
-      </div>
-    </div>
-
-    <!-- Section: Saved Snapshots (COLLAPSED) -->
-    <div id="tos-sec-snapshots" class="card" style="margin-bottom:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('snapshots')">
-        <div style="display:flex;align-items:baseline;gap:10px;">
-          <span class="card-title" id="tos-sec-snap-title" style="margin:0;">SAVED SNAPSHOTS</span>
-          <span style="color:#8090a0;font-size:12px;">all expirations · 1–294 DTE · all strikes</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
-          <button onclick="_tosLoadSnapshots()" title="Re-query saved snapshots from database" style="background:var(--bg3);border:1px solid var(--border2);color:#c0c8d0;padding:3px 8px;border-radius:4px;font-size:12px;cursor:pointer;">↻</button>
-          <span id="tos-sec-snap-chev" style="color:#fff;font-size:12px;cursor:pointer;" onclick="event.stopPropagation();tosToggleSec('snapshots')">▶</span>
-        </div>
-      </div>
-      <div id="tos-sec-snapshots-body" style="display:none;margin-top:12px;">
-        <div id="tos-snap-controls"></div>
-        <div id="tos-snap-table"></div>
       </div>
     </div>
 
@@ -14152,7 +14153,7 @@ let _tosBatchSort    = 'callPct';
 let _tosBatchDir     = -1;
 
 // Section open/closed state — persisted for the session
-const _tosSectionOpen = { upload:true, tickers:true, expiry:false, chain:false, swing:true, snapshots:false };
+const _tosSectionOpen = { upload:true, tickers:true, expiry:false, chain:false, swing:true, snapshots:true };
 let _tosSnapFilterDate  = '';   // '' = auto (most recent date)
 let _tosSnapSearch      = '';
 const _tosSnapOpenDates = new Set();
@@ -15725,6 +15726,8 @@ async function tosLoadSnapshot(ticker, snapshotDate) {
     _tosSetChainTitle(`${ticker} ${snapshotDate}`);
     _tosSectionOpen['chain'] = true;
     _tosApplySections();
+    const _chainSec = document.getElementById('tos-sec-chain');
+    if (_chainSec) _chainSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     _tosRenderPicker();
   } catch (e) {
     console.error('[TOS CSV] Load snapshot error:', e);
