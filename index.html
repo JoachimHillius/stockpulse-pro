@@ -1445,7 +1445,7 @@ select option{background:var(--bg2);}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px;">
         <div>
-          <input type="file" id="tos-file" accept=".csv" style="display:none;" onchange="tosHandleFile(this)"/>
+          <input type="file" id="tos-file" accept=".csv,.zip" multiple style="display:none;" onchange="tosHandleFile(this)"/>
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('tos-file').click()">↑ Upload CSV</button>
         </div>
         <div>
@@ -1476,6 +1476,7 @@ select option{background:var(--bg2);}
       No IV percentile is available in this export, so it cannot tell cheap premium from expensive.
       Screening aid, not a recommendation.
     </div>
+    <div id="tos-ticker-list"></div>
     <div id="tos-body"></div>
     <div id="tos-swing-wrap" style="margin-top:24px;"></div>
   </div>
@@ -14077,6 +14078,9 @@ let _tosSnapshots = [];         // rows from list_options_snapshots()
 let _tosViewingSnapshot = null; // {ticker, snapshotDate} when viewing a loaded snapshot
 let _tosMinVol = 100;           // filter: row displayed if max(call_vol,put_vol) >= this
 let _tosMinOI  = 1000;          // filter: row displayed if max(call_oi,put_oi)  >= this
+let _tosBatchResults = [];      // per-ticker summary rows after batch upload
+let _tosBatchSort    = 'callPct';
+let _tosBatchDir     = -1;
 
 function _tosSplitCsvLine(line) {
   const result = [];
@@ -14763,11 +14767,179 @@ function _tosEqualizeBlocks() {
   }
 }
 
+// ── Batch upload helpers ──────────────────────────────────────────────────────
+
+function _loadJSZip() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload  = () => resolve(window.JSZip);
+    s.onerror = () => reject(new Error('Failed to load JSZip from CDN'));
+    document.head.appendChild(s);
+  });
+}
+
+function _tosComputeTickerMetrics(parsed) {
+  const spot = parsed.spot || 0;
+  const filtered = parsed.rows.filter(r =>
+    r.dte != null && r.dte <= 45 &&
+    spot > 0 && Math.abs(r.strike - spot) / spot <= 0.10
+  );
+  let callVol = 0, putVol = 0, callOI = 0, putOI = 0;
+  let dwCallNum = 0, dwDenom = 0;
+  const strikeSet = new Set();
+  for (const r of filtered) {
+    callVol += r.call_volume || 0;
+    putVol  += r.put_volume  || 0;
+    callOI  += r.call_oi     || 0;
+    putOI   += r.put_oi      || 0;
+    strikeSet.add(r.strike);
+    const cd = Math.abs(r.call_delta || 0);
+    const pd = Math.abs(r.put_delta  || 0);
+    dwCallNum += (r.call_oi || 0) * cd;
+    dwDenom   += (r.call_oi || 0) * cd + (r.put_oi || 0) * pd;
+  }
+  const total = callVol + putVol;
+  const callPct          = total > 0 ? callVol / total * 100 : null;
+  const cpRatio          = putVol > 0 ? callVol / putVol : null;
+  const deltaWtdCallPct  = dwDenom > 0 ? dwCallNum / dwDenom * 100 : null;
+  return { callVol, putVol, callPct, cpRatio, callOI, putOI, deltaWtdCallPct, strikes: strikeSet.size };
+}
+
+async function _tosBatchSaveOne(supa, parsed) {
+  const { ticker, snapshotDate, spot } = parsed;
+  const rows = parsed.rows.map(r => ({
+    ticker, snapshot_date: snapshotDate, captured_at: parsed.capturedAt,
+    spot, exp_label: r.exp_label, dte: r.dte, strike: r.strike,
+    call_volume: r.call_volume, call_oi: r.call_oi,
+    call_pct_change: r.call_pct_change ?? null,
+    call_impl_vol:   r.call_impl_vol   ?? null,
+    call_delta:      r.call_delta      ?? null,
+    call_theta:      r.call_theta      ?? null,
+    call_bid:        r.call_bid        ?? null,
+    call_ask:        r.call_ask        ?? null,
+    put_volume: r.put_volume, put_oi: r.put_oi,
+    put_pct_change: r.put_pct_change ?? null,
+    put_impl_vol:   r.put_impl_vol   ?? null,
+    put_delta:      r.put_delta      ?? null,
+    put_theta:      r.put_theta      ?? null,
+    put_bid:        r.put_bid        ?? null,
+    put_ask:        r.put_ask        ?? null,
+  }));
+  if (rows.length) console.log('[TOS Batch] first payload:', JSON.stringify(rows[0], null, 2));
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const { data, error } = await supa
+      .from('options_chain_snapshots')
+      .upsert(chunk, { onConflict: 'ticker,snapshot_date,exp_label,strike' });
+    if (error) { console.error('[TOS Batch] upsert error:', error); throw new Error(error.message || 'upsert failed'); }
+  }
+}
+
+function _tosTickerListSort(col) {
+  if (_tosBatchSort === col) {
+    _tosBatchDir = -_tosBatchDir;
+  } else {
+    _tosBatchSort = col;
+    _tosBatchDir  = -1;
+  }
+  _tosRenderTickerList();
+}
+
+function _tosRenderTickerList() {
+  const el = document.getElementById('tos-ticker-list');
+  if (!el) return;
+  if (!_tosBatchResults.length) { el.innerHTML = ''; return; }
+
+  const thS  = 'padding:5px 8px;font-size:12px;font-weight:700;color:#fff;text-transform:uppercase;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border2);cursor:pointer;user-select:none;';
+  const thSL = thS.replace('text-align:right','text-align:left');
+  const tdS  = 'padding:5px 8px;font-size:13px;color:#fff;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;';
+  const tdSL = tdS.replace('text-align:right','text-align:left');
+
+  const sortArrow = col => _tosBatchSort === col ? (_tosBatchDir < 0 ? ' ▼' : ' ▲') : '';
+
+  const sortable = [..._tosBatchResults].sort((a, b) => {
+    const av = a[_tosBatchSort] ?? -Infinity;
+    const bv = b[_tosBatchSort] ?? -Infinity;
+    return _tosBatchDir * ((bv > av ? 1 : bv < av ? -1 : 0));
+  });
+
+  const rows = sortable.map(r => {
+    const isOk      = r.status === 'ok';
+    const isFailed  = r.status === 'failed';
+    const isSkipped = r.status === 'skipped';
+    const rowStyle  = isFailed ? 'color:#f87171;' : isSkipped ? 'color:#8090a0;' : '';
+
+    const callPctFmt = r.callPct != null
+      ? `<span style="color:${r.callPct >= 58 ? 'var(--green)' : r.callPct <= 42 ? 'var(--red)' : '#8090a0'};">${r.callPct.toFixed(1)}%</span>`
+      : '—';
+    const cpFmt = r.cpRatio != null ? r.cpRatio.toFixed(2) + ':1' : '—';
+    const dwFmt = r.deltaWtdCallPct != null
+      ? `<span style="color:${r.deltaWtdCallPct >= 58 ? 'var(--green)' : r.deltaWtdCallPct <= 42 ? 'var(--red)' : '#8090a0'};">${r.deltaWtdCallPct.toFixed(1)}%</span>`
+      : '—';
+
+    let capturedFmt = '—';
+    if (r.capturedAt) {
+      const [dp, tp] = r.capturedAt.split('T');
+      if (dp) {
+        const [cy, cm, cd] = dp.split('-');
+        capturedFmt = `${parseInt(cm)}/${parseInt(cd)}/${cy.slice(2)}${tp ? ' ' + tp.slice(0,5) : ''}`;
+      }
+    }
+
+    const statusCell = isFailed
+      ? `<td style="${tdSL}font-size:11px;color:#f87171;" colspan="10">${_escAttr(r.error || 'failed')}</td>`
+      : isSkipped
+      ? `<td style="${tdSL}font-size:11px;color:#8090a0;" colspan="10">${_escAttr(r.error || 'skipped')}</td>`
+      : `<td style="${tdS}">${r.spot != null ? r.spot : '—'}</td>
+         <td style="${tdS}">${r.callVol ? _tosFmtN(r.callVol) : '0'}</td>
+         <td style="${tdS}">${r.putVol  ? _tosFmtN(r.putVol)  : '0'}</td>
+         <td style="${tdS}">${callPctFmt}</td>
+         <td style="${tdS}">${cpFmt}</td>
+         <td style="${tdS}">${r.callOI ? _tosFmtN(r.callOI) : '0'}</td>
+         <td style="${tdS}">${r.putOI  ? _tosFmtN(r.putOI)  : '0'}</td>
+         <td style="${tdS}">${dwFmt}</td>
+         <td style="${tdS}">${r.strikes || '—'}</td>
+         <td style="${tdS}font-size:11px;">${capturedFmt}</td>`;
+
+    const clickAttr = isOk && r.snapshotDate
+      ? `style="cursor:pointer;${rowStyle}" onclick="tosLoadSnapshot('${(r.ticker||'').replace(/'/g,"\\'")}','${r.snapshotDate}')" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''"`
+      : `style="${rowStyle}"`;
+
+    return `<tr ${clickAttr}>
+      <td style="${tdSL}font-weight:700;letter-spacing:1px;${rowStyle}">${r.ticker || r.filename || ''}</td>
+      ${statusCell}
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<div style="margin-bottom:12px;overflow-x:auto;">
+    <table style="border-collapse:collapse;table-layout:auto;width:100%;font-size:13px;">
+      <thead><tr style="background:var(--bg3);">
+        <th style="${thSL}">Ticker</th>
+        <th style="${thS}">Spot</th>
+        <th style="${thS}">Call Vol</th>
+        <th style="${thS}">Put Vol</th>
+        <th style="${thS}" onclick="_tosTickerListSort('callPct')">Call%${sortArrow('callPct')}</th>
+        <th style="${thS}" onclick="_tosTickerListSort('cpRatio')">C/P Ratio${sortArrow('cpRatio')}</th>
+        <th style="${thS}">Call OI</th>
+        <th style="${thS}">Put OI</th>
+        <th style="${thS}" onclick="_tosTickerListSort('deltaWtdCallPct')">Δ-Wtd Call%${sortArrow('deltaWtdCallPct')}</th>
+        <th style="${thS}">Strikes</th>
+        <th style="${thS}">Captured</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+// ── Main file-input handler ───────────────────────────────────────────────────
+
 async function tosHandleFile(input) {
-  const status  = document.getElementById('tos-status');
-  const picker  = document.getElementById('tos-picker');
-  const body    = document.getElementById('tos-body');
-  const saveBtn = document.getElementById('tos-save-btn');
+  const status   = document.getElementById('tos-status');
+  const picker   = document.getElementById('tos-picker');
+  const body     = document.getElementById('tos-body');
+  const saveBtn  = document.getElementById('tos-save-btn');
   const tickerEl = document.getElementById('tos-ticker');
   const priceEl  = document.getElementById('tos-price');
   const dateEl   = document.getElementById('tos-date');
@@ -14781,6 +14953,7 @@ async function tosHandleFile(input) {
   _tosPrevDate         = null;
   _tosSelectedExps     = new Set();
   _tosViewingSnapshot  = null;
+  _tosBatchResults     = [];
   if (picker)  { picker.innerHTML = ''; picker.style.display = 'none'; }
   if (body)    body.innerHTML = '';
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Save snapshot'; }
@@ -14791,46 +14964,190 @@ async function tosHandleFile(input) {
   if (_bannerEl) { _bannerEl.style.display = 'none'; _bannerEl.innerHTML = ''; }
   const _warnEl = document.getElementById('tos-save-warn');
   if (_warnEl)  { _warnEl.style.display = 'none'; _warnEl.textContent = ''; }
+  _tosRenderTickerList();
 
   status.style.color = '#fff';
   status.textContent = 'Parsing…';
 
   try {
-    const text   = await input.files[0].text();
-    const parsed = parseTosOptionsCsv(text);
+    const files = Array.from(input.files);
+    const isZip = files.length === 1 && files[0].name.toLowerCase().endsWith('.zip');
 
-    if (!parsed) {
-      status.style.color = 'var(--red)';
-      status.textContent = 'Parse failed — could not read file header (not a ToS Positions CSV).';
+    // ── SINGLE CSV — existing path, unchanged behaviour ───────────────────────
+    if (files.length === 1 && !isZip) {
+      const text   = await files[0].text();
+      const parsed = parseTosOptionsCsv(text);
+
+      if (!parsed) {
+        status.style.color = 'var(--red)';
+        status.textContent = 'Parse failed — could not read file header (not a ToS Positions CSV).';
+        return;
+      }
+      if (parsed.rows.length === 0) {
+        status.style.color = 'var(--red)';
+        status.textContent = 'No option rows found in this file — unrecognised column layout.';
+        return;
+      }
+
+      _tosParsed = parsed;
+      if (tickerEl) tickerEl.value = parsed.ticker;
+      if (priceEl)  priceEl.value  = parsed.spot != null ? parsed.spot : '';
+      if (dateEl)   dateEl.value   = parsed.snapshotDate;
+      if (saveBtn)  saveBtn.disabled = false;
+      _tosCheckOverwrite();
+
+      const expCount = new Set(parsed.rows.map(r => r.exp_label)).size;
+      const [datePart, timePart] = parsed.capturedAt.split('T');
+      const [yr, mo, dy] = datePart.split('-');
+      const capturedDisplay = `${parseInt(mo)}/${parseInt(dy)}/${yr.slice(2)} ${(timePart || '').slice(0, 5)}`;
+      const spotStr = parsed.spot != null ? ` · spot ${parsed.spot}` : '';
+      status.style.color = 'var(--green)';
+      status.textContent = `${parsed.ticker} · ${capturedDisplay} · parsed ${parsed.rows.length.toLocaleString()} strikes across ${expCount} expirations${spotStr}`;
+
+      const supa = await getSupabaseAsync();
+      if (supa) await _tosLoadPrev(supa, parsed.ticker, parsed.snapshotDate);
+      _tosRenderPicker();
       return;
     }
 
-    // Fail loudly on zero rows — never silently keep the previous render
-    if (parsed.rows.length === 0) {
-      status.style.color = 'var(--red)';
-      status.textContent = 'No option rows found in this file — unrecognised column layout.';
+    // ── BATCH PATH — multiple CSVs or single ZIP ──────────────────────────────
+    let csvEntries = [];  // { filename, text }
+
+    if (isZip) {
+      status.textContent = 'Loading ZIP…';
+      const JSZip  = await _loadJSZip();
+      const zipBuf = await files[0].arrayBuffer();
+      const zip    = await JSZip.loadAsync(zipBuf);
+      for (const [path, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        const parts    = path.split('/');
+        const basename = parts[parts.length - 1];
+        if (parts.includes('__MACOSX')) { console.log('[TOS Batch] skipping __MACOSX entry:', path); continue; }
+        if (basename.startsWith('.'))   { console.log('[TOS Batch] skipping dot-file:', path);       continue; }
+        if (!basename.toLowerCase().endsWith('.csv')) continue;
+        const text = await entry.async('string');
+        csvEntries.push({ filename: basename, text });
+      }
+    } else {
+      for (const file of files) {
+        const text = await file.text();
+        csvEntries.push({ filename: file.name, text });
+      }
+    }
+
+    if (!csvEntries.length) {
+      status.style.color = 'var(--amber)';
+      status.textContent = 'No CSV files found in selection.';
       return;
     }
 
-    _tosParsed = parsed;
-    if (tickerEl) tickerEl.value = parsed.ticker;
-    if (priceEl)  priceEl.value  = parsed.spot != null ? parsed.spot : '';
-    if (dateEl)   dateEl.value   = parsed.snapshotDate;
-    if (saveBtn)  saveBtn.disabled = false;
-    _tosCheckOverwrite();
+    // Parse all entries — failures do not abort
+    status.textContent = `Parsing ${csvEntries.length} file(s)…`;
+    const parsedEntries = [];
+    for (const entry of csvEntries) {
+      try {
+        const parsed = parseTosOptionsCsv(entry.text);
+        if (!parsed)          { parsedEntries.push({ filename: entry.filename, parsed: null, error: 'Parse failed — bad header' });         continue; }
+        if (!parsed.rows.length) { parsedEntries.push({ filename: entry.filename, parsed: null, error: 'No option rows found' }); continue; }
+        parsedEntries.push({ filename: entry.filename, parsed, error: null });
+      } catch(parseErr) {
+        console.error('[TOS Batch] parse error:', entry.filename, parseErr);
+        parsedEntries.push({ filename: entry.filename, parsed: null, error: parseErr.message || 'parse error' });
+      }
+    }
 
-    // Detailed status: ticker · date time · N strikes across M expirations · spot P
-    const expCount = new Set(parsed.rows.map(r => r.exp_label)).size;
-    const [datePart, timePart] = parsed.capturedAt.split('T');
-    const [yr, mo, dy] = datePart.split('-');
-    const capturedDisplay = `${parseInt(mo)}/${parseInt(dy)}/${yr.slice(2)} ${(timePart || '').slice(0, 5)}`;
-    const spotStr = parsed.spot != null ? ` · spot ${parsed.spot}` : '';
-    status.style.color = 'var(--green)';
-    status.textContent = `${parsed.ticker} · ${capturedDisplay} · parsed ${parsed.rows.length.toLocaleString()} strikes across ${expCount} expirations${spotStr}`;
+    // Dedupe by ticker — keep latest capturedAt
+    const byTicker      = new Map();  // ticker → parsedEntry
+    const skippedParsed = [];         // entries superseded by a later capturedAt
+    for (const entry of parsedEntries) {
+      if (!entry.parsed) continue;
+      const tk = entry.parsed.ticker;
+      if (byTicker.has(tk)) {
+        const existing = byTicker.get(tk);
+        if (entry.parsed.capturedAt > existing.parsed.capturedAt) {
+          skippedParsed.push({ ...existing, skipReason: `superseded by ${entry.filename} (same ticker ${tk}, later timestamp)` });
+          byTicker.set(tk, entry);
+        } else {
+          skippedParsed.push({ ...entry, skipReason: `superseded by ${existing.filename} (same ticker ${tk}, later timestamp)` });
+        }
+      } else {
+        byTicker.set(tk, entry);
+      }
+    }
 
+    const toSave = Array.from(byTicker.values());
+    const total  = toSave.length;
+
+    if (!total) {
+      status.style.color = 'var(--red)';
+      status.textContent = 'No parseable CSV files in batch.';
+      // Still render any parse-failed entries in the list
+      _tosBatchResults = parsedEntries
+        .filter(e => e.error)
+        .map(e => ({ ticker: e.filename, snapshotDate: null, capturedAt: null, spot: null, filename: e.filename, status: 'failed', error: e.error, callVol:0, putVol:0, callPct:null, cpRatio:null, callOI:0, putOI:0, deltaWtdCallPct:null, strikes:0 }));
+      _tosRenderTickerList();
+      return;
+    }
+
+    // Sequential save with progress
     const supa = await getSupabaseAsync();
-    if (supa) await _tosLoadPrev(supa, parsed.ticker, parsed.snapshotDate);
-    _tosRenderPicker();
+    if (!supa) throw new Error('Supabase unavailable');
+
+    const results = [];
+    const swingHistoryPromises = [];
+
+    for (let idx = 0; idx < total; idx++) {
+      const { filename, parsed } = toSave[idx];
+      const { ticker, snapshotDate } = parsed;
+      status.style.color = '#fff';
+      status.textContent = `Processing ${idx + 1} of ${total} — ${ticker}`;
+      const metrics = _tosComputeTickerMetrics(parsed);
+      try {
+        await _tosBatchSaveOne(supa, parsed);
+        swingHistoryPromises.push(_tosSaveSwingHistory(ticker));
+        results.push({ ticker, snapshotDate, capturedAt: parsed.capturedAt, spot: parsed.spot, filename, status: 'ok', error: null, ...metrics });
+      } catch(saveErr) {
+        console.error('[TOS Batch] save failed:', filename, saveErr);
+        results.push({ ticker, snapshotDate, capturedAt: parsed.capturedAt, spot: parsed.spot, filename, status: 'failed', error: saveErr.message || 'save error', ...metrics });
+      }
+    }
+
+    // Add skipped (dedupe) entries
+    for (const e of skippedParsed) {
+      const metrics = _tosComputeTickerMetrics(e.parsed);
+      results.push({ ticker: e.parsed.ticker, snapshotDate: e.parsed.snapshotDate, capturedAt: e.parsed.capturedAt, spot: e.parsed.spot, filename: e.filename, status: 'skipped', error: e.skipReason, ...metrics });
+    }
+
+    // Add parse failures
+    for (const e of parsedEntries.filter(e => e.error)) {
+      results.push({ ticker: e.filename, snapshotDate: null, capturedAt: null, spot: null, filename: e.filename, status: 'failed', error: e.error, callVol:0, putVol:0, callPct:null, cpRatio:null, callOI:0, putOI:0, deltaWtdCallPct:null, strikes:0 });
+    }
+
+    const savedCount  = results.filter(r => r.status === 'ok').length;
+    const failedCount = results.filter(r => r.status === 'failed').length;
+    const skippedCount = results.filter(r => r.status === 'skipped').length;
+
+    // Await all swing history writes before refreshing swing table
+    await Promise.allSettled(swingHistoryPromises);
+
+    // Refresh snapshots panel
+    await _tosLoadSnapshots();
+
+    // Clear caches and re-render swing table so new scores are visible immediately
+    _swingSetupCache        = null;
+    _sectorStrengthByEtf    = null;
+    _sectorStrengthBySector = null;
+    await Promise.all([_fetchSwingSetup(), _fetchSectorStrength()]);
+    _tosRenderSwingTable();
+
+    const skipMsg   = skippedCount ? ` · ${skippedCount} skipped (duplicate ticker)` : '';
+    const failMsg   = failedCount  ? ` · ${failedCount} failed` : '';
+    status.style.color = savedCount > 0 ? 'var(--green)' : 'var(--red)';
+    status.textContent = `Saved ${savedCount} of ${total} ticker(s)${failMsg}${skipMsg}`;
+
+    _tosBatchResults = results;
+    _tosRenderTickerList();
+
   } catch (e) {
     console.error('[TOS CSV] Parse error:', e);
     status.style.color = 'var(--red)';
@@ -14919,8 +15236,12 @@ async function tosSaveSnapshot() {
     }
     _tosCheckOverwrite();
     _tosRender();
-    // Fire-and-forget swing score history — must not block or fail the upload
-    _tosSaveSwingHistory(ticker);
+    await _tosSaveSwingHistory(ticker);
+    _swingSetupCache        = null;
+    _sectorStrengthByEtf    = null;
+    _sectorStrengthBySector = null;
+    await Promise.all([_fetchSwingSetup(), _fetchSectorStrength()]);
+    _tosRenderSwingTable();
   } catch (e) {
     console.error('[TOS CSV] Save error:', e);
     status.style.color = 'var(--red)';
