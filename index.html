@@ -9223,6 +9223,7 @@ function renderFlowPredictor(){
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span id="alarm-count-badge" style="font-size:10px;font-weight:600;color:#ffb020;background:#ffb02018;border:1px solid #ffb02044;border-radius:12px;padding:3px 10px;display:${_armedCount>0?'inline':'none'};">${_armedCount>0?`🔔 ${_armedCount} armed`:''}</span>
           <span style="display:inline-flex;align-items:center;vertical-align:middle;"><input id="pred-ticker-search" type="text" placeholder="Search ticker (NVDA, SPY…)" autocomplete="off" oninput="onPredTickerSearch(event)" value="${_predSearchTicker||''}" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:5px 10px;font-size:11px;border-radius:4px;width:200px;margin-right:4px;"><button id="unusual-btn" onclick="window.checkAndShowUnusualVolume()" style="background:rgba(0,212,255,0.15);border:1px solid #00d4ff;color:#00d4ff;padding:7px 14px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;margin-left:10px;white-space:nowrap;font-family:system-ui,sans-serif;" title="Show tickers with unusually high flow today vs 20-day baseline">⚡ UNUSUAL VOLUME</button></span>
+          <button onclick="_swingLegendToggle('fp')" style="background:var(--bg3);color:#a0a8c0;border:1px solid var(--border2);padding:4px 10px;border-radius:4px;font-size:10px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;white-space:nowrap;">${_swingLegendOpen ? '▲ Legend' : '? Legend'}</button>
         </div>
       </div>
       <div style="margin:6px 0 8px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
@@ -9264,6 +9265,7 @@ function renderFlowPredictor(){
         <span style="color:#7fd0a8;margin-right:12px;">↑Nd = N-day OI streak</span>
         <span style="color:#8090a0;">Activity floor: total_size ≥ ${P1_ACTIVITY_FLOOR} contracts</span>
       </div>
+      ${_swingLegendOpen ? _buildSwingLegend() : ''}
       <div id="pred-history-strip" style="padding:8px 10px;background:rgba(13,24,48,0.6);border:1px solid rgba(255,255,255,0.05);border-radius:6px;margin-bottom:10px;min-height:46px;display:flex;align-items:center;flex-wrap:wrap;overflow-x:auto;">
         <span style="color:#5a708a;font-size:11px;letter-spacing:0.5px;">▸ Hover a row to see that ticker's per-day call/put bias</span>
       </div>
@@ -9817,6 +9819,88 @@ function _extendedChip(ticker){
   return `<span title="${tip}" style="display:inline-block;font-size:8px;font-weight:700;background:var(--amber,#f59e0b)33;color:var(--amber,#f59e0b);padding:1px 5px;border-radius:3px;margin-left:4px;">EXTENDED</span>`;
 }
 
+// ── Legend helpers ──────────────────────────────────────────────────────────
+let _swingLegendOpen = false;
+
+// Temporarily injects a stub row so the REAL _swingBadge function is called —
+// legend badges are byte-for-byte identical to table badges; they can never drift.
+function _swingBadgeSample(score, daysOld){
+  const K = '\x00lg\x00';
+  const was = _swingSetupCache;
+  if(!_swingSetupCache) _swingSetupCache = new Map();
+  const prev = _swingSetupCache.has(K) ? _swingSetupCache.get(K) : undefined;
+  _swingSetupCache.set(K, { score, days_old: daysOld, reasons:'', setup_label:'', verdict:'' });
+  const html = _swingBadge(K);
+  if(prev !== undefined) _swingSetupCache.set(K, prev); else _swingSetupCache.delete(K);
+  if(!was) _swingSetupCache = null;
+  return html;
+}
+
+function _extendedChipSample(){
+  const K = '\x00lgx\x00';
+  const was = _swingSetupCache;
+  if(!_swingSetupCache) _swingSetupCache = new Map();
+  const prev = _swingSetupCache.has(K) ? _swingSetupCache.get(K) : undefined;
+  _swingSetupCache.set(K, { score:0, days_old:0, range_pos:95 });
+  const html = _extendedChip(K);
+  if(prev !== undefined) _swingSetupCache.set(K, prev); else _swingSetupCache.delete(K);
+  if(!was) _swingSetupCache = null;
+  return html;
+}
+
+function _buildSwingLegend(){
+  const b4   = _swingBadgeSample(4, 0);
+  const b3   = _swingBadgeSample(3, 0);
+  const b2   = _swingBadgeSample(2, 0);
+  const b1   = _swingBadgeSample(1, 0);
+  const b0   = '<span style="font-size:10px;color:#50607080;font-style:italic;">—</span>';
+  const bn   = _swingBadgeSample(-1, 0);
+  const bst  = _swingBadgeSample(3, 4);
+  const bold = _swingBadgeSample(3, 9);
+  const bext = _extendedChipSample();
+
+  const chipHot  = _sectorChipFromRow({ sector:'Biotech',          etf:'XBI', ret_20d:6.00,  rank:1,  tone:'hot'  });
+  const chipFirm = _sectorChipFromRow({ sector:'Technology',       etf:'XLK', ret_20d:2.00,  rank:5,  tone:'firm' });
+  const chipFlat = _sectorChipFromRow({ sector:'Consumer Staples', etf:'XLP', ret_20d:-0.50, rank:9,  tone:'flat' });
+  const chipWeak = _sectorChipFromRow({ sector:'Utilities',        etf:'XLU', ret_20d:-3.00, rank:12, tone:'weak' });
+
+  const row = (badge, score, desc) =>
+    `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+      <div style="width:48px;text-align:center;flex-shrink:0;line-height:1;">${badge}</div>
+      <div style="width:58px;font-size:10px;color:#8090a0;flex-shrink:0;">${score}</div>
+      <div style="font-size:11px;color:#a0a8b0;line-height:1.4;">${desc}</div>
+    </div>`;
+
+  return `<div style="margin:8px 0 12px;padding:10px 14px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.08);border-radius:6px;">
+    <div style="font-size:10px;color:#6080a0;letter-spacing:0.5px;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Star Badge Legend</div>
+    ${row(b4,   'Score 4+', 'Strongest setup — reversal pattern AND options positioning both bullish')}
+    ${row(b3,   'Score 3',  'Strong setup — tested reversal pattern present')}
+    ${row(b2,   'Score 2',  'Moderate — usually options positioning only, no price reversal pattern')}
+    ${row(b1,   'Score 1',  'Weak — one factor firing')}
+    ${row(b0,   'Score 0',  'Neutral')}
+    ${row(bn,   'Score -1', 'Avoid')}
+    ${row(bst,  'any',      'Chain data 3-7 days old — score may be stale')}
+    ${row(bold, 'any',      'Chain data over 7 days old — not scored')}
+    ${row(bext, '',         'At 90-day high. Caution against buying. NOT a short signal — shorting 90d highs tested at 46.8% over 20 days (n=11,350)')}
+    <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);">
+      <div style="font-size:10px;color:#6080a0;letter-spacing:0.5px;font-weight:700;text-transform:uppercase;margin-bottom:6px;">Sector Chip Colours</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:11px;color:#8090a0;">
+        ${chipHot}&nbsp;hot (+5% or more over 20 days)&emsp;${chipFirm}&nbsp;firm (+1 to +5%)&emsp;${chipFlat}&nbsp;flat (-2 to +1%)&emsp;${chipWeak}&nbsp;weak (below -2%)
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:10px;color:#708090;line-height:1.6;border-top:1px solid rgba(255,255,255,0.08);padding-top:8px;">
+      Gold = a tested price reversal pattern is present (at a 90-day low, or a 3+ day down streak). Green = options positioning only, no price pattern.
+      These are CONTRARIAN setups — they fire on weakness, so a starred row may show bearish momentum. That is expected.
+      Base rates come from 261,788 historical setups since 2023 and are not predictions.
+    </div>
+  </div>`;
+}
+
+function _swingLegendToggle(page){
+  _swingLegendOpen = !_swingLegendOpen;
+  if(page === 'fp') renderFlowPredictor(); else _tosRenderSwingTable();
+}
+
 function _swingBadge(ticker){
   if(!_swingSetupCache) return '';
   const row = _swingSetupCache.get(ticker);
@@ -9920,7 +10004,11 @@ function _tosRenderSwingTable(){
     </tr>`;
   }).join('');
 
-  wrap.innerHTML = `<div style="margin-bottom:8px;font-size:10px;color:#6080a0;letter-spacing:0.5px;font-weight:700;text-transform:uppercase;">Swing Setup Scoring</div>
+  wrap.innerHTML = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:10px;">
+    <span style="font-size:10px;color:#6080a0;letter-spacing:0.5px;font-weight:700;text-transform:uppercase;">Swing Setup Scoring</span>
+    <button onclick="_swingLegendToggle('tos')" style="background:var(--bg3);color:#a0a8c0;border:1px solid var(--border2);padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;">${_swingLegendOpen ? '▲ Legend' : '? Legend'}</button>
+  </div>
+  ${_swingLegendOpen ? _buildSwingLegend() : ''}
   <div style="overflow-x:auto;border:1px solid var(--border2);border-radius:6px;">
     <table style="border-collapse:collapse;table-layout:auto;width:100%;">
       <thead>
