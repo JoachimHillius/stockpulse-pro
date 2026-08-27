@@ -1425,60 +1425,128 @@ select option{background:var(--bg2);}
 <div id="page-rangescan" class="page" style="padding:0;"></div>
 <div id="page-toscsv" class="page">
   <div style="max-width:1200px;">
-    <!-- Saved Snapshots panel — collapsed by default -->
-    <div class="card" style="margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;flex:1;" onclick="tosToggleSnapPanel()">
-          <span class="card-title" style="margin:0;">SAVED SNAPSHOTS</span>
-          <span id="tos-snap-badge" style="background:var(--bg3);border:1px solid var(--border2);color:#fff;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:0.5px;">— saved</span>
-          <span id="tos-snap-chevron" style="margin-left:auto;color:#fff;font-size:12px;">▼</span>
-        </div>
-        <button onclick="event.stopPropagation();_tosLoadSnapshots()" title="Re-query saved snapshots from database" style="background:var(--bg3);border:1px solid var(--border2);color:#c0c8d0;padding:3px 8px;border-radius:4px;font-size:12px;cursor:pointer;flex-shrink:0;">↻</button>
+
+    <!-- Collapse / Expand all -->
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <button onclick="tosCollapseAll()" style="background:var(--bg3);border:1px solid var(--border2);color:#c0c8d0;padding:4px 12px;border-radius:4px;font-size:13px;cursor:pointer;font-family:var(--font);">⌄ Collapse all</button>
+      <button onclick="tosExpandAll()"   style="background:var(--bg3);border:1px solid var(--border2);color:#c0c8d0;padding:4px 12px;border-radius:4px;font-size:13px;cursor:pointer;font-family:var(--font);">⌃ Expand all</button>
+    </div>
+
+    <!-- Sticky jump bar -->
+    <div id="tos-jump-bar" style="position:sticky;top:0;z-index:20;display:flex;gap:16px;padding:6px 12px;background:var(--bg2,#1a2030);border:1px solid var(--border2);border-radius:6px;margin-bottom:12px;">
+      <a onclick="tosJumpTo('upload')"    style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Upload</a>
+      <a onclick="tosJumpTo('tickers')"   style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Tickers</a>
+      <a onclick="tosJumpTo('swing')"     style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Swing</a>
+      <a onclick="tosJumpTo('snapshots')" style="color:var(--cyan,#00d4ff);font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap;">Snapshots</a>
+    </div>
+
+    <!-- Section: Upload (EXPANDED) -->
+    <div id="tos-sec-upload" class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('upload')">
+        <span class="card-title" style="margin:0;">ThinkorSwim CSV</span>
+        <span id="tos-sec-upload-chev" style="color:#fff;font-size:12px;">▼</span>
       </div>
-      <div id="tos-snap-body" style="display:none;margin-top:12px;">
-        <div id="tos-snap-table" style="overflow-x:auto;font-size:14px;color:#fff;"></div>
+      <div id="tos-sec-upload-body" style="margin-top:12px;">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px;">
+          <div>
+            <input type="file" id="tos-file" accept=".csv,.zip" multiple style="display:none;" onchange="tosHandleFile(this)"/>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('tos-file').click()">↑ Upload CSV</button>
+          </div>
+          <div>
+            <div style="font-size:13px;color:#fff;margin-bottom:3px;letter-spacing:0.5px;">TICKER</div>
+            <input id="tos-ticker" type="text" placeholder="TICKER" style="width:90px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);text-transform:uppercase;letter-spacing:1px;" oninput="this.value=this.value.toUpperCase()"/>
+          </div>
+          <div>
+            <div style="font-size:13px;color:#fff;margin-bottom:3px;letter-spacing:0.5px;">CURRENT PRICE</div>
+            <input id="tos-price" type="number" step="0.01" placeholder="spot" style="width:110px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" oninput="tosOnPriceChange(this.value)"/>
+          </div>
+          <div>
+            <div style="font-size:13px;color:#fff;margin-bottom:3px;letter-spacing:0.5px;">SNAPSHOT DATE</div>
+            <input id="tos-date" type="date" style="width:150px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);"/>
+          </div>
+          <div style="align-self:flex-end;">
+            <button id="tos-save-btn" class="btn btn-cyan btn-sm" onclick="tosSaveSnapshot()" disabled>Save snapshot</button>
+            <div style="font-size:13px;color:#fff;margin-top:3px;white-space:nowrap;">saves all expirations in file</div>
+            <div id="tos-save-warn" style="display:none;font-size:13px;color:var(--amber);margin-top:4px;max-width:350px;line-height:1.4;"></div>
+          </div>
+        </div>
+        <div id="tos-status" style="font-size:13px;color:#fff;min-height:16px;"></div>
       </div>
     </div>
-    <div class="card" style="margin-bottom:16px;">
-      <div class="card-hd">
-        <span class="card-title">ThinkorSwim CSV</span>
+
+    <!-- Section: Per-ticker ratio list (EXPANDED) -->
+    <div id="tos-sec-tickers" class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('tickers')">
+        <div style="display:flex;align-items:baseline;gap:10px;">
+          <span class="card-title" id="tos-sec-tickers-title" style="margin:0;">TICKERS</span>
+          <span style="color:#8090a0;font-size:12px;">0–45 DTE · strikes within 10% of spot</span>
+        </div>
+        <span id="tos-sec-tickers-chev" style="color:#fff;font-size:12px;">▼</span>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px;">
-        <div>
-          <input type="file" id="tos-file" accept=".csv,.zip" multiple style="display:none;" onchange="tosHandleFile(this)"/>
-          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('tos-file').click()">↑ Upload CSV</button>
-        </div>
-        <div>
-          <div style="font-size:13px;color:#fff;margin-bottom:3px;letter-spacing:0.5px;">TICKER</div>
-          <input id="tos-ticker" type="text" placeholder="TICKER" style="width:90px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);text-transform:uppercase;letter-spacing:1px;" oninput="this.value=this.value.toUpperCase()"/>
-        </div>
-        <div>
-          <div style="font-size:13px;color:#fff;margin-bottom:3px;letter-spacing:0.5px;">CURRENT PRICE</div>
-          <input id="tos-price" type="number" step="0.01" placeholder="spot" style="width:110px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);" oninput="tosOnPriceChange(this.value)"/>
-        </div>
-        <div>
-          <div style="font-size:13px;color:#fff;margin-bottom:3px;letter-spacing:0.5px;">SNAPSHOT DATE</div>
-          <input id="tos-date" type="date" style="width:150px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);"/>
-        </div>
-        <div style="align-self:flex-end;">
-          <button id="tos-save-btn" class="btn btn-cyan btn-sm" onclick="tosSaveSnapshot()" disabled>Save snapshot</button>
-          <div style="font-size:13px;color:#fff;margin-top:3px;white-space:nowrap;">saves all expirations in file</div>
-          <div id="tos-save-warn" style="display:none;font-size:13px;color:var(--amber);margin-top:4px;max-width:350px;line-height:1.4;"></div>
-        </div>
+      <div id="tos-sec-tickers-body" style="margin-top:8px;">
+        <div id="tos-ticker-list"></div>
       </div>
-      <div id="tos-status" style="font-size:13px;color:#fff;min-height:16px;"></div>
-      <div id="tos-picker" style="display:none;margin-top:10px;"></div>
     </div>
+
     <div id="tos-snap-banner"></div>
-    <div style="font-size:13px;color:#c0c8d0;line-height:1.6;margin-bottom:12px;padding:10px 14px;border:1px solid var(--border2);border-radius:6px;background:var(--bg3);">
-      <strong style="color:#fff;">★</strong> marks the strike with the strongest new-positioning signal in each expiration: volume relative to open interest, absolute volume, and delta near 0.35.
-      Volume does not reveal direction — heavy call volume may be selling, not buying.
-      No IV percentile is available in this export, so it cannot tell cheap premium from expensive.
-      Screening aid, not a recommendation.
+
+    <!-- Section: Expirations to display (COLLAPSED) -->
+    <div id="tos-sec-expiry" class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('expiry')">
+        <span class="card-title" style="margin:0;">EXPIRATIONS TO DISPLAY</span>
+        <span id="tos-sec-expiry-chev" style="color:#fff;font-size:12px;">▶</span>
+      </div>
+      <div id="tos-sec-expiry-body" style="display:none;">
+        <div id="tos-picker" style="display:none;margin-top:10px;"></div>
+      </div>
     </div>
-    <div id="tos-ticker-list"></div>
-    <div id="tos-body"></div>
-    <div id="tos-swing-wrap" style="margin-top:24px;"></div>
+
+    <!-- Section: Chain table (COLLAPSED) -->
+    <div id="tos-sec-chain" class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('chain')">
+        <span class="card-title" id="tos-sec-chain-title" style="margin:0;">CHAIN</span>
+        <span id="tos-sec-chain-chev" style="color:#fff;font-size:12px;">▶</span>
+      </div>
+      <div id="tos-sec-chain-body" style="display:none;">
+        <div style="font-size:13px;color:#c0c8d0;line-height:1.6;margin:10px 0 12px;padding:10px 14px;border:1px solid var(--border2);border-radius:6px;background:var(--bg3);">
+          <strong style="color:#fff;">★</strong> marks the strike with the strongest new-positioning signal in each expiration: volume relative to open interest, absolute volume, and delta near 0.35.
+          Volume does not reveal direction — heavy call volume may be selling, not buying.
+          No IV percentile is available in this export, so it cannot tell cheap premium from expensive.
+          Screening aid, not a recommendation.
+        </div>
+        <div id="tos-body"></div>
+      </div>
+    </div>
+
+    <!-- Section: Swing setup (EXPANDED) -->
+    <div id="tos-sec-swing" class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('swing')">
+        <span class="card-title" style="margin:0;">SWING SETUP</span>
+        <span id="tos-sec-swing-chev" style="color:#fff;font-size:12px;">▼</span>
+      </div>
+      <div id="tos-sec-swing-body" style="margin-top:8px;">
+        <div id="tos-swing-wrap"></div>
+      </div>
+    </div>
+
+    <!-- Section: Saved Snapshots (COLLAPSED) -->
+    <div id="tos-sec-snapshots" class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;" onclick="tosToggleSec('snapshots')">
+        <div style="display:flex;align-items:baseline;gap:10px;">
+          <span class="card-title" id="tos-sec-snap-title" style="margin:0;">SAVED SNAPSHOTS</span>
+          <span style="color:#8090a0;font-size:12px;">all expirations · 1–294 DTE · all strikes</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
+          <button onclick="_tosLoadSnapshots()" title="Re-query saved snapshots from database" style="background:var(--bg3);border:1px solid var(--border2);color:#c0c8d0;padding:3px 8px;border-radius:4px;font-size:12px;cursor:pointer;">↻</button>
+          <span id="tos-sec-snap-chev" style="color:#fff;font-size:12px;cursor:pointer;" onclick="event.stopPropagation();tosToggleSec('snapshots')">▶</span>
+        </div>
+      </div>
+      <div id="tos-sec-snapshots-body" style="display:none;margin-top:12px;">
+        <div id="tos-snap-controls"></div>
+        <div id="tos-snap-table"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -5274,6 +5342,7 @@ function goPage(name,btn){
     setTimeout(initRangeScan,50);
   }
   if(name==='toscsv'){
+    _tosApplySections();
     setTimeout(()=>{
       Promise.all([_fetchSwingSetup(), _fetchSectorStrength()]).then(()=>_tosRenderSwingTable());
     },50);
@@ -14082,6 +14151,12 @@ let _tosBatchResults = [];      // per-ticker summary rows after batch upload
 let _tosBatchSort    = 'callPct';
 let _tosBatchDir     = -1;
 
+// Section open/closed state — persisted for the session
+const _tosSectionOpen = { upload:true, tickers:true, expiry:false, chain:false, swing:true, snapshots:false };
+let _tosSnapFilterDate  = '';   // '' = auto (most recent date)
+let _tosSnapSearch      = '';
+const _tosSnapOpenDates = new Set();
+
 function _tosSplitCsvLine(line) {
   const result = [];
   let current = '';
@@ -14438,6 +14513,8 @@ function _tosRenderPicker() {
     ${collapsedNote}
     ${depthCtrl}`;
   picker.style.display = '';
+  _tosSectionOpen['expiry'] = true;
+  _tosApplySections();
   _tosUpdateChipStyles();
   _tosRender();
 }
@@ -14483,6 +14560,14 @@ function _tosScore(r, side) {
 function _tosRender() {
   const body = document.getElementById('tos-body');
   if (!body || !_tosParsed) return;
+  // Auto-expand chain section when content renders
+  if (!_tosSectionOpen['chain']) {
+    const ticker = _tosParsed.ticker || '';
+    const date   = _tosParsed.snapshotDate || '';
+    _tosSetChainTitle(ticker && date ? `${ticker} ${date}` : ticker || '');
+    _tosSectionOpen['chain'] = true;
+    _tosApplySections();
+  }
   const spot = parseFloat(document.getElementById('tos-price')?.value) || _tosParsed.spot || 0;
 
   const expMap = new Map();
@@ -14850,6 +14935,12 @@ function _tosTickerListSort(col) {
 function _tosRenderTickerList() {
   const el = document.getElementById('tos-ticker-list');
   if (!el) return;
+  // Update section title count
+  const titleEl = document.getElementById('tos-sec-tickers-title');
+  if (titleEl) {
+    const okCount = _tosBatchResults.filter(r => r.status === 'ok').length;
+    titleEl.textContent = okCount ? `TICKERS (${okCount})` : 'TICKERS';
+  }
   if (!_tosBatchResults.length) { el.innerHTML = ''; return; }
 
   const thS  = 'padding:5px 8px;font-size:12px;font-weight:700;color:#fff;text-transform:uppercase;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border2);cursor:pointer;user-select:none;';
@@ -15256,14 +15347,85 @@ async function tosSaveSnapshot() {
 // TOS CSV — SAVED SNAPSHOTS PANEL
 // ============================================================
 
-function tosToggleSnapPanel() {
-  const body = document.getElementById('tos-snap-body');
-  const chev = document.getElementById('tos-snap-chevron');
-  if (!body) return;
-  const open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : 'block';
-  if (chev) chev.textContent = open ? '▼' : '▲';
+// ── Section collapse/expand ───────────────────────────────────────────────────
+
+function _tosApplySections() {
+  for (const [key, open] of Object.entries(_tosSectionOpen)) {
+    const body = document.getElementById(`tos-sec-${key}-body`);
+    const chev = document.getElementById(`tos-sec-${key}-chev`);
+    if (body) body.style.display = open ? '' : 'none';
+    if (chev) chev.textContent = open ? '▼' : '▶';
+  }
 }
+
+function tosToggleSec(key) {
+  _tosSectionOpen[key] = !_tosSectionOpen[key];
+  _tosApplySections();
+}
+
+function tosCollapseAll() {
+  for (const k of Object.keys(_tosSectionOpen)) _tosSectionOpen[k] = false;
+  _tosApplySections();
+}
+
+function tosExpandAll() {
+  for (const k of Object.keys(_tosSectionOpen)) _tosSectionOpen[k] = true;
+  _tosApplySections();
+}
+
+function tosJumpTo(key) {
+  _tosSectionOpen[key] = true;
+  _tosApplySections();
+  const sec = document.getElementById(`tos-sec-${key}`);
+  if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function _tosSetChainTitle(label) {
+  const el = document.getElementById('tos-sec-chain-title');
+  if (el) el.textContent = label ? `CHAIN — ${label}` : 'CHAIN';
+}
+
+// ── Snapshot panel — search / date filter / grouped view ─────────────────────
+
+function _tosSnapSetDate(val) {
+  _tosSnapFilterDate = val;
+  _tosRenderSnapshotsPanel();
+}
+
+function _tosSnapSetSearch(val) {
+  _tosSnapSearch = val;
+  _tosRenderSnapshotsPanel();
+}
+
+function _tosSnapToggleDate(date) {
+  if (_tosSnapOpenDates.has(date)) _tosSnapOpenDates.delete(date);
+  else _tosSnapOpenDates.add(date);
+  _tosRenderSnapshotsPanel();
+}
+
+async function tosDeleteAllFromDate(date, count) {
+  if (!confirm(`Delete ALL ${count} snapshot(s) for ${date}? This cannot be undone.`)) return;
+  const status = document.getElementById('tos-status');
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) throw new Error('Supabase unavailable');
+    const tickers = _tosSnapshots.filter(s => s.snapshot_date === date).map(s => s.ticker);
+    for (const tk of tickers) {
+      const { data, error } = await supa.rpc('delete_options_snapshot', { p_ticker: tk, p_snapshot_date: date });
+      if (error) { console.error('[TOS] delete_all error:', tk, error); throw new Error(error.message); }
+    }
+    if (status) { status.style.color = 'var(--green)'; status.textContent = `Deleted ${count} snapshot(s) for ${date}.`; }
+    if (_tosViewingSnapshot && _tosViewingSnapshot.snapshotDate === date) tosClearSnapshot();
+    await _tosLoadSnapshots();
+    _tosCheckOverwrite();
+  } catch(e) {
+    console.error('[TOS] tosDeleteAllFromDate error:', e);
+    if (status) { status.style.color = 'var(--red)'; status.textContent = `Delete failed: ${e.message || 'see console'}`; }
+  }
+}
+
+// Legacy alias so any cached reference still works
+function tosToggleSnapPanel() { tosToggleSec('snapshots'); }
 
 async function _tosLoadSnapshots() {
   try {
@@ -15301,74 +15463,150 @@ async function _tosLoadSnapshots() {
   _tosRenderSnapshotsPanel();
 }
 
+function _tosEnsureSnapControls() {
+  const ctrl = document.getElementById('tos-snap-controls');
+  if (!ctrl || ctrl.querySelector('#tos-snap-date-dd')) return;
+  ctrl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span style="font-size:13px;color:#8090a0;white-space:nowrap;">Show:</span>
+      <select id="tos-snap-date-dd" onchange="_tosSnapSetDate(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:#fff;padding:4px 8px;font-size:13px;font-family:var(--font);cursor:pointer;"></select>
+    </div>
+    <input id="tos-snap-search-inp" type="text" placeholder="Search ticker…" oninput="_tosSnapSetSearch(this.value)" style="background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:#fff;padding:4px 8px;font-size:13px;font-family:var(--font);width:160px;" autocomplete="off"/>
+  </div>`;
+}
+
+function _tosUpdateSnapDateDropdown(allDates) {
+  const dd = document.getElementById('tos-snap-date-dd');
+  if (!dd) return;
+  const currentVal = _tosSnapFilterDate || (allDates[0] || '');
+  dd.innerHTML = allDates.map(d => `<option value="${d}"${d === currentVal ? ' selected' : ''}>${d}</option>`).join('') +
+    `<option value="__ALL__"${currentVal === '__ALL__' ? ' selected' : ''}>All dates</option>`;
+}
+
 function _tosRenderSnapshotsPanel() {
-  const badge = document.getElementById('tos-snap-badge');
-  const tbl   = document.getElementById('tos-snap-table');
-  if (badge) badge.textContent = `${_tosSnapshots.length} saved`;
+  // Update section title with total count
+  const titleEl = document.getElementById('tos-sec-snap-title');
+  if (titleEl) titleEl.textContent = `SAVED SNAPSHOTS (${_tosSnapshots.length})`;
+
+  const tbl = document.getElementById('tos-snap-table');
   if (!tbl) return;
+
+  _tosEnsureSnapControls();
 
   if (!_tosSnapshots.length) {
     tbl.innerHTML = '<div style="color:#fff;font-size:14px;padding:8px 0;">No saved snapshots.</div>';
     return;
   }
 
-  const sorted = [..._tosSnapshots].sort((a, b) =>
-    (b.snapshot_date || '').localeCompare(a.snapshot_date || '') ||
-    (a.ticker || '').localeCompare(b.ticker || '')
-  );
+  // All unique dates, newest first
+  const allDates = [...new Set(_tosSnapshots.map(s => s.snapshot_date).filter(Boolean))].sort().reverse();
+  _tosUpdateSnapDateDropdown(allDates);
 
-  const thS  = 'padding:5px 10px;font-size:13px;font-weight:700;color:#fff;text-transform:uppercase;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border2);';
-  const thSL = thS.replace('text-align:right', 'text-align:left');
-  const tdS  = 'padding:5px 10px;font-size:14px;font-weight:500;color:#fff;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;';
-  const tdSL = tdS.replace('text-align:right', 'text-align:left');
+  // Default filter date to most recent
+  if (!_tosSnapFilterDate || (_tosSnapFilterDate !== '__ALL__' && !allDates.includes(_tosSnapFilterDate))) {
+    _tosSnapFilterDate = allDates[0] || '';
+  }
 
-  const rows = sorted.map(r => {
-    // bigint fields arrive from PostgREST as strings — coerce before arithmetic/formatting
-    const callOI  = Number(r.call_oi)   || 0;
-    const putOI   = Number(r.put_oi)    || 0;
-    const callVol = Number(r.call_volume) || 0;
-    const putVol  = Number(r.put_volume)  || 0;
-    const sc      = Number(r.strikes)   || 0;
-    const ec      = Number(r.expirations) || 0;
-    const cpOI    = putOI > 0 ? (callOI / putOI).toFixed(2) : '—';
-    const ticker  = (r.ticker || '').replace(/'/g, "\\'");
-    const date    = (r.snapshot_date || '').replace(/'/g, "\\'");
-    return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
-      <td style="${tdSL}font-weight:700;letter-spacing:1px;">${r.ticker || ''}</td>
-      <td style="${tdS}">${r.snapshot_date || ''}</td>
-      <td style="${tdS}font-variant-numeric:tabular-nums;">${r.spot != null ? r.spot : '—'}</td>
-      <td style="${tdS}">${ec || '—'}</td>
-      <td style="${tdS}">${sc ? _tosFmtN(sc) : '—'}</td>
-      <td style="${tdS}color:var(--blue);">${callVol ? _tosFmtN(callVol) : '—'}</td>
-      <td style="${tdS}color:var(--blue);">${callOI  ? _tosFmtN(callOI)  : '—'}</td>
-      <td style="${tdS}color:var(--amber);">${putVol ? _tosFmtN(putVol)  : '—'}</td>
-      <td style="${tdS}color:var(--amber);">${putOI  ? _tosFmtN(putOI)   : '—'}</td>
-      <td style="${tdS}">${cpOI}</td>
-      <td style="padding:5px 6px;white-space:nowrap;">
-        <button class="btn btn-ghost btn-sm" onclick="tosLoadSnapshot('${ticker}','${date}')" style="font-size:12px;padding:3px 10px;">Load</button>
-      </td>
-      <td style="padding:5px 6px;white-space:nowrap;">
-        <button class="btn btn-ghost btn-sm" onclick="tosDeleteSnapshot('${ticker}','${date}',${sc},${ec})" style="font-size:12px;padding:3px 10px;color:var(--red);border-color:var(--red);">Delete</button>
-      </td>
-    </tr>`;
+  // Auto-expand today (newest date) on first render
+  const newestDate = allDates[0] || '';
+  if (newestDate && !_tosSnapOpenDates.size) _tosSnapOpenDates.add(newestDate);
+
+  // Apply date filter
+  let visible = _tosSnapshots;
+  if (_tosSnapFilterDate && _tosSnapFilterDate !== '__ALL__') {
+    visible = visible.filter(s => s.snapshot_date === _tosSnapFilterDate);
+  }
+
+  // Apply search
+  const search = _tosSnapSearch.toLowerCase();
+  if (search) visible = visible.filter(s => (s.ticker || '').toLowerCase().includes(search));
+
+  if (!visible.length) {
+    tbl.innerHTML = `<div style="color:#8090a0;font-size:14px;padding:8px 0;">${search ? `No tickers match "${_tosSnapSearch}"` : 'No snapshots for this date.'}</div>`;
+    return;
+  }
+
+  // Group by date, newest first
+  const byDate = new Map();
+  for (const snap of visible) {
+    const d = snap.snapshot_date || '';
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(snap);
+  }
+  const sortedDates = [...byDate.keys()].sort().reverse();
+
+  const thS  = 'padding:4px 8px;font-size:12px;font-weight:700;color:#fff;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border2);text-transform:uppercase;';
+  const thSL = thS.replace('text-align:right','text-align:left');
+  const tdS  = 'padding:4px 8px;font-size:13px;color:#fff;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;';
+  const tdSL = tdS.replace('text-align:right','text-align:left');
+
+  const html = sortedDates.map(date => {
+    const rows    = byDate.get(date);
+    const isOpen  = _tosSnapOpenDates.has(date);
+    const safeDate = date.replace(/'/g, "\\'");
+
+    const rowsHtml = rows
+      .sort((a, b) => (a.ticker || '').localeCompare(b.ticker || ''))
+      .map(r => {
+        const callOI  = Number(r.call_oi)    || 0;
+        const putOI   = Number(r.put_oi)     || 0;
+        const callVol = Number(r.call_volume) || 0;
+        const putVol  = Number(r.put_volume)  || 0;
+        const sc      = Number(r.strikes)    || 0;
+        const ec      = Number(r.expirations) || 0;
+        const cpOI    = putOI > 0 ? (callOI / putOI).toFixed(2) : '—';
+        const tk      = (r.ticker || '').replace(/'/g, "\\'");
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);" onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background=''">
+          <td style="${tdSL}font-weight:700;letter-spacing:1px;">${r.ticker || ''}</td>
+          <td style="${tdS}font-variant-numeric:tabular-nums;">${r.spot != null ? r.spot : '—'}</td>
+          <td style="${tdS}">${ec || '—'}</td>
+          <td style="${tdS}">${sc ? _tosFmtN(sc) : '—'}</td>
+          <td style="${tdS}color:var(--blue);">${callVol ? _tosFmtN(callVol) : '—'}</td>
+          <td style="${tdS}color:var(--blue);">${callOI  ? _tosFmtN(callOI)  : '—'}</td>
+          <td style="${tdS}color:var(--amber);">${putVol ? _tosFmtN(putVol)  : '—'}</td>
+          <td style="${tdS}color:var(--amber);">${putOI  ? _tosFmtN(putOI)   : '—'}</td>
+          <td style="${tdS}">${cpOI}</td>
+          <td style="padding:4px 6px;white-space:nowrap;">
+            <button class="btn btn-ghost btn-sm" onclick="tosLoadSnapshot('${tk}','${safeDate}')" style="font-size:12px;padding:2px 8px;">Load</button>
+          </td>
+          <td style="padding:4px 6px;white-space:nowrap;">
+            <button class="btn btn-ghost btn-sm" onclick="tosDeleteSnapshot('${tk}','${safeDate}',${sc},${ec})" style="font-size:12px;padding:2px 8px;color:var(--red);border-color:var(--red);">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+    return `<div style="margin-bottom:8px;border:1px solid var(--border2);border-radius:6px;overflow:hidden;">
+      <div onclick="_tosSnapToggleDate('${safeDate}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg3);cursor:pointer;user-select:none;" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background='var(--bg3)'">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:14px;font-weight:700;color:#fff;letter-spacing:0.5px;">${date}</span>
+          <span style="font-size:13px;color:#8090a0;">${rows.length} ticker${rows.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button onclick="event.stopPropagation();tosDeleteAllFromDate('${safeDate}',${rows.length})" style="background:none;border:1px solid var(--red);color:var(--red);font-size:12px;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:var(--font);">Delete all (${rows.length})</button>
+          <span style="color:#fff;font-size:12px;">${isOpen ? '▼' : '▶'}</span>
+        </div>
+      </div>
+      <div id="tos-snap-group-${date}" style="display:${isOpen ? '' : 'none'};overflow-x:auto;">
+        <table style="border-collapse:collapse;table-layout:auto;width:100%;">
+          <thead><tr style="background:var(--bg3);">
+            <th style="${thSL}">Ticker</th>
+            <th style="${thS}">Spot</th>
+            <th style="${thS}">Exp</th>
+            <th style="${thS}">Strikes</th>
+            <th style="${thS}color:var(--blue);">Call Vol</th>
+            <th style="${thS}color:var(--blue);">Call OI</th>
+            <th style="${thS}color:var(--amber);">Put Vol</th>
+            <th style="${thS}color:var(--amber);">Put OI</th>
+            <th style="${thS}">C/P OI</th>
+            <th style="${thS}"></th><th style="${thS}"></th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
   }).join('');
 
-  tbl.innerHTML = `<table style="border-collapse:collapse;table-layout:auto;width:100%;">
-    <thead><tr style="background:var(--bg3);">
-      <th style="${thSL}">Ticker</th>
-      <th style="${thS}">Date</th>
-      <th style="${thS}">Spot</th>
-      <th style="${thS}">Expirations</th>
-      <th style="${thS}">Strikes</th>
-      <th style="${thS}color:var(--blue);">Call Vol</th>
-      <th style="${thS}color:var(--blue);">Call OI</th>
-      <th style="${thS}color:var(--amber);">Put Vol</th>
-      <th style="${thS}color:var(--amber);">Put OI</th>
-      <th style="${thS}">C/P OI</th>
-      <th style="${thS}"></th><th style="${thS}"></th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
+  tbl.innerHTML = html;
 }
 
 function _tosCheckOverwrite() {
@@ -15484,6 +15722,9 @@ async function tosLoadSnapshot(ticker, snapshotDate) {
     }
 
     if (status) { status.style.color = '#fff'; status.textContent = ''; }
+    _tosSetChainTitle(`${ticker} ${snapshotDate}`);
+    _tosSectionOpen['chain'] = true;
+    _tosApplySections();
     _tosRenderPicker();
   } catch (e) {
     console.error('[TOS CSV] Load snapshot error:', e);
