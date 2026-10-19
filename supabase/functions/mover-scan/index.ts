@@ -136,6 +136,8 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const slot: string = body.slot || 'manual';
     const offset: number = Math.max(0, Number(body.offset) || 0);
+    // Test hook: lets a short budget force the self-invocation handoff. Not forwarded to the continuation.
+    const budgetMs: number = Number(body.budget_ms) > 0 ? Number(body.budget_ms) : TIME_BUDGET_MS;
     if (!['open', 'midday', 'close', 'manual'].includes(slot)) return json({ error: 'invalid slot' }, 400);
 
     // Gate only the first invocation: continuations of an admitted run may finish after the window closes.
@@ -149,7 +151,7 @@ Deno.serve(async (req: Request) => {
     const chunkErrors: string[] = [];
 
     while (next < universe.length) {
-      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      if (Date.now() - startedAt > budgetMs) {
         // Fire-and-forget: abort after the request is on the wire so we don't wait for the next run to finish.
         const controller = new AbortController();
         const handoff = fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/mover-scan`, {
