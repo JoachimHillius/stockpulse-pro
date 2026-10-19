@@ -278,11 +278,14 @@ Deno.serve(async (req: Request) => {
         .select('full_history_loaded, earliest_date').eq('symbol', symbol).maybeSingle();
       const incremental = !forceRefresh && statusRow?.full_history_loaded === true;
 
-      const { rows: rawRows, error, source } = incremental
+      let fetched: {rows: any[], error?: string, source?: string} = incremental
         ? { ...(await fromYahooRecent(symbol)), source: 'chart_1mo' }
         : await fetchHistory(symbol);
+      // 1mo failed or came back empty: fall back to the full 10y fetch before recording an error.
+      if (incremental && (fetched.error || fetched.rows.length < 1)) fetched = await fetchHistory(symbol);
+      const { rows: rawRows, error, source } = fetched;
 
-      if (error || rawRows.length < (incremental ? 1 : MIN_BARS)) {
+      if (error || rawRows.length < (source === 'chart_1mo' ? 1 : MIN_BARS)) {
         const { data: prev } = await supa.from('price_sync_status')
           .select('fail_streak').eq('symbol', symbol).maybeSingle();
         const streak = (prev?.fail_streak || 0) + 1;
@@ -323,7 +326,7 @@ Deno.serve(async (req: Request) => {
           symbol, last_synced_at: new Date().toISOString(), last_status: 'success',
           rows_loaded: rows.length, earliest_date: earliest, latest_date: latest,
           error_message: source === 'csv' ? 'via_csv_fallback' : null, fail_streak: 0,
-          ...(incremental ? {} : { full_history_loaded: true }),
+          ...(source === 'chart_1mo' ? {} : { full_history_loaded: true }),
         },
         { onConflict: 'symbol' }
       );
@@ -346,7 +349,7 @@ Deno.serve(async (req: Request) => {
     const totalRows = results.reduce((s,r)=>s+(r.count||0),0);
 
     return new Response(JSON.stringify({
-      version:'v12', min_bars:MIN_BARS, universe_size:universeSize, processed:results.length,
+      version:'v13', min_bars:MIN_BARS, universe_size:universeSize, processed:results.length,
       succeeded, failed, via_csv: viaCsv, total_rows_inserted: totalRows,
       remaining, results,
     }), { headers: { ...corsHeaders, 'Content-Type':'application/json' } });
