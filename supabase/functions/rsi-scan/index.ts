@@ -52,6 +52,20 @@ function etParts(date: Date) {
   };
 }
 
+// Per-bar ET conversion dominated CPU (Intl.formatToParts ~260k calls per run). ET offsets are whole hours,
+// so the ET date + hour depend only on the UTC hour; all symbols share these timestamps, so memoise per UTC hour.
+const etHourCache = new Map<number, { date: string, hour: number }>();
+function etDateHour(unixSeconds: number): { date: string, hour: number } {
+  const utcHourKey = Math.floor(unixSeconds / 3600);
+  let hit = etHourCache.get(utcHourKey);
+  if (!hit) {
+    const { date, hour } = etParts(new Date(utcHourKey * 3600 * 1000));
+    hit = { date, hour };
+    etHourCache.set(utcHourKey, hit);
+  }
+  return hit;
+}
+
 function matchedSlot(): string | null {
   const now = etParts(new Date());
   if (now.weekday === 'Sat' || now.weekday === 'Sun') return null;
@@ -78,7 +92,7 @@ function parseHourly(result: any): HourBar[] {
   const bars: HourBar[] = [];
   result.timestamp.forEach((ts: number, i: number) => {
     if (closes[i] == null) return;
-    const et = etParts(new Date(ts * 1000));
+    const et = etDateHour(ts);
     bars.push({ date: et.date, hour: et.hour, ts, close: Number(closes[i]) });
   });
   return bars.sort((a, b) => a.ts - b.ts);
@@ -89,7 +103,7 @@ function parseDaily(result: any): Bar[] {
   const byDate = new Map<string, number>();
   result.timestamp.forEach((ts: number, i: number) => {
     if (closes[i] == null) return;
-    byDate.set(etParts(new Date(ts * 1000)).date, Number(closes[i]));
+    byDate.set(etDateHour(ts).date, Number(closes[i]));
   });
   return [...byDate.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([date, close]) => ({ date, close }));
 }
