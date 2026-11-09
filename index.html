@@ -139,9 +139,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .wl-pat{font-size:9px;color:var(--amber);}
 
 /* WATCHLIST — dense single-line layout */
-/* 14 columns: SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | Bull | Bear | dots */
+/* 18 columns: SYM | NAME | Price | Net$ | 5m | 1h | RSI1H | RSI4H | 1D | RSI1D | 1W | RSI1W | 1M | 6M | 1Y | Bull | Bear | dots */
 :root{
-  --wl-grid:60px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 65px 65px 22px;
+  --wl-grid:60px 140px 80px 70px 50px 50px 46px 46px 60px 46px 55px 46px 55px 55px 65px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
@@ -207,6 +207,17 @@ body.light-mode .mom-dense-row:hover{background:rgba(0,0,0,0.04);}
 .pct-neg{color:var(--red);}
 .pct-zero{color:#e0e0e0;font-weight:400;font-size:11px;}
 .pct-na{color:#e0e0e0;font-weight:400;font-size:11px;}
+.rsi-cell{font-size:12px;text-align:right;white-space:nowrap;font-weight:400;}
+.rsi-ob{color:var(--green);font-weight:700;}
+.rsi-hi{color:#7ee2a8;}
+.rsi-mid{color:#8090a0;}
+.rsi-lo{color:#ff9f43;}
+.rsi-os{color:#ff5c5c;font-weight:700;}
+body.light-mode .rsi-ob{color:#0a7a3b;}
+body.light-mode .rsi-hi{color:#1f9d57;}
+body.light-mode .rsi-mid{color:#5a6b7d;}
+body.light-mode .rsi-lo{color:#c76a00;}
+body.light-mode .rsi-os{color:#c62828;}
 .wl-dot-wrap{display:flex;gap:2px;align-items:center;justify-content:flex-end;}
 .wl-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
 .dot-earn{background:var(--amber);}
@@ -627,8 +638,8 @@ select option{background:var(--bg2);}
       <button class="fbtn" onclick="setWlFilter('Crypto / Digital Assets',this)">Crypto</button>
       <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
     </div>
-    <span style="margin-left:auto;font-size:10px;color:#8090a0;">Updated <span data-refresh-label="watchlist">never</span></span>
-    <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',()=>fetchLiveAll(true,'watchlist'))">↻ Refresh</button>
+    <span style="margin-left:auto;font-size:10px;color:#8090a0;">RSI as of <span id="wl-rsi-asof">—</span> · Updated <span data-refresh-label="watchlist">never</span></span>
+    <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',async()=>{await fetchLiveAll(true,'watchlist');await loadRsiSnapshot();})">↻ Refresh</button>
     <button class="btn btn-sm" onclick="showMarketMap()" style="padding:5px 12px;background:transparent;border:1px solid rgba(0,212,255,0.4);border-radius:4px;font-family:var(--font);font-size:11px;color:#00d4ff;cursor:pointer;" title="Market Map">⊞ Map</button>
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
   </div>
@@ -672,8 +683,12 @@ select option{background:var(--bg2);}
     <span style="text-align:right;">Net $</span>
     <span style="text-align:right;" title="5-minute price change — shows — until live data has been running for ~5 minutes">5m%</span>
     <span style="text-align:right;" title="1-hour price change — shows — until live data has been running for ~60 minutes">1h%</span>
+    <span style="text-align:right;" title="RSI(14) on 1-hour bars, incl. pre/after-hours">RSI1H</span>
+    <span style="text-align:right;" title="RSI(14) on 4-hour ET blocks (04–08, 08–12, 12–16, 16–20)">RSI4H</span>
     <span style="text-align:right;">1D%</span>
+    <span style="text-align:right;" title="RSI(14) on daily closes">RSI1D</span>
     <span style="text-align:right;">1W%</span>
+    <span style="text-align:right;" title="RSI(14) on weekly closes">RSI1W</span>
     <span style="text-align:right;">1M%</span>
     <span style="text-align:right;">6M%</span>
     <span style="text-align:right;">1Y%</span>
@@ -1577,6 +1592,7 @@ let anthropicKey = localStorage.getItem('sp_anthropic') || '';
 let flowData = _safeLS('sp_flow', []);
 let _flowSentimentTimeframe = 'D';
 let _userWatchlist = [];  // array of {symbol, sector, added_at}
+let _rsiBySym = {};       // symbol -> rsi_snapshot row (written by the rsi-scan edge function)
 let _omenTickerCache = null;
 // Step 36: Promise that resolves when Supabase SDK has loaded.
 let _supabaseReadyResolve = null;
@@ -3178,6 +3194,12 @@ function _wlPctCell(val) {
   const cls = Math.abs(val) < 0.05 ? 'pct-zero' : val > 0 ? 'pct-pos' : 'pct-neg';
   return `<span class="pct-cell ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
 }
+function _wlRsiCell(val) {
+  if (val == null) return `<span class="rsi-cell pct-na">—</span>`;
+  const n = Number(val);
+  const cls = n >= 70 ? 'rsi-ob' : n >= 50 ? 'rsi-hi' : n >= 30 ? 'rsi-mid' : n >= 20 ? 'rsi-lo' : 'rsi-os';
+  return `<span class="rsi-cell ${cls}">${n.toFixed(1)}</span>`;
+}
 function _wlStaleCell(latestDate) {
   const d = latestDate ? latestDate.slice(0,10) : '?';
   return `<span class="pct-cell" style="color:var(--amber);font-size:10px;" title="Price history stale — last bar ${d}">stale</span>`;
@@ -3288,6 +3310,7 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
     const y1 = p?.y1 ?? null;
     const bullPct = fa?.bullPct ?? null;
     const bearPct = fa?.bearPct ?? null;
+    const rsi = _rsiBySym[sym];
     const dots = [];
     const earnData = earningsCache[sym];
     if (earnData?.length) {
@@ -3323,8 +3346,12 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
       <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
+      ${_wlRsiCell(rsi?.rsi_1h)}
+      ${_wlRsiCell(rsi?.rsi_4h)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(d1)}
+      ${_wlRsiCell(rsi?.rsi_1d)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(w1)}
+      ${_wlRsiCell(rsi?.rsi_1w)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(m1)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(m6)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(y1)}
@@ -6624,6 +6651,28 @@ async function loadUserWatchlist(){
     return _userWatchlist;
   }catch(e){console.warn('[user_watchlist] load failed:',e);return[];}
 }
+async function loadRsiSnapshot(){
+  const supa=await getSupabaseAsync();
+  if(!supa)return;
+  try{
+    const PAGE=1000;
+    const map={};
+    let latest=null;
+    let from=0;
+    while(true){
+      const{data,error}=await supa.from('rsi_snapshot').select('symbol, rsi_1h, rsi_4h, rsi_1d, rsi_1w, computed_at').order('symbol').range(from,from+PAGE-1);
+      if(error)throw error;
+      if(!data||!data.length)break;
+      data.forEach(r=>{map[r.symbol]=r;if(!latest||r.computed_at>latest)latest=r.computed_at;});
+      if(data.length<PAGE)break;
+      from+=PAGE;if(from>100000)break;
+    }
+    _rsiBySym=map;
+    const label=document.getElementById('wl-rsi-asof');
+    if(label)label.textContent=latest?new Date(latest).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'})+' ET':'—';
+  }catch(e){console.warn('[rsi_snapshot] load failed:',e);}
+  if(typeof renderWatchlist==='function')renderWatchlist();
+}
 async function addUserTicker(symbol,sector){
   const sym=(symbol||'').trim().toUpperCase();
   if(!sym||!/^[A-Z]{1,6}$/.test(sym)){alert('Invalid ticker: '+symbol);return false;}
@@ -9698,7 +9747,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     renderBriefTopFlow();  // Re-fire the Top Flow card now that DB is ready
     loadHeaderVixFromDb();
     loadMmEtf1d();
-    loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); });
+    loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); }).then(()=>loadRsiSnapshot());
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
