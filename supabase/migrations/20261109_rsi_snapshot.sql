@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS public.rsi_snapshot (
 
 ALTER TABLE public.rsi_snapshot ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "anon read rsi_snapshot" ON public.rsi_snapshot;
-CREATE POLICY "anon read rsi_snapshot" ON public.rsi_snapshot
+DROP POLICY IF EXISTS rsi_snapshot_anon_select ON public.rsi_snapshot;
+CREATE POLICY rsi_snapshot_anon_select ON public.rsi_snapshot
   FOR SELECT TO anon, authenticated USING (true);
 
 SELECT cron.schedule(
