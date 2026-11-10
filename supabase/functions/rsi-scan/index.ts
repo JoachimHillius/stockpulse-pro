@@ -188,7 +188,7 @@ async function computeSymbol(symbol: string): Promise<any> {
 const CHUNK_SIZE = 150;               // symbols per invocation; keeps each run well under the CPU limit
 const FINNHUB_MAX_LOOKUPS = 50;       // sector lookups per run
 const FINNHUB_SPACING_MS = 1100;      // <= 1 request/second
-const SCANNER_RETRY_MS = 7 * 86400000; // don't re-ask Finnhub about a symbol it couldn't place for a week
+const LOOKUP_RETRY_MS = 3 * 86400000;  // re-ask Finnhub about a symbol it couldn't place only every few days
 const HANDOFF_WAIT_MS = 2000;
 const SCANNER_SECTOR = 'Scanner';
 const SYMBOL_RE = /^[A-Z][A-Z.\-]{0,5}$/;
@@ -300,31 +300,39 @@ async function syncRsiUniverse(supa: any, extras: Map<string, ExtraSymbol>): Pro
     const sector = normalizeSector(r.sector); const sym = cleanSymbol(r.symbol);
     if (sym && sector) symbolSectors.set(sym, sector);
   }
-  const existing = new Map<string, { sector: string | null, updatedAt: number }>();
-  for (const r of await pagedRead(supa, 'rsi_universe', 'symbol, sector, updated_at', 'symbol')) {
-    existing.set(r.symbol, { sector: r.sector, updatedAt: new Date(r.updated_at).getTime() });
+  // updated_at doubles as "last lookup attempt" for unplaced rows: it is only bumped when a Finnhub lookup is tried or the
+  // sector changes, and a row whose updated_at still equals first_seen has never been tried.
+  const existing = new Map<string, { sector: string | null, updatedAt: number, updatedAtIso: string, neverTried: boolean }>();
+  for (const r of await pagedRead(supa, 'rsi_universe', 'symbol, sector, first_seen, updated_at', 'symbol')) {
+    const updatedAt = new Date(r.updated_at).getTime();
+    existing.set(r.symbol, { sector: r.sector, updatedAt, updatedAtIso: r.updated_at,
+      neverTried: Math.abs(updatedAt - new Date(r.first_seen).getTime()) < 2000 });
   }
 
   const resolved = new Map<string, string>();
-  const needsLookup: string[] = [];
+  const needsLookup: Array<{ sym: string, neverTried: boolean, updatedAt: number }> = [];
   for (const [sym, info] of extras) {
     const prior = existing.get(sym);
     const priorSector = prior && prior.sector && prior.sector !== SCANNER_SECTOR ? normalizeSector(prior.sector) : null;
     const sector = info.swingSector || info.scannerSector || symbolSectors.get(sym) || priorSector;
     if (sector) { resolved.set(sym, sector); continue; }
-    const recentlyUnplaced = prior && prior.sector === SCANNER_SECTOR && Date.now() - prior.updatedAt < SCANNER_RETRY_MS;
-    if (!recentlyUnplaced) needsLookup.push(sym);
+    const retryDue = !prior || prior.neverTried || Date.now() - prior.updatedAt >= LOOKUP_RETRY_MS;
+    if (retryDue) needsLookup.push({ sym, neverTried: !prior || prior.neverTried, updatedAt: prior?.updatedAt ?? 0 });
   }
 
+  // Never-tried symbols first, then the longest-waiting, so the per-run cap rotates through everything.
+  needsLookup.sort((a, b) => Number(b.neverTried) - Number(a.neverTried) || a.updatedAt - b.updatedAt || a.sym.localeCompare(b.sym));
+  const attempted = new Set<string>();
   let lookups = 0;
   const finnhubKey = Deno.env.get('FINNHUB_API_KEY');
   if (finnhubKey) {
     const cacheRows: any[] = [];
-    for (const sym of needsLookup.slice(0, FINNHUB_MAX_LOOKUPS)) {
+    for (const { sym } of needsLookup.slice(0, FINNHUB_MAX_LOOKUPS)) {
       if (lookups > 0) await new Promise(r => setTimeout(r, FINNHUB_SPACING_MS));
       lookups++;
-      const { sector, rateLimited } = await finnhubSector(sym, finnhubKey);
+      const { sector, rateLimited, ok } = await finnhubSector(sym, finnhubKey);
       if (rateLimited) { console.error('[finnhub] rate limited; stopping lookups'); break; }
+      if (ok) attempted.add(sym);
       if (sector && sector !== SCANNER_SECTOR) {
         resolved.set(sym, sector);
         cacheRows.push({ symbol: sym, sector, updated_at: new Date().toISOString() });
@@ -339,13 +347,22 @@ async function syncRsiUniverse(supa: any, extras: Map<string, ExtraSymbol>): Pro
   }
 
   const nowIso = new Date().toISOString();
-  const rows = [...extras.entries()].map(([sym, info]) => ({
-    symbol: sym, sector: resolved.get(sym) || SCANNER_SECTOR, sources: [...info.sources].sort(), updated_at: nowIso,
-  }));
-  for (let i = 0; i < rows.length; i += 200) {
-    const { error } = await supa.from('rsi_universe').upsert(rows.slice(i, i + 200), { onConflict: 'symbol' });
-    if (error) throw new Error('rsi_universe upsert failed: ' + error.message);
+  const allRows = [...extras.entries()].map(([sym, info]) => {
+    const sector = resolved.get(sym) || SCANNER_SECTOR;
+    const prior = existing.get(sym);
+    // New rows omit updated_at so it equals first_seen (= never tried); unchanged rows keep their last-attempt time.
+    const touched = attempted.has(sym) || (prior && prior.sector !== sector);
+    return { sym, isNew: !prior, row: { symbol: sym, sector, sources: [...info.sources].sort(),
+      ...(prior ? { updated_at: touched ? nowIso : prior.updatedAtIso } : {}) } };
+  });
+  for (const isNew of [true, false]) {
+    const batchRows = allRows.filter(r => r.isNew === isNew).map(r => r.row);
+    for (let i = 0; i < batchRows.length; i += 200) {
+      const { error } = await supa.from('rsi_universe').upsert(batchRows.slice(i, i + 200), { onConflict: 'symbol' });
+      if (error) throw new Error('rsi_universe upsert failed: ' + error.message);
+    }
   }
+  const rows = allRows.map(r => r.row);
   // Drop rows for symbols that left every source (or moved into the built-in / user lists).
   const stale = [...existing.keys()].filter(sym => !extras.has(sym));
   for (let i = 0; i < stale.length; i += 100) {
