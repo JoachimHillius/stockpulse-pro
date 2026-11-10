@@ -293,8 +293,15 @@ async function finnhubSector(symbol: string, token: string): Promise<{ sector: s
   }
 }
 
-// Resolution order: swing sector -> scanner sector -> symbol_sectors -> earlier rsi_universe result -> Finnhub -> 'Scanner'.
+// Resolution order: sector_override (user's manual choice, never second-guessed or written here) -> swing sector -> scanner sector
+// -> symbol_sectors (incl. cached Finnhub results) -> Finnhub lookup -> 'Scanner'.
 async function syncRsiUniverse(supa: any, extras: Map<string, ExtraSymbol>): Promise<{ total: number, scannerFallback: number, lookups: number }> {
+  // Manual overrides win over everything and are read-only for this function. They are not normalized: any name the user chose stands.
+  const overrides = new Map<string, string>();
+  for (const r of await pagedRead(supa, 'sector_override', 'symbol, sector', 'symbol')) {
+    const sym = cleanSymbol(r.symbol); const sector = String(r.sector ?? '').trim();
+    if (sym && sector) overrides.set(sym, sector);
+  }
   const symbolSectors = new Map<string, string>();
   for (const r of await pagedRead(supa, 'symbol_sectors', 'symbol, sector', 'symbol')) {
     const sector = normalizeSector(r.sector); const sym = cleanSymbol(r.symbol);
@@ -313,8 +320,11 @@ async function syncRsiUniverse(supa: any, extras: Map<string, ExtraSymbol>): Pro
   const needsLookup: Array<{ sym: string, neverTried: boolean, updatedAt: number }> = [];
   for (const [sym, info] of extras) {
     const prior = existing.get(sym);
-    const priorSector = prior && prior.sector && prior.sector !== SCANNER_SECTOR ? normalizeSector(prior.sector) : null;
-    const sector = info.swingSector || info.scannerSector || symbolSectors.get(sym) || priorSector;
+    const forced = overrides.get(sym);
+    if (forced) { resolved.set(sym, forced); continue; } // no Finnhub lookup either
+    // (No "previous rsi_universe value" fallback: after an override is reset it would otherwise keep the old override.
+    // Finnhub results are cached in symbol_sectors, so nothing is lost.)
+    const sector = info.swingSector || info.scannerSector || symbolSectors.get(sym);
     if (sector) { resolved.set(sym, sector); continue; }
     const retryDue = !prior || prior.neverTried || Date.now() - prior.updatedAt >= LOOKUP_RETRY_MS;
     if (retryDue) needsLookup.push({ sym, neverTried: !prior || prior.neverTried, updatedAt: prior?.updatedAt ?? 0 });
