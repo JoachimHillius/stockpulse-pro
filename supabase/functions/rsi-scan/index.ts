@@ -185,32 +185,199 @@ async function computeSymbol(symbol: string): Promise<any> {
   };
 }
 
-async function loadUniverse(supa: any): Promise<string[]> {
-  const PAGE = 1000;
-  const symbols = new Set<string>(BUILT_IN_WATCHLIST);
-  let from = 0;
-  while (true) {
-    const { data, error } = await supa.from('user_watchlist').select('symbol').order('symbol').range(from, from + PAGE - 1);
-    if (error) throw new Error('user_watchlist read failed: ' + error.message);
-    (data || []).forEach((r: any) => { if (r.symbol) symbols.add(String(r.symbol).toUpperCase()); });
-    if (!data || data.length < PAGE) break;
-    from += PAGE; if (from > 100000) break;
-  }
-  return [...symbols].filter(s => /^[A-Z.\-]{1,6}$/.test(s)).sort();
+const CHUNK_SIZE = 150;               // symbols per invocation; keeps each run well under the CPU limit
+const FINNHUB_MAX_LOOKUPS = 50;       // sector lookups per run
+const FINNHUB_SPACING_MS = 1100;      // <= 1 request/second
+const LOOKUP_RETRY_MS = 3 * 86400000;  // re-ask Finnhub about a symbol it couldn't place only every few days
+const HANDOFF_WAIT_MS = 2000;
+const SCANNER_SECTOR = 'Scanner';
+const SYMBOL_RE = /^[A-Z][A-Z.\-]{0,5}$/;
+
+// Sector names the Watchlist page groups by (WATCHLIST keys in index.html) plus the two extra groups this scan can create.
+const ALLOWED_SECTORS = new Set([
+  'Consumer Staples', 'Technology', 'Semiconductors', 'Utilities', 'Materials', 'Financials', 'Healthcare', 'Energy',
+  'Consumer Disc.', 'Telecom', 'Industrials', 'Crypto / Digital Assets', 'Commodities', 'Special Situations',
+  'Market References', 'Real Estate', SCANNER_SECTOR,
+]);
+
+// Ported from _normalizeSector in index.html (keep in sync), plus labels seen in scanner/swing/symbol_sectors data.
+const SECTOR_MAP: Record<string, string> = {
+    'technology':'Technology','software':'Technology','it services':'Technology','hardware':'Technology','electronic equipment':'Technology','communications equipment':'Technology',
+    'semiconductors':'Semiconductors',
+    'banking':'Financials','financial services':'Financials','insurance':'Financials','investment banking & brokerage':'Financials','diversified financial services':'Financials','capital markets':'Financials','consumer finance':'Financials','asset management':'Financials',
+    'pharmaceuticals':'Healthcare','biotechnology':'Healthcare','health care':'Healthcare','healthcare':'Healthcare','life sciences tools & services':'Healthcare','medical devices':'Healthcare','health care providers & services':'Healthcare','health care equipment & supplies':'Healthcare','managed health care':'Healthcare',
+    'oil & gas':'Energy','energy':'Energy','oil, gas & consumable fuels':'Energy',
+    'metals & mining':'Materials','chemicals':'Materials','building materials':'Materials','steel':'Materials','paper & forest products':'Materials','construction materials':'Materials','containers & packaging':'Materials','gold':'Materials',
+    'utilities':'Utilities','electric utilities':'Utilities','multi-utilities':'Utilities','water utilities':'Utilities','independent power and renewable electricity producers':'Utilities',
+    'beverages':'Consumer Staples','food products':'Consumer Staples','tobacco':'Consumer Staples','consumer products':'Consumer Staples','household products':'Consumer Staples','personal products':'Consumer Staples','food & staples retailing':'Consumer Staples',
+    'retail':'Consumer Disc.','apparel':'Consumer Disc.','auto':'Consumer Disc.','automobiles':'Consumer Disc.','hotels, restaurants & leisure':'Consumer Disc.','textiles, apparel & luxury goods':'Consumer Disc.','leisure products':'Consumer Disc.','homebuilding':'Consumer Disc.','homebuilders':'Consumer Disc.','household durables':'Consumer Disc.','specialty retail':'Consumer Disc.','internet & direct marketing retail':'Consumer Disc.','distributors':'Consumer Disc.','multiline retail':'Consumer Disc.','consumer discretionary':'Consumer Disc.',
+    'aerospace & defense':'Industrials','machinery':'Industrials','industrial conglomerates':'Industrials','logistics & transportation':'Industrials','road & rail':'Industrials','transportation':'Industrials','construction & engineering':'Industrials','trading companies & distributors':'Industrials','commercial services & supplies':'Industrials','electrical equipment':'Industrials','marine':'Industrials','airlines':'Industrials','air freight & logistics':'Industrials','building products':'Industrials','professional services':'Industrials',
+    'telecommunication':'Telecom','communications':'Telecom','media':'Telecom','diversified telecommunication services':'Telecom','wireless telecommunication services':'Telecom','entertainment':'Telecom','interactive media & services':'Telecom',
+    'real estate':'Real Estate','reit':'Real Estate','real estate management & development':'Real Estate','equity real estate investment trusts (reits)':'Real Estate',
+  'consumer cyclical':'Consumer Disc.','auto components':'Consumer Disc.','diversified consumer services':'Consumer Disc.',
+  'consumer defensive':'Consumer Staples',
+  'communication services':'Telecom','communication':'Telecom',
+  'ai':'Technology','quantum':'Technology',
+  'construction':'Industrials','packaging':'Materials',
+  'crypto/miners':'Crypto / Digital Assets','crypto':'Crypto / Digital Assets',
+  'precious metals':'Commodities',
+  'bond etf':'Market References','broad etf':'Market References',
+};
+
+function normalizeSector(raw: unknown): string | null {
+  if (!raw) return null;
+  const label = String(raw).trim();
+  if (ALLOWED_SECTORS.has(label)) return label;
+  const mapped = SECTOR_MAP[label.toLowerCase()];
+  return mapped && ALLOWED_SECTORS.has(mapped) ? mapped : null;
 }
 
-async function loadPreviousZones(supa: any): Promise<Map<string, any>> {
+const cleanSymbol = (raw: unknown): string | null => {
+  const sym = String(raw ?? '').trim().toUpperCase();
+  return SYMBOL_RE.test(sym) ? sym : null;
+};
+
+async function pagedRead(supa: any, table: string, columns: string, orderBy: string): Promise<any[]> {
   const PAGE = 1000;
-  const previous = new Map<string, any>();
+  const out: any[] = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supa.from('rsi_snapshot')
-      .select('symbol, zone_1h, zone_4h, zone_1d, zone_1w').order('symbol').range(from, from + PAGE - 1);
-    if (error) throw new Error('rsi_snapshot read failed: ' + error.message);
-    (data || []).forEach((r: any) => previous.set(r.symbol, r));
+    const { data, error } = await supa.from(table).select(columns).order(orderBy).range(from, from + PAGE - 1);
+    if (error) throw new Error(`${table} read failed: ${error.message}`);
+    out.push(...(data || []));
     if (!data || data.length < PAGE) break;
     from += PAGE; if (from > 100000) break;
   }
+  return out;
+}
+
+interface ExtraSymbol { sources: Set<string>; swingSector: string | null; scannerSector: string | null; }
+
+// Universe = built-in WATCHLIST + user_watchlist + scanner_watchlist + scanner_alerts + swing_watchlist.
+// "extras" are the symbols outside built-in + user; those get a rsi_universe row.
+async function buildUniverse(supa: any): Promise<{ symbols: string[], extras: Map<string, ExtraSymbol> }> {
+  const base = new Set<string>(BUILT_IN_WATCHLIST);
+  for (const r of await pagedRead(supa, 'user_watchlist', 'symbol', 'id')) {
+    const sym = cleanSymbol(r.symbol); if (sym) base.add(sym);
+  }
+  const extras = new Map<string, ExtraSymbol>();
+  const touch = (rawSymbol: unknown, source: string, rawSector: unknown) => {
+    const sym = cleanSymbol(rawSymbol);
+    if (!sym || base.has(sym)) return;
+    const entry = extras.get(sym) || { sources: new Set<string>(), swingSector: null, scannerSector: null };
+    entry.sources.add(source);
+    const sector = normalizeSector(rawSector);
+    if (sector && source === 'momentum' && !entry.swingSector) entry.swingSector = sector;
+    if (sector && source === 'scanner' && !entry.scannerSector) entry.scannerSector = sector;
+    extras.set(sym, entry);
+  };
+  for (const r of await pagedRead(supa, 'scanner_watchlist', 'symbol, sector', 'id')) touch(r.symbol, 'scanner', r.sector);
+  for (const r of await pagedRead(supa, 'scanner_alerts', 'symbol', 'id')) touch(r.symbol, 'alerts', null);
+  for (const r of await pagedRead(supa, 'swing_watchlist', 'symbol, sector', 'id')) touch(r.symbol, 'momentum', r.sector);
+  return { symbols: [...new Set([...base, ...extras.keys()])].sort(), extras };
+}
+
+async function finnhubSector(symbol: string, token: string): Promise<{ sector: string | null, rateLimited: boolean, ok: boolean }> {
+  try {
+    const res = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token)}`, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (res.status === 429) return { sector: null, rateLimited: true, ok: false };
+    if (!res.ok) return { sector: null, rateLimited: false, ok: false };
+    const profile = await res.json();
+    return { sector: normalizeSector(profile?.finnhubIndustry), rateLimited: false, ok: true };
+  } catch (e) {
+    // The URL carries the API key, so log the symbol only.
+    console.error('[finnhub] profile lookup failed for', symbol);
+    return { sector: null, rateLimited: false, ok: false };
+  }
+}
+
+// Resolution order: swing sector -> scanner sector -> symbol_sectors -> earlier rsi_universe result -> Finnhub -> 'Scanner'.
+async function syncRsiUniverse(supa: any, extras: Map<string, ExtraSymbol>): Promise<{ total: number, scannerFallback: number, lookups: number }> {
+  const symbolSectors = new Map<string, string>();
+  for (const r of await pagedRead(supa, 'symbol_sectors', 'symbol, sector', 'symbol')) {
+    const sector = normalizeSector(r.sector); const sym = cleanSymbol(r.symbol);
+    if (sym && sector) symbolSectors.set(sym, sector);
+  }
+  // updated_at doubles as "last lookup attempt" for unplaced rows: it is only bumped when a Finnhub lookup is tried or the
+  // sector changes, and a row whose updated_at still equals first_seen has never been tried.
+  const existing = new Map<string, { sector: string | null, updatedAt: number, updatedAtIso: string, neverTried: boolean }>();
+  for (const r of await pagedRead(supa, 'rsi_universe', 'symbol, sector, first_seen, updated_at', 'symbol')) {
+    const updatedAt = new Date(r.updated_at).getTime();
+    existing.set(r.symbol, { sector: r.sector, updatedAt, updatedAtIso: r.updated_at,
+      neverTried: Math.abs(updatedAt - new Date(r.first_seen).getTime()) < 2000 });
+  }
+
+  const resolved = new Map<string, string>();
+  const needsLookup: Array<{ sym: string, neverTried: boolean, updatedAt: number }> = [];
+  for (const [sym, info] of extras) {
+    const prior = existing.get(sym);
+    const priorSector = prior && prior.sector && prior.sector !== SCANNER_SECTOR ? normalizeSector(prior.sector) : null;
+    const sector = info.swingSector || info.scannerSector || symbolSectors.get(sym) || priorSector;
+    if (sector) { resolved.set(sym, sector); continue; }
+    const retryDue = !prior || prior.neverTried || Date.now() - prior.updatedAt >= LOOKUP_RETRY_MS;
+    if (retryDue) needsLookup.push({ sym, neverTried: !prior || prior.neverTried, updatedAt: prior?.updatedAt ?? 0 });
+  }
+
+  // Never-tried symbols first, then the longest-waiting, so the per-run cap rotates through everything.
+  needsLookup.sort((a, b) => Number(b.neverTried) - Number(a.neverTried) || a.updatedAt - b.updatedAt || a.sym.localeCompare(b.sym));
+  const attempted = new Set<string>();
+  let lookups = 0;
+  const finnhubKey = Deno.env.get('FINNHUB_API_KEY');
+  if (finnhubKey) {
+    const cacheRows: any[] = [];
+    for (const { sym } of needsLookup.slice(0, FINNHUB_MAX_LOOKUPS)) {
+      if (lookups > 0) await new Promise(r => setTimeout(r, FINNHUB_SPACING_MS));
+      lookups++;
+      const { sector, rateLimited, ok } = await finnhubSector(sym, finnhubKey);
+      if (rateLimited) { console.error('[finnhub] rate limited; stopping lookups'); break; }
+      if (ok) attempted.add(sym);
+      if (sector && sector !== SCANNER_SECTOR) {
+        resolved.set(sym, sector);
+        cacheRows.push({ symbol: sym, sector, updated_at: new Date().toISOString() });
+      }
+    }
+    if (cacheRows.length) {
+      const { error } = await supa.from('symbol_sectors').upsert(cacheRows, { onConflict: 'symbol' });
+      if (error) console.error('[symbol_sectors cache]', error.message);
+    }
+  } else if (needsLookup.length) {
+    console.error('[rsi-scan] FINNHUB_API_KEY not set; sector lookups skipped');
+  }
+
+  const nowIso = new Date().toISOString();
+  const allRows = [...extras.entries()].map(([sym, info]) => {
+    const sector = resolved.get(sym) || SCANNER_SECTOR;
+    const prior = existing.get(sym);
+    // New rows omit updated_at so it equals first_seen (= never tried); unchanged rows keep their last-attempt time.
+    const touched = attempted.has(sym) || (prior && prior.sector !== sector);
+    return { sym, isNew: !prior, row: { symbol: sym, sector, sources: [...info.sources].sort(),
+      ...(prior ? { updated_at: touched ? nowIso : prior.updatedAtIso } : {}) } };
+  });
+  for (const isNew of [true, false]) {
+    const batchRows = allRows.filter(r => r.isNew === isNew).map(r => r.row);
+    for (let i = 0; i < batchRows.length; i += 200) {
+      const { error } = await supa.from('rsi_universe').upsert(batchRows.slice(i, i + 200), { onConflict: 'symbol' });
+      if (error) throw new Error('rsi_universe upsert failed: ' + error.message);
+    }
+  }
+  const rows = allRows.map(r => r.row);
+  // Drop rows for symbols that left every source (or moved into the built-in / user lists).
+  const stale = [...existing.keys()].filter(sym => !extras.has(sym));
+  for (let i = 0; i < stale.length; i += 100) {
+    const { error } = await supa.from('rsi_universe').delete().in('symbol', stale.slice(i, i + 100));
+    if (error) console.error('[rsi_universe cleanup]', error.message);
+  }
+  return { total: rows.length, scannerFallback: rows.filter(r => r.sector === SCANNER_SECTOR).length, lookups };
+}
+
+async function loadPreviousZones(supa: any, symbols: string[]): Promise<Map<string, any>> {
+  const previous = new Map<string, any>();
+  const { data, error } = await supa.from('rsi_snapshot')
+    .select('symbol, zone_1h, zone_4h, zone_1d, zone_1w').in('symbol', symbols);
+  if (error) throw new Error('rsi_snapshot read failed: ' + error.message);
+  (data || []).forEach((r: any) => previous.set(r.symbol, r));
   return previous;
 }
 
@@ -258,6 +425,35 @@ async function sendTelegram(label: string, crossings: Crossing[]): Promise<strin
   }
 }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// Fire-and-forget: abort once the request is on the wire so we don't wait for the next chunk to finish.
+async function handOff(payload: unknown): Promise<void> {
+  const controller = new AbortController();
+  const request = fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/rsi-scan`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload), signal: controller.signal,
+  }).catch((e) => { if (e?.name !== 'AbortError') console.error('[rsi-scan] handoff failed', String(e).slice(0, 80)); });
+  await Promise.race([request, sleep(HANDOFF_WAIT_MS)]);
+  controller.abort();
+}
+
+// Continuation bodies come over the public URL, so re-validate everything we carry between chunks.
+function sanitizeCrossings(raw: unknown): Crossing[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Crossing[] = [];
+  for (const c of raw.slice(0, 500)) {
+    const symbol = cleanSymbol(c?.symbol);
+    const direction = c?.direction === 'up' || c?.direction === 'down' ? c.direction : null;
+    const frames = Array.isArray(c?.frames)
+      ? c.frames.filter((f: any) => Array.isArray(f) && (TIMEFRAMES as readonly string[]).includes(f[0]) && Number.isFinite(Number(f[1])))
+          .map((f: any) => [f[0], Number(f[1])] as [Timeframe, number])
+      : [];
+    if (symbol && direction && frames.length && Number.isFinite(Number(c?.price))) out.push({ symbol, direction, frames, price: Number(c.price) });
+  }
+  return out;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -266,30 +462,58 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const slot = matchedSlot();
-    if (!body.force && !slot) return json({ ran: false, skipped: 'outside window' });
-
+    const force = !!body.force;
+    const chunk = Number.isInteger(body.chunk) && body.chunk > 0 ? body.chunk : 0;
     const supa = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const symbols = await loadUniverse(supa);
-    const previous = await loadPreviousZones(supa);
+
+    let symbols: string[]; let label: string; let runId: string; let runStartedAt: number;
+    let totals = { ok: 0, failed: 0, failedSymbols: [] as string[], crossings: [] as Crossing[] };
+    let universeInfo: any = null;
+
+    if (chunk === 0) {
+      // The ET window gate only applies to the first invocation; continuations belong to an admitted run.
+      const slot = matchedSlot();
+      if (!force && !slot) return json({ ran: false, skipped: 'outside window' });
+      const universe = await buildUniverse(supa);
+      universeInfo = await syncRsiUniverse(supa, universe.extras);
+      symbols = universe.symbols;
+      const now = etParts(new Date());
+      label = slot || `${String(now.hour).padStart(2, '0')}:${String(now.minute).padStart(2, '0')}`;
+      runId = crypto.randomUUID();
+      runStartedAt = Date.now();
+    } else {
+      symbols = [...new Set((Array.isArray(body.symbols) ? body.symbols : []).map(cleanSymbol).filter(Boolean) as string[])].slice(0, 3000);
+      label = String(body.label || '').replace(/[^0-9:]/g, '').slice(0, 5);
+      runId = String(body.runId || '').replace(/[^0-9a-f-]/gi, '').slice(0, 40);
+      runStartedAt = Number(body.runStartedAt) || Date.now();
+      totals = {
+        ok: Math.max(0, Number(body.ok) || 0), failed: Math.max(0, Number(body.failed) || 0),
+        failedSymbols: (Array.isArray(body.failedSymbols) ? body.failedSymbols : []).map(cleanSymbol).filter(Boolean).slice(0, 100) as string[],
+        crossings: sanitizeCrossings(body.crossings),
+      };
+    }
+
+    const slice = symbols.slice(chunk * CHUNK_SIZE, (chunk + 1) * CHUNK_SIZE);
+    const previous = await loadPreviousZones(supa, slice);
 
     const rows: any[] = [];
-    const failures: string[] = [];
     let cursor = 0;
     const worker = async () => {
-      while (cursor < symbols.length) {
-        const symbol = symbols[cursor++];
+      while (cursor < slice.length) {
+        const symbol = slice[cursor++];
         try {
           rows.push(await computeSymbol(symbol));
         } catch (e) {
-          failures.push(symbol);
+          totals.failed++;
+          if (totals.failedSymbols.length < 100) totals.failedSymbols.push(symbol);
           console.error('[rsi-scan] skip', symbol, String(e).slice(0, 80));
         }
       }
     };
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
-    const crossings = findCrossings(rows, previous);
+    totals.ok += rows.length;
+    totals.crossings.push(...findCrossings(rows, previous));
 
     const computedAt = new Date().toISOString();
     for (let i = 0; i < rows.length; i += 200) {
@@ -298,15 +522,20 @@ Deno.serve(async (req: Request) => {
       if (error) throw new Error('rsi_snapshot upsert failed: ' + error.message);
     }
 
-    let telegram = 'none';
-    if (crossings.length) {
-      const now = etParts(new Date());
-      const label = slot || `${String(now.hour).padStart(2, '0')}:${String(now.minute).padStart(2, '0')}`;
-      telegram = await sendTelegram(label, crossings);
+    const totalChunks = Math.ceil(symbols.length / CHUNK_SIZE);
+    if (chunk + 1 < totalChunks) {
+      await handOff({ force, chunk: chunk + 1, runId, label, runStartedAt, symbols, ...totals });
+      return json({ ran: true, chunk, total_chunks: totalChunks, handed_off: true, symbols: symbols.length,
+        ok: totals.ok, failed: totals.failed, universe: universeInfo });
     }
 
-    return json({ ran: true, symbols: symbols.length, ok: rows.length, failed: failures.length,
-      failed_symbols: failures, crossings: crossings.length, telegram });
+    // Final chunk: one combined Telegram message for the whole run.
+    let telegram = 'none';
+    if (totals.crossings.length) telegram = await sendTelegram(label, totals.crossings);
+    const elapsedMs = Date.now() - runStartedAt;
+    console.log(`[rsi-scan] run ${runId} done: chunks=${totalChunks} symbols=${symbols.length} ok=${totals.ok} failed=${totals.failed} crossings=${totals.crossings.length} telegram=${telegram} ms=${elapsedMs}`);
+    return json({ ran: true, done: true, chunk, total_chunks: totalChunks, symbols: symbols.length, ok: totals.ok,
+      failed: totals.failed, failed_symbols: totals.failedSymbols, crossings: totals.crossings.length, telegram, elapsed_ms: elapsedMs });
   } catch (e) {
     console.error('[rsi-scan]', String(e).slice(0, 200));
     return json({ error: String(e) }, 500);
