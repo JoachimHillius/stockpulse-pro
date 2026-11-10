@@ -1683,6 +1683,10 @@ let flowData = _safeLS('sp_flow', []);
 let _flowSentimentTimeframe = 'D';
 let _userWatchlist = [];  // array of {symbol, sector, added_at}
 let _rsiBySym = {};       // symbol -> rsi_snapshot row (written by the rsi-scan edge function)
+let _priceLive = {};      // symbol -> price_live row (Yahoo batch quotes written every 5 min by the price-scan edge function)
+let _priceLiveLoadedAt = 0;
+const PRICE_LIVE_MAX_AGE_MS = 15 * 60 * 1000; // older rows are ignored (scan paused / market closed)
+const _plRecorded = {};   // symbol -> updated_at already fed into priceHistory
 let _rsiUniverse = [];    // rsi_universe rows: scanner/alerts/momentum symbols outside WATCHLIST + user_watchlist (RSI-only rows)
 let _rsiOnlySet = new Set(); // symbols currently rendered from _rsiUniverse (rebuilt on every render)
 let _wlView = 'sector';   // 'sector' | 'combined'
@@ -3530,9 +3534,11 @@ function _rerenderWlGroup(secId) {
   el.outerHTML = _wlBuildGroup(cached.sector, cached.tickers, search, customTickers);
 }
 
-// Price shown for a row, in order: live quote -> price captured by the last RSI scan -> latest stored close -> '—'.
+// Price shown for a row, in order: fresh price_live (Yahoo, pre/after-hours aware) -> Finnhub live quote -> price captured by the last RSI scan -> latest stored close -> '—'.
 // Live quotes arrive in throttled batches, so most rows would otherwise show '—' until their turn.
 function _wlPriceCell(sym, q, rsi) {
+  const live = _wlPriceLiveInfo(sym);
+  if (live) return `<span class="wl-price-cell" title="${live.title}">${fmtPrice(sym, live.price)}</span>`;
   if (q.p != null) return `<span class="wl-price-cell">${fmtPrice(sym, q.p)}</span>`;
   if (rsi?.price != null) {
     return `<span class="wl-price-cell" title="price from RSI scan ${_wlEtTime(rsi.computed_at)} ET">${fmtPrice(sym, Number(rsi.price))}</span>`;
@@ -3554,10 +3560,15 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
     const isStale = latestDate && _maxDate &&
       ((new Date(_maxDate) - new Date(latestDate)) / 86400000) > 5;
     const fa = getFlowAnalytics(sym, flowBullBearWindow);
-    const netClr = q.d >= 0 ? 'pct-pos' : 'pct-neg';
+    // Net $ / 1D%: with an extended-hours price shown use its change; otherwise Finnhub's, falling back to price_live's.
+    const plLive = _wlPriceLiveInfo(sym);
+    let netVal = q.d;
+    if (plLive) netVal = plLive.ext ? plLive.change : (netVal ?? plLive.change);
+    const netClr = netVal >= 0 ? 'pct-pos' : 'pct-neg';
     const m5 = getPriceChangePct(sym, 5);
     const h1 = getPriceChangePct(sym, 60);
-    const d1 = p?.d1 ?? q.dp;
+    let d1 = p?.d1 ?? q.dp;
+    if (plLive) d1 = plLive.ext ? plLive.changePct : (d1 ?? plLive.changePct);
     const w1 = p?.w1 ?? null;
     const m1 = p?.m1 ?? null;
     const m6 = p?.m6 ?? null;
@@ -3598,7 +3609,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
       <span class="wl-sym-cell">${sym}${_wlRsiBadge(rsi?.rsi_1d)}</span>
       <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}>${combined ? `${COMPANY_NAMES[sym] || ''}<span class="wl-sec-muted">${COMPANY_NAMES[sym] ? ' · ' : ''}${sector}</span>` : (COMPANY_NAMES[sym] || sector)}${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:4px;" title="Remove from watchlist">×</button>` : ''}</span>
       ${priceCellHtml}
-      <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
+      <span class="pct-cell ${netClr}" style="text-align:right;">${netVal == null ? '—' : (netVal >= 0 ? '+' : '') + Number(netVal).toFixed(2)}</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(d1)}
@@ -5609,17 +5620,11 @@ async function fetchLiveAll(force, pageKey){
   const userSyms=(_userWatchlist||[]).map(r=>r.symbol);
   const swingSyms=(_swingData||[]).filter(r=>r.status!=='closed').map(r=>r.symbol);
   const scannerSyms=(_scannerData||[]).map(r=>r.symbol).filter(Boolean);
-  // Same set as before, new order: (a) built-in + user watchlist, (b) other symbols currently rendered on the Watchlist
-  // page (in display order, so the current view/filters decide), (c) the rest of the swing/scanner symbols.
-  const priorityList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms])];
-  const priorityKnown=new Set(priorityList);
-  const restList=[...new Set([...swingSyms,...scannerSyms])].filter(sym=>!priorityKnown.has(sym));
-  const restKnown=new Set(restList);
-  const renderedFirst=[...document.querySelectorAll('#watchlist-body .wl-dense-row')].map(row=>row.dataset.sym).filter(sym=>restKnown.has(sym));
-  const tickerList=[...new Set([...priorityList,...renderedFirst,...restList])];
+  // Finnhub only covers (a) the built-in + user watchlist (~244); price-scan's price_live covers every other symbol.
+  const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms])];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
   const wlFlat=Object.values(WATCHLIST).flat();
-  console.log(`[fetchLiveAll] ${tickerList.length} tickers (${wlFlat.length} built-in · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner, deduped)`);
+  console.log(`[fetchLiveAll] ${tickerList.length} Finnhub tickers (${wlFlat.length} built-in · ${userSyms.length} user, deduped; swing/scanner are priced via price_live)`);
   if(pageKey) showRefreshProgress(pageKey, 0, tickerList.length);
   let _rpUnavail = 0;
   // Mark only un-seen tickers as loading; tickers with existing data keep showing last value
@@ -5639,20 +5644,34 @@ async function fetchLiveAll(force, pageKey){
   });
   if(pageKey) showRefreshProgress(pageKey,_done,tickerList.length,{unavailable:_rpUnavail});
 
-  // Fetch uncached in parallel batches of 15.
-  // Sleep 1100ms between batches keeps throughput at ~13 calls/s — above the strict
-  // 60/min free limit but Finnhub rarely hard-blocks bursts on personal keys.
-  // Each call has a 5s hard timeout so a hanging response can't stall the whole run.
-  const BATCH=15;
-  const totalBatches=Math.ceil(toFetch.length/BATCH);
-  for(let b=0;b<toFetch.length;b+=BATCH){
-    const batch=toFetch.slice(b,b+BATCH);
-    await Promise.all(batch.map(async sym=>{
-      try{
-        const ctrl=new AbortController();
-        const tmo=setTimeout(()=>ctrl.abort(),5000);
-        const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey,{signal:ctrl.signal});
-        clearTimeout(tmo);
+  // Paced fetch: one call per FH_MIN_SPACING_MS (<= 50/min). A 429 / 5xx / network failure re-queues the symbol for later
+  // in the same pass (max FH_MAX_RETRIES) instead of marking it unavailable. Each call has a 5s hard timeout.
+  const queue=toFetch.map(sym=>({sym,tries:0}));
+  let sinceRender=0, retried=0;
+  const renderNow=()=>{
+    renderTape();renderWatchlist();renderMoverLists();
+    if(typeof renderMomentum==='function')renderMomentum();
+    if(typeof renderScanners==='function')renderScanners();
+    if(typeof updateStatBoxes==='function')updateStatBoxes();
+  };
+  while(queue.length){
+    const item=queue.shift(); const sym=item.sym;
+    const cached=_fhCache.get(sym); // a concurrent pass may have fetched it already
+    if(cached&&(Date.now()-cached.fetchedAt)<FH_CACHE_TTL_MS){
+      liveData[sym]={p:cached.c,dp:cached.dp||0,d:cached.d||0,t:cached.t||0,loading:false,lastClose:!!cached.lastClose};
+      _done++; continue;
+    }
+    await _fhWaitSlot();
+    let retry=false;
+    try{
+      const ctrl=new AbortController();
+      const tmo=setTimeout(()=>ctrl.abort(),5000);
+      const r=await fetch('https://finnhub.io/api/v1/quote?symbol='+encodeURIComponent(sym)+'&token='+fhKey,{signal:ctrl.signal});
+      clearTimeout(tmo);
+      if(r.status===429||r.status>=500){
+        retry=true;
+        if(r.status===429)_fhNextAt=Math.max(_fhNextAt,Date.now()+FH_RATE_LIMIT_PENALTY_MS);
+      }else{
         const d=await r.json();
         const lastPx=(d.c&&d.c!==0)?d.c:(d.pc&&d.pc!==0?d.pc:null);
         if(lastPx!=null){
@@ -5665,21 +5684,24 @@ async function fetchLiveAll(force, pageKey){
           liveData[sym]={p:prev.p||null,dp:prev.dp||null,d:prev.d||null,t:prev.t||null,loading:false,stale:true};
           _rpUnavail++;
         }
-      }catch(e){
-        console.warn('[FH]',sym,e.name==='AbortError'?'5s timeout':'failed:',e.message);
-        const prev=liveData[sym]||{};
-        liveData[sym]={...prev,loading:false,error:true};
-        _rpUnavail++;
       }
-    }));
-    _done+=batch.length;
+    }catch(e){
+      console.warn('[FH]',sym,e.name==='AbortError'?'5s timeout':'failed:',e.message);
+      retry=true;
+    }
+    if(retry){
+      if(item.tries<FH_MAX_RETRIES){ item.tries++; retried++; queue.push(item); continue; }
+      const prev=liveData[sym]||{};
+      liveData[sym]={...prev,loading:false,error:true};
+      _rpUnavail++;
+    }
+    _done++; sinceRender++;
     if(pageKey) showRefreshProgress(pageKey,_done,tickerList.length,{unavailable:_rpUnavail});
-    console.log(`[fetchLiveAll] batch ${Math.floor(b/BATCH)+1}/${totalBatches} done — ${_done}/${tickerList.length}`);
-    renderTape();renderWatchlist();renderMoverLists();
-    if(typeof renderMomentum==='function')renderMomentum();
-    if(typeof renderScanners==='function')renderScanners();
-    if(typeof updateStatBoxes==='function')updateStatBoxes();
-    if(b+BATCH<toFetch.length) await sleep(1100);
+    if(sinceRender>=12||!queue.length){
+      sinceRender=0;
+      console.log(`[fetchLiveAll] ${_done}/${tickerList.length} done · ${queue.length} queued · ${retried} retried`);
+      renderNow();
+    }
   }
   console.log(`[fetchLiveAll] COMPLETE — ${tickerList.length} total (${wlFlat.length} built-in watchlist · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner) · ${toFetch.length} live-fetched · ${tickerList.length-toFetch.length} cached`);
   if(pageKey) showRefreshProgress(pageKey,tickerList.length,tickerList.length,{unavailable:_rpUnavail,complete:true,label:`${wlFlat.length} built-in · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner`});
@@ -5704,6 +5726,7 @@ async function _fetchPriceNow(sym) {
   const fhKey = localStorage.getItem('sp_fh');
   if (!fhKey) return;
   try {
+    await _fhWaitSlot();
     const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${fhKey}`);
     const d = await r.json();
     const lastPx = (d.c && d.c !== 0) ? d.c : (d.pc && d.pc !== 0 ? d.pc : null);
@@ -5725,6 +5748,9 @@ function goPage(name,btn){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
   else document.querySelectorAll('.nav-btn').forEach(b=>{if(b.onclick?.toString().includes(name))b.classList.add('active');});
+  if(name==='watchlist'||name==='momentum'||name==='scanners'){
+    setTimeout(()=>{ if(Date.now()-_priceLiveLoadedAt>30000) loadPriceLive(); },50);
+  }
   if(name==='flowpredict'){
     setTimeout(initFlowPredictor,50);
   }
@@ -7033,6 +7059,59 @@ async function loadUserWatchlist(){
     return _userWatchlist;
   }catch(e){console.warn('[user_watchlist] load failed:',e);return[];}
 }
+// price_live -> the Watchlist's price/change source. Fresh = updated within PRICE_LIVE_MAX_AGE_MS.
+function _wlPriceLiveInfo(sym) {
+  const row = _priceLive[sym];
+  if (!row || row.price == null) return null;
+  const age = Date.now() - new Date(row.updated_at).getTime();
+  if (!(age <= PRICE_LIVE_MAX_AGE_MS)) return null;
+  const state = row.market_state;
+  const ext = (state === 'PRE' || state === 'POST' || state === 'POSTPOST') && row.ext_price != null;
+  const label = ext ? (state === 'PRE' ? 'pre-market' : 'after-hours') : 'Yahoo';
+  return {
+    ext, price: Number(ext ? row.ext_price : row.price),
+    change: (ext ? row.ext_change : row.change) == null ? null : Number(ext ? row.ext_change : row.change),
+    changePct: (ext ? row.ext_change_pct : row.change_pct) == null ? null : Number(ext ? row.ext_change_pct : row.change_pct),
+    title: `${label} ${_wlEtTime(row.updated_at)} ET`,
+  };
+}
+async function loadPriceLive() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    const PAGE = 1000, map = {};
+    let from = 0;
+    while (true) {
+      const { data, error } = await supa.from('price_live')
+        .select('symbol, price, change, change_pct, ext_price, ext_change, ext_change_pct, market_state, quote_time, updated_at')
+        .order('symbol').range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || !data.length) break;
+      data.forEach(r => { map[r.symbol] = r; });
+      if (data.length < PAGE) break;
+      from += PAGE; if (from > 100000) break;
+    }
+    _priceLive = map; _priceLiveLoadedAt = Date.now();
+    // Finnhub only covers the built-in + user watchlist now; keep the other pages (Momentum / Scanners) priced from Yahoo,
+    // and feed every new Yahoo price into the per-symbol history so 5m% / 1h% work for all symbols.
+    const finnhubCovered = new Set([...Object.values(WATCHLIST).flat(), ...(_userWatchlist || []).map(r => r.symbol)]);
+    Object.keys(map).forEach(sym => {
+      const info = _wlPriceLiveInfo(sym);
+      if (!info) return;
+      if (_plRecorded[sym] !== map[sym].updated_at) { _plRecorded[sym] = map[sym].updated_at; recordPriceSnapshot(sym, info.price); }
+      if (!finnhubCovered.has(sym) && !(liveData[sym]?.p != null && !liveData[sym]?.fromYahoo)) {
+        liveData[sym] = { p: info.price, dp: info.changePct ?? 0, d: info.change ?? 0, t: 0, loading: false, fromYahoo: true };
+      }
+    });
+    if (document.getElementById('page-watchlist')?.classList.contains('active') && typeof renderWatchlist === 'function') renderWatchlist();
+  } catch (e) { console.warn('[price_live] load failed:', e); }
+}
+// Reload every 60s while a page that shows these prices is visible.
+setInterval(() => {
+  const visible = ['watchlist', 'momentum', 'scanners'].some(name => document.getElementById('page-' + name)?.classList.contains('active'));
+  if (visible && !document.hidden) loadPriceLive();
+}, 60000);
+
 async function loadRsiSnapshot(){
   const supa=await getSupabaseAsync();
   if(!supa)return;
@@ -7260,6 +7339,18 @@ async function renderDbStats(){
 // ============================================================
 const _fhCache=new Map();
 const FH_CACHE_TTL_MS=90000; // 90s — same TTL as old TD cache
+// Finnhub free tier = 60 calls/min. Every quote call reserves a slot here, so the total stays <= 50/min even when several
+// passes run at once.
+const FH_MIN_SPACING_MS=1200;
+const FH_MAX_RETRIES=2;
+const FH_RATE_LIMIT_PENALTY_MS=5000;
+let _fhNextAt=0;
+async function _fhWaitSlot(){
+  const now=Date.now();
+  const at=Math.max(now,_fhNextAt);
+  _fhNextAt=at+FH_MIN_SPACING_MS;
+  if(at>now) await sleep(at-now);
+}
 
 // ============================================================
 // TWELVE DATA — rate-limited quote cache
@@ -10143,7 +10234,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     renderBriefTopFlow();  // Re-fire the Top Flow card now that DB is ready
     loadHeaderVixFromDb();
     loadMmEtf1d();
-    loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); }).then(()=>loadRsiSnapshot());
+    loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); }).then(()=>loadRsiSnapshot()).then(()=>loadPriceLive());
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
