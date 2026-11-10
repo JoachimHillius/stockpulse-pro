@@ -3530,6 +3530,22 @@ function _rerenderWlGroup(secId) {
   el.outerHTML = _wlBuildGroup(cached.sector, cached.tickers, search, customTickers);
 }
 
+// Price shown for a row, in order: live quote -> price captured by the last RSI scan -> latest stored close -> '—'.
+// Live quotes arrive in throttled batches, so most rows would otherwise show '—' until their turn.
+function _wlPriceCell(sym, q, rsi) {
+  if (q.p != null) return `<span class="wl-price-cell">${fmtPrice(sym, q.p)}</span>`;
+  if (rsi?.price != null) {
+    return `<span class="wl-price-cell" title="price from RSI scan ${_wlEtTime(rsi.computed_at)} ET">${fmtPrice(sym, Number(rsi.price))}</span>`;
+  }
+  const lastClose = histBaselines[sym]?.latestClose;
+  if (lastClose != null) {
+    const date = histBaselines[sym]?.latestDate ? String(histBaselines[sym].latestDate).slice(0, 10).split('-') : null;
+    const when = date && date.length === 3 ? ` ${Number(date[1])}/${Number(date[2])}` : '';
+    return `<span class="wl-price-cell" title="last close${when}">${fmtPrice(sym, lastClose)}</span>`;
+  }
+  return `<span class="wl-price-cell">—</span>`;
+}
+
 function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
     const q = getQ(sym);
     const p = histBaselines[sym]?.perf;
@@ -3549,10 +3565,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
     const bullPct = fa?.bullPct ?? null;
     const bearPct = fa?.bearPct ?? null;
     const rsi = _rsiBySym[sym];
-    // RSI-only rows have no live quote loop; fall back to the price captured by the RSI scan.
-    const priceCellHtml = (q.p == null && _rsiOnlySet.has(sym) && rsi?.price != null)
-      ? `<span class="wl-price-cell" title="price from RSI scan ${_wlEtTime(rsi.computed_at)} ET">${fmtPrice(sym, Number(rsi.price))}</span>`
-      : `<span class="wl-price-cell">${fmtPrice(sym, q.p)}</span>`;
+    const priceCellHtml = _wlPriceCell(sym, q, rsi);
     const dots = [];
     const earnData = earningsCache[sym];
     if (earnData?.length) {
@@ -5596,7 +5609,14 @@ async function fetchLiveAll(force, pageKey){
   const userSyms=(_userWatchlist||[]).map(r=>r.symbol);
   const swingSyms=(_swingData||[]).filter(r=>r.status!=='closed').map(r=>r.symbol);
   const scannerSyms=(_scannerData||[]).map(r=>r.symbol).filter(Boolean);
-  const tickerList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms,...swingSyms,...scannerSyms])];
+  // Same set as before, new order: (a) built-in + user watchlist, (b) other symbols currently rendered on the Watchlist
+  // page (in display order, so the current view/filters decide), (c) the rest of the swing/scanner symbols.
+  const priorityList=[...new Set([...Object.values(WATCHLIST).flat(),...userSyms])];
+  const priorityKnown=new Set(priorityList);
+  const restList=[...new Set([...swingSyms,...scannerSyms])].filter(sym=>!priorityKnown.has(sym));
+  const restKnown=new Set(restList);
+  const renderedFirst=[...document.querySelectorAll('#watchlist-body .wl-dense-row')].map(row=>row.dataset.sym).filter(sym=>restKnown.has(sym));
+  const tickerList=[...new Set([...priorityList,...renderedFirst,...restList])];
   if(!tickerList.length){console.warn('[Ticker] WATCHLIST empty');return;}
   const wlFlat=Object.values(WATCHLIST).flat();
   console.log(`[fetchLiveAll] ${tickerList.length} tickers (${wlFlat.length} built-in · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner, deduped)`);
