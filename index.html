@@ -226,6 +226,43 @@ body.light-mode .rb-m1{color:#b86e00;}
 body.light-mode .rb-m2{color:#c76a00;}
 body.light-mode .rb-m3{color:#c62828;}
 .wl-sec-muted{color:#8090a0;font-size:10px;}
+/* Export buttons: pinned to the Options filter buttons' height (emoji glyphs would otherwise make them taller). */
+.wl-exp-btn{box-sizing:border-box;height:28px;padding-top:0;padding-bottom:0;line-height:16px;display:inline-flex;align-items:center;}
+/* ---- Watchlist print / PDF: a print-only table (built by printWatchlist) replaces the whole page ---- */
+#wl-print{display:none;}
+@media print{
+  @page{size:letter landscape;margin:0.35in;}
+  html,body{background:#fff !important;color:#000;}
+  body > *:not(#wl-print){display:none !important;}
+  #wl-print{display:block;font-family:var(--font);color:#0d1420;-webkit-print-color-adjust:exact;print-color-adjust:exact;
+    --green:#0a7a3b;--red:#c62828;--amber:#b86e00;--text:#0d1420;--bg:#fff;}
+  #wl-print .wl-p-title{font-size:10px;font-weight:700;margin:0 0 6px;}
+  #wl-print table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px;}
+  #wl-print thead{display:table-header-group;}
+  #wl-print tr{break-inside:avoid;page-break-inside:avoid;}
+  #wl-print th{font-size:7.5px;font-weight:700;text-transform:uppercase;text-align:right;padding:3px 2px;color:#0d1420 !important;background:#e8edf5 !important;border-bottom:1.5px solid #8a96a8;white-space:nowrap;}
+  #wl-print th:nth-child(1),#wl-print th:nth-child(2){text-align:left;}
+  #wl-print th:nth-child(12),#wl-print th:nth-child(13),#wl-print th:nth-child(14),#wl-print th:nth-child(15),#wl-print th:nth-child(16){text-align:center;}
+  #wl-print td{padding:1.5px 2px;border-bottom:0.5px solid #d5dbe6;text-align:right;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+  #wl-print td:nth-child(1),#wl-print td:nth-child(2){text-align:left;}
+  #wl-print td:nth-child(12),#wl-print td:nth-child(13),#wl-print td:nth-child(14),#wl-print td:nth-child(15),#wl-print td:nth-child(16){text-align:center;}
+  #wl-print td:nth-child(12){border-left:1.5px solid #8a96a8;}
+  #wl-print td:nth-child(15){border-right:1.5px solid #8a96a8;}
+  #wl-print tr.wl-p-sec td{background:#f0f3f8 !important;color:#0b6fa4;font-weight:700;font-size:8.5px;text-transform:uppercase;text-align:left;padding:3px 2px;border-bottom:0.5px solid #8a96a8;}
+  #wl-print .wl-sym-cell,#wl-print .wl-price-cell,#wl-print .pct-cell,#wl-print .rsi-cell,#wl-print .opt-cell{font-size:8px;color:#0d1420;}
+  #wl-print .pct-pos{color:#0a7a3b !important;} #wl-print .pct-neg{color:#c62828 !important;}
+  #wl-print .pct-na,#wl-print .pct-zero{color:#8a96a8 !important;font-size:8px;}
+  #wl-print .rsi-c{display:inline;margin:0;padding:0;border:0;}
+  #wl-print .rsi-ob{color:#0a7a3b !important;font-weight:700;} #wl-print .rsi-hi{color:#1f9d57 !important;}
+  #wl-print .rsi-mid{color:#5a6b7d !important;} #wl-print .rsi-lo{color:#c76a00 !important;}
+  #wl-print .rsi-os{color:#c62828 !important;font-weight:700;}
+  #wl-print .opt-yes{color:#0a7a3b !important;} #wl-print .opt-low{color:#b86e00 !important;} #wl-print .opt-no{color:#5a6b7d !important;}
+  #wl-print .rsi-badge{font-size:6.5px;line-height:10px;padding:0 3px;margin-left:3px;background:#eef1f6 !important;border-radius:6px;}
+  #wl-print .rb-p3{color:#0a7a3b !important;} #wl-print .rb-p2{color:#1f9d57 !important;} #wl-print .rb-p1{color:#4a9d6e !important;}
+  #wl-print .rb-m1{color:#b86e00 !important;} #wl-print .rb-m2{color:#c76a00 !important;} #wl-print .rb-m3{color:#c62828 !important;}
+  #wl-print .wl-sec-muted{color:#6a7a8a;font-size:7px;}
+  #wl-print .wl-dot-wrap{justify-content:flex-end;}
+}
 .opt-cell{font-size:11px;font-weight:700;text-align:center;white-space:nowrap;}
 .opt-yes{color:var(--green);}
 .opt-low{color:#ffc078;}
@@ -706,7 +743,7 @@ select option{background:var(--bg2);}
       <button class="fbtn wl-view-btn active" id="wl-view-sector" onclick="setWlView('sector')">By Sector</button>
       <button class="fbtn wl-view-btn" id="wl-view-combined" onclick="setWlView('combined')">Combined RSI</button>
     </span>
-    <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;">Avg Bull/Bear Window:</span>
+    <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;" title="Based on uploaded OMEN CSVs">Avg Bull/Bear Window:</span>
     <div class="bb-tf-bar">
       <button class="bb-tf-btn" onclick="setFlowWindow('5D',this)">5D</button>
       <button class="bb-tf-btn active" onclick="setFlowWindow('30D',this)">30D</button>
@@ -721,7 +758,10 @@ select option{background:var(--bg2);}
       <button class="fbtn wl-opt-btn" data-opt="low" onclick="setWlOptFilter('low')">Low</button>
       <button class="fbtn wl-opt-btn" data-opt="no" onclick="setWlOptFilter('no')">No</button>
     </span>
-    <span style="color:#e0e0e0;margin-left:auto;">Based on uploaded OMEN CSVs</span>
+    <span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+      <button class="fbtn wl-exp-btn" onclick="exportWatchlistCsv()" title="Download the rows currently shown as CSV">⬇ CSV</button>
+      <button class="fbtn wl-exp-btn" onclick="printWatchlist()" title="Print or save the rows currently shown as PDF">🖨 Print / PDF</button>
+    </span>
   </div>
   <!-- Column header (sticky) -->
   <div class="wl-col-hdr">
@@ -3278,6 +3318,103 @@ function _wlBbCell(val) {
   return `<span class="pct-cell ${cls}" style="font-weight:700;">${val}%</span>`;
 }
 
+// ── Watchlist export (CSV + print) ────────────────────────────────────
+// Both read the rows already rendered in #watchlist-body (current view, search, sector + Options filters, sort order;
+// rows of collapsed sectors are rendered too, only hidden by CSS), so there is no second copy of the render logic.
+function _wlVisibleRowEls() { return [...document.querySelectorAll('#watchlist-body .wl-dense-row')]; }
+function _wlEsc(text) { return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function _wlEtParts(date) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date);
+  const pick = t => parts.find(x => x.type === t)?.value || '';
+  return { y: pick('year'), mo: pick('month'), d: pick('day'), h: String(Number(pick('hour')) % 24).padStart(2, '0'), mi: pick('minute') };
+}
+function _wlCsvField(value) {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+}
+// Displayed cell text -> bare number ('' for — / stale / empty).
+function _wlCsvNum(text) {
+  const t = String(text ?? '').trim();
+  if (!t || t === '—' || t === 'stale') return '';
+  const cleaned = t.replace(/[$,%+]/g, '');
+  return isFinite(parseFloat(cleaned)) ? cleaned : '';
+}
+const _WL_CSV_HEADER = ['Sector', 'Symbol', 'Company', 'RSI Badge', 'Price', 'Net $', '5m%', '1h%', '1D%', '1W%', '1M%', '6M%', '1Y%',
+  'RSI 1H', 'RSI 4H', 'RSI 1D', 'RSI 1W', 'Options', 'Flow days 30d', 'Last flow date', 'AvgBull', 'AvgBear', 'RSI as of (ET)'];
+function _wlBuildCsv() {
+  const lines = [_WL_CSV_HEADER.map(_wlCsvField).join(',')];
+  for (const el of _wlVisibleRowEls()) {
+    const c = el.children; const sym = el.dataset.sym; const snap = _rsiBySym[sym];
+    const optText = c[15].textContent.trim();
+    let asOf = '';
+    if (snap?.computed_at) { const e = _wlEtParts(new Date(snap.computed_at)); asOf = `${e.y}-${e.mo}-${e.d} ${e.h}:${e.mi}`; }
+    lines.push([
+      el.dataset.sector, sym, COMPANY_NAMES[sym] || '', el.querySelector('.rsi-badge')?.textContent.trim() || '',
+      _wlCsvNum(c[2].textContent), _wlCsvNum(c[3].textContent),
+      _wlCsvNum(c[4].textContent), _wlCsvNum(c[5].textContent), _wlCsvNum(c[6].textContent), _wlCsvNum(c[7].textContent),
+      _wlCsvNum(c[8].textContent), _wlCsvNum(c[9].textContent), _wlCsvNum(c[10].textContent),
+      _wlCsvNum(c[11].textContent), _wlCsvNum(c[12].textContent), _wlCsvNum(c[13].textContent), _wlCsvNum(c[14].textContent),
+      ['Yes', 'Low', 'No'].includes(optText) ? optText : '',
+      snap && snap.flow_days_30d != null ? snap.flow_days_30d : '', snap?.last_flow_date || '',
+      _wlCsvNum(c[16].textContent), _wlCsvNum(c[17].textContent), asOf,
+    ].map(_wlCsvField).join(','));
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+function exportWatchlistCsv() {
+  if (!_wlVisibleRowEls().length) { alert('No rows to export — adjust the filters first.'); return; }
+  const e = _wlEtParts(new Date());
+  const blob = new Blob(['﻿' + _wlBuildCsv()], { type: 'text/csv;charset=utf-8' }); // BOM so Excel reads UTF-8
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `stockpulse-watchlist-${e.y}-${e.mo}-${e.d}-${e.h}${e.mi}.csv`;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+const _WL_PRINT_HEADERS = ['Symbol', 'Company', 'Price', 'Net $', '5m%', '1h%', '1D%', '1W%', '1M%', '6M%', '1Y%',
+  'RSI 1H', 'RSI 4H', 'RSI 1D', 'RSI 1W', 'Options', 'AvgBull', 'AvgBear', 'Flags'];
+const _WL_PRINT_WIDTHS = [8.5, 12.5, 5.5, 4.5, 4.5, 4.5, 5, 5, 5, 5, 5.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 3];
+// Builds the print-only table from the same rendered rows; printWatchlist() prints it, tests can call this directly.
+function _wlPreparePrint() {
+  const els = _wlVisibleRowEls();
+  const combined = _wlView === 'combined';
+  const filters = [];
+  if (currentWlFilter !== 'all') filters.push('Sector: ' + currentWlFilter);
+  if (_wlOptFilter !== 'all') filters.push('Options: ' + _wlOptFilter[0].toUpperCase() + _wlOptFilter.slice(1));
+  const search = (document.getElementById('wl-search')?.value || '').trim();
+  if (search) filters.push(`Search: "${search}"`);
+  const asOf = document.getElementById('wl-rsi-asof')?.textContent || '—';
+  const printed = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(', ', ' ') + ' ET';
+  const title = `StockPulse Watchlist — ${combined ? 'Combined RSI' : 'By Sector'} — ${filters.length ? filters.join(' · ') : 'No filters'} — RSI as of ${asOf} — printed ${printed}`;
+
+  const sectorCounts = {};
+  els.forEach(el => { sectorCounts[el.dataset.sector] = (sectorCounts[el.dataset.sector] || 0) + 1; });
+  let body = ''; let lastSector = null;
+  for (const el of els) {
+    const sector = el.dataset.sector; const sym = el.dataset.sym; const c = el.children;
+    if (!combined && sector !== lastSector) {
+      body += `<tr class="wl-p-sec"><td colspan="19">${_wlEsc(sector)} · ${sectorCounts[sector]} stocks</td></tr>`;
+      lastSector = sector;
+    }
+    const name = COMPANY_NAMES[sym] || '';
+    const nameCell = combined ? `${_wlEsc(name)}<span class="wl-sec-muted">${name ? ' · ' : ''}${_wlEsc(sector)}</span>` : _wlEsc(name || sector);
+    const cells = [c[0].outerHTML, nameCell];
+    for (let i = 2; i < 19; i++) cells.push(c[i].outerHTML);
+    body += '<tr>' + cells.map(html => `<td>${html}</td>`).join('') + '</tr>';
+  }
+  let host = document.getElementById('wl-print');
+  if (!host) { host = document.createElement('div'); host.id = 'wl-print'; document.body.appendChild(host); }
+  host.innerHTML = `<div class="wl-p-title">${_wlEsc(title)}</div><table><colgroup>${_WL_PRINT_WIDTHS.map(w => `<col style="width:${w}%">`).join('')}</colgroup>` +
+    `<thead><tr>${_WL_PRINT_HEADERS.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
+  return els.length;
+}
+function printWatchlist() {
+  if (!_wlPreparePrint()) { alert('No rows to print — adjust the filters first.'); return; }
+  window.print();
+}
+window.addEventListener('afterprint', () => { const host = document.getElementById('wl-print'); if (host) host.innerHTML = ''; });
+
 // Yes needs this many distinct Omen flow days in the last 30 (rsi_snapshot.flow_days_30d).
 const OPTIONS_YES_MIN_FLOW_DAYS = 3;
 // 'yes' | 'low' | 'no' | null (unknown). Flow history proves the symbol trades options, whatever the availability check said.
@@ -3444,7 +3581,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
           </select>
          </span>`
       : '';
-    return `<div class="wl-dense-row" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
+    return `<div class="wl-dense-row" data-sym="${sym}" data-sector="${String(sector).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
       <span class="wl-sym-cell">${sym}${_wlRsiBadge(rsi?.rsi_1d)}</span>
       <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}>${combined ? `${COMPANY_NAMES[sym] || ''}<span class="wl-sec-muted">${COMPANY_NAMES[sym] ? ' · ' : ''}${sector}</span>` : (COMPANY_NAMES[sym] || sector)}${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:4px;" title="Remove from watchlist">×</button>` : ''}</span>
       ${priceCellHtml}
