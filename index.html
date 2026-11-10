@@ -5640,8 +5640,10 @@ async function fetchLiveAll(force, pageKey){
       _done++;
       return false;
     }
+    if(_fhPending.has(sym)){ _done++; return false; } // another running pass is already fetching it
     return true;
   });
+  toFetch.forEach(sym=>_fhPending.add(sym));
   if(pageKey) showRefreshProgress(pageKey,_done,tickerList.length,{unavailable:_rpUnavail});
 
   // Paced fetch: one call per FH_MIN_SPACING_MS (<= 50/min). A 429 / 5xx / network failure re-queues the symbol for later
@@ -5654,12 +5656,13 @@ async function fetchLiveAll(force, pageKey){
     if(typeof renderScanners==='function')renderScanners();
     if(typeof updateStatBoxes==='function')updateStatBoxes();
   };
+  try{
   while(queue.length){
     const item=queue.shift(); const sym=item.sym;
-    const cached=_fhCache.get(sym); // a concurrent pass may have fetched it already
+    const cached=_fhCache.get(sym); // freshly fetched (e.g. by _fetchPriceNow) since the pass started
     if(cached&&(Date.now()-cached.fetchedAt)<FH_CACHE_TTL_MS){
       liveData[sym]={p:cached.c,dp:cached.dp||0,d:cached.d||0,t:cached.t||0,loading:false,lastClose:!!cached.lastClose};
-      _done++; continue;
+      _fhPending.delete(sym); _done++; continue;
     }
     await _fhWaitSlot();
     let retry=false;
@@ -5695,6 +5698,7 @@ async function fetchLiveAll(force, pageKey){
       liveData[sym]={...prev,loading:false,error:true};
       _rpUnavail++;
     }
+    _fhPending.delete(sym);
     _done++; sinceRender++;
     if(pageKey) showRefreshProgress(pageKey,_done,tickerList.length,{unavailable:_rpUnavail});
     if(sinceRender>=12||!queue.length){
@@ -5703,6 +5707,7 @@ async function fetchLiveAll(force, pageKey){
       renderNow();
     }
   }
+  }finally{ queue.forEach(item=>_fhPending.delete(item.sym)); }
   console.log(`[fetchLiveAll] COMPLETE — ${tickerList.length} total (${wlFlat.length} built-in watchlist · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner) · ${toFetch.length} live-fetched · ${tickerList.length-toFetch.length} cached`);
   if(pageKey) showRefreshProgress(pageKey,tickerList.length,tickerList.length,{unavailable:_rpUnavail,complete:true,label:`${wlFlat.length} built-in · ${userSyms.length} user · ${swingSyms.length} swing · ${scannerSyms.length} scanner`});
   renderWatchlist();renderMoverLists();renderTape();
@@ -7341,10 +7346,12 @@ const _fhCache=new Map();
 const FH_CACHE_TTL_MS=90000; // 90s — same TTL as old TD cache
 // Finnhub free tier = 60 calls/min. Every quote call reserves a slot here, so the total stays <= 50/min even when several
 // passes run at once.
-const FH_MIN_SPACING_MS=1200;
+const FH_MIN_SPACING_MS=1300; // ~46/min: margin under the 50/min target for timer/network jitter
 const FH_MAX_RETRIES=2;
 const FH_RATE_LIMIT_PENALTY_MS=5000;
 let _fhNextAt=0;
+// Symbols already queued by a running pass: overlapping passes (startup fires several) split the work instead of repeating it.
+const _fhPending=new Set();
 async function _fhWaitSlot(){
   const now=Date.now();
   const at=Math.max(now,_fhNextAt);
