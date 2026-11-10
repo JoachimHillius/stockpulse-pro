@@ -375,7 +375,7 @@ async function syncRsiUniverse(supa: any, extras: Map<string, ExtraSymbol>): Pro
 async function loadPreviousZones(supa: any, symbols: string[]): Promise<Map<string, any>> {
   const previous = new Map<string, any>();
   const { data, error } = await supa.from('rsi_snapshot')
-    .select('symbol, zone_1h, zone_4h, zone_1d, zone_1w').in('symbol', symbols);
+    .select('symbol, zone_1h, zone_4h, zone_1d, zone_1w, has_options, options_checked_at').in('symbol', symbols);
   if (error) throw new Error('rsi_snapshot read failed: ' + error.message);
   (data || []).forEach((r: any) => previous.set(r.symbol, r));
   return previous;
@@ -427,6 +427,99 @@ async function sendTelegram(label: string, crossings: Crossing[]): Promise<strin
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// ---- Listed-options check (Yahoo needs a cookie + crumb; plain calls return 401) ----------------------------------
+const OPTIONS_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+const OPTIONS_CALL_SPACING_MS = 80;
+interface YahooSession { cookie: string; crumb: string; }
+
+async function yahooSession(): Promise<YahooSession | null> {
+  try {
+    const home = await fetch('https://fc.yahoo.com', { headers: { 'User-Agent': OPTIONS_UA }, redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const setCookie = home.headers.get('set-cookie') || '';
+    const cookie = setCookie.split(',').map(c => c.trim().split(';')[0]).filter(c => c.startsWith('A')).join('; ') || setCookie.split(';')[0];
+    const res = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', { headers: { 'User-Agent': OPTIONS_UA, Cookie: cookie }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const crumb = await res.text();
+    // An error body ("Too Many Requests") is not a crumb.
+    return res.ok && crumb.length > 0 && crumb.length < 40 && !/\s/.test(crumb) ? { cookie, crumb } : null;
+  } catch (_) { return null; }
+}
+
+// Reads only the first ~1.5KB (expirationDates is at the top of the payload) and drops the rest: full chains are large.
+async function readHead(res: Response, maxChars = 1500): Promise<string> {
+  const reader = res.body!.getReader(); const decoder = new TextDecoder(); let text = '';
+  while (text.length < maxChars) { const { done, value } = await reader.read(); if (done) break; text += decoder.decode(value, { stream: true }); }
+  try { await reader.cancel(); } catch (_) { /* stream already closed */ }
+  return text;
+}
+
+// true = has listed options, false = confirmed none, null = could not tell (caller keeps the previous value).
+async function hasListedOptions(symbol: string, session: { current: YahooSession | null }): Promise<boolean | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!session.current) return null;
+    try {
+      const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol.replace('.', '-'))}?crumb=${encodeURIComponent(session.current.crumb)}`, {
+        headers: { 'User-Agent': OPTIONS_UA, Cookie: session.current.cookie }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (res.status === 401 && attempt === 0) { try { await res.body?.cancel(); } catch (_) { /* ignore */ } session.current = await yahooSession(); continue; }
+      if (!res.ok) { try { await res.body?.cancel(); } catch (_) { /* ignore */ } return null; }
+      const head = await readHead(res);
+      const m = head.match(/"expirationDates":\[([^\]]*)\]/);
+      if (m) return m[1].trim().length > 0;
+      if (head.includes('"result":[]') || head.includes('"result":null')) return false;
+      return null;
+    } catch (_) { return null; }
+  }
+  return null;
+}
+
+// Fill has_options / options_checked_at / flow stats on freshly computed rows.
+// Rules: flow history proves the symbol trades options (override); otherwise Yahoo is asked at most once per ET day.
+async function attachOptionsData(supa: any, rows: any[], previous: Map<string, any>): Promise<{ checked: number, unknown: number }> {
+  const symbols = rows.map(r => r.symbol);
+  const { data: flowRows, error: flowError } = await supa.rpc('get_options_flow_stats', { p_symbols: symbols });
+  if (flowError) console.error('[get_options_flow_stats]', flowError.message);
+  const flow = new Map<string, any>((flowRows || []).map((f: any) => [f.symbol, f]));
+
+  const todayEt = etParts(new Date()).date;
+  const nowIso = new Date().toISOString();
+  const needsCheck: any[] = [];
+  for (const row of rows) {
+    const before = previous.get(row.symbol);
+    const flowStats = flow.get(row.symbol);
+    // If the flow query failed, leave the stored flow columns untouched (undefined keys are omitted from the upsert).
+    if (!flowError) {
+      row.flow_ever = !!flowStats;
+      row.flow_days_30d = flowStats?.flow_days_30d ?? 0;
+      row.last_flow_date = flowStats?.last_flow_date ?? null;
+    }
+    row.has_options = before?.has_options ?? null;
+    row.options_checked_at = before?.options_checked_at ?? null;
+    if (flowStats) {
+      row.has_options = true;
+      if (!before?.has_options) row.options_checked_at = nowIso;
+    } else if (!before?.options_checked_at || etParts(new Date(before.options_checked_at)).date !== todayEt) {
+      needsCheck.push(row);
+    }
+  }
+
+  let unknown = 0;
+  if (needsCheck.length) {
+    const session = { current: await yahooSession() };
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < needsCheck.length) {
+        const row = needsCheck[cursor++];
+        const result = await hasListedOptions(row.symbol, session);
+        if (result === null) unknown++; // keep the previous value and retry on the next run
+        else { row.has_options = result; row.options_checked_at = nowIso; }
+        await sleep(OPTIONS_CALL_SPACING_MS);
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  }
+  return { checked: needsCheck.length, unknown };
+}
+
 // Fire-and-forget: abort once the request is on the wire so we don't wait for the next chunk to finish.
 async function handOff(payload: unknown): Promise<void> {
   const controller = new AbortController();
@@ -467,7 +560,7 @@ Deno.serve(async (req: Request) => {
     const supa = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
     let symbols: string[]; let label: string; let runId: string; let runStartedAt: number;
-    let totals = { ok: 0, failed: 0, failedSymbols: [] as string[], crossings: [] as Crossing[] };
+    let totals = { ok: 0, failed: 0, optionsChecked: 0, optionsUnknown: 0, failedSymbols: [] as string[], crossings: [] as Crossing[] };
     let universeInfo: any = null;
 
     if (chunk === 0) {
@@ -488,6 +581,7 @@ Deno.serve(async (req: Request) => {
       runStartedAt = Number(body.runStartedAt) || Date.now();
       totals = {
         ok: Math.max(0, Number(body.ok) || 0), failed: Math.max(0, Number(body.failed) || 0),
+        optionsChecked: Math.max(0, Number(body.optionsChecked) || 0), optionsUnknown: Math.max(0, Number(body.optionsUnknown) || 0),
         failedSymbols: (Array.isArray(body.failedSymbols) ? body.failedSymbols : []).map(cleanSymbol).filter(Boolean).slice(0, 100) as string[],
         crossings: sanitizeCrossings(body.crossings),
       };
@@ -513,6 +607,8 @@ Deno.serve(async (req: Request) => {
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
     totals.ok += rows.length;
+    const options = await attachOptionsData(supa, rows, previous);
+    totals.optionsChecked += options.checked; totals.optionsUnknown += options.unknown;
     totals.crossings.push(...findCrossings(rows, previous));
 
     const computedAt = new Date().toISOString();
@@ -533,9 +629,9 @@ Deno.serve(async (req: Request) => {
     let telegram = 'none';
     if (totals.crossings.length) telegram = await sendTelegram(label, totals.crossings);
     const elapsedMs = Date.now() - runStartedAt;
-    console.log(`[rsi-scan] run ${runId} done: chunks=${totalChunks} symbols=${symbols.length} ok=${totals.ok} failed=${totals.failed} crossings=${totals.crossings.length} telegram=${telegram} ms=${elapsedMs}`);
+    console.log(`[rsi-scan] run ${runId} done: chunks=${totalChunks} symbols=${symbols.length} ok=${totals.ok} failed=${totals.failed} options_checked=${totals.optionsChecked} options_unknown=${totals.optionsUnknown} crossings=${totals.crossings.length} telegram=${telegram} ms=${elapsedMs}`);
     return json({ ran: true, done: true, chunk, total_chunks: totalChunks, symbols: symbols.length, ok: totals.ok,
-      failed: totals.failed, failed_symbols: totals.failedSymbols, crossings: totals.crossings.length, telegram, elapsed_ms: elapsedMs });
+      failed: totals.failed, options_checked: totals.optionsChecked, options_unknown: totals.optionsUnknown, failed_symbols: totals.failedSymbols, crossings: totals.crossings.length, telegram, elapsed_ms: elapsedMs });
   } catch (e) {
     console.error('[rsi-scan]', String(e).slice(0, 200));
     return json({ error: String(e) }, 500);
