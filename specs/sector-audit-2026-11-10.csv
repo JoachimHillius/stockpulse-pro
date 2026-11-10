@@ -1,0 +1,951 @@
+﻿status,symbol,company,current_sector,current_source,suggested_sector_yahoo,yahoo_sector,yahoo_industry,suggested_sector_finnhub,finnhub_industry,sources_agree
+MISMATCH,CAR,Avis Budget Group,Consumer Disc.,built-in,Industrials,Industrials,Rental & Leasing Services,Industrials,Road & Rail,yes
+MISMATCH,CNK,Cinemark Holdings Inc,Consumer Disc.,rsi_universe,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+MISMATCH,DIS,The Walt Disney Company,Consumer Disc.,user,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+MISMATCH,HTZ,Hertz Global Holdings Inc,Consumer Disc.,user,Industrials,Industrials,Rental & Leasing Services,Industrials,Road & Rail,yes
+MISMATCH,IMAX,IMAX Corporation,Consumer Disc.,rsi_universe,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+MISMATCH,NCMI,National Cinemedia Inc,Consumer Disc.,rsi_universe,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+MISMATCH,NFLX,Netflix,Consumer Disc.,built-in,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+MISMATCH,PRCH,"Porch Group, Inc.",Consumer Disc.,rsi_universe,Financials,Financial Services,Insurance - Property & Casualty,Financials,Insurance,yes
+MISMATCH,PYPL,PayPal,Consumer Disc.,built-in,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+MISMATCH,RMAX,Re/Max Holdings Inc,Consumer Disc.,rsi_universe,Real Estate,Real Estate,Real Estate Services,Real Estate,Real Estate,yes
+MISMATCH,SPHR,Sphere Entertainment Co.,Consumer Disc.,rsi_universe,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+MISMATCH,TTWO,"Take-Two Interactive Software, Inc.",Consumer Disc.,user,Telecom,Communication Services,Electronic Gaming & Multimedia,Telecom,Media,yes
+MISMATCH,ACB,Aurora Cannabis Inc,Consumer Staples,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+MISMATCH,CRON,Cronos Group Inc,Consumer Staples,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+MISMATCH,AAP,Advance Auto Parts Inc,Custom,user,Consumer Disc.,Consumer Cyclical,Auto Parts,Consumer Disc.,Retail,yes
+MISMATCH,ACHR,Archer Aviation Inc.,Custom,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+MISMATCH,AEM,Agnico Eagle Mines Ltd,Custom,user,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+MISMATCH,AEO,"American Eagle Outfitters, Inc.",Custom,user,Consumer Disc.,Consumer Cyclical,Apparel Retail,Consumer Disc.,Retail,yes
+MISMATCH,AES,The AES Corporation,Custom,user,Utilities,Utilities,Utilities - Diversified,Utilities,Utilities,yes
+MISMATCH,AG,First Majestic Silver Corp,Custom,user,Materials,Basic Materials,Silver,Materials,Metals & Mining,yes
+MISMATCH,AGCO,AGCO Corporation,Custom,user,Industrials,Industrials,Farm & Heavy Construction Machinery,Industrials,Machinery,yes
+MISMATCH,AMAT,Applied Materials Inc,Custom,user,Semiconductors,Technology,Semiconductor Equipment & Materials,Semiconductors,Semiconductors,yes
+MISMATCH,APP,AppLovin Corporation,Custom,user,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+MISMATCH,ARM,ARM Holdings PLC,Custom,user,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,HIMS,"Hims & Hers Health, Inc.",Custom,user,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Health Care,yes
+MISMATCH,HON,Honeywell International Inc.,Custom,user,Industrials,Industrials,Conglomerates,Industrials,Industrial Conglomerates,yes
+MISMATCH,LULU,lululemon athletica inc.,Custom,user,Consumer Disc.,Consumer Cyclical,Apparel Retail,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+MISMATCH,ON,ON Semiconductor Corp,Custom,user,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,OPEN,Opendoor Technologies Inc.,Custom,user,Real Estate,Real Estate,Real Estate Services,Real Estate,Real Estate,yes
+MISMATCH,PANW,"Palo Alto Networks, Inc.",Custom,user,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+MISMATCH,UUUU,Energy Fuels Inc.,Custom,user,Energy,Energy,Uranium,Energy,Energy,yes
+MISMATCH,ZETA,Zeta Global Holdings Corp.,Custom,user,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+MISMATCH,ALTO,Alto Ingredients Inc,Energy,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+MISMATCH,BE,Bloom Energy,Energy,built-in,Industrials,Industrials,Electrical Equipment & Parts,Industrials,Electrical Equipment,yes
+MISMATCH,CORZ,Core Scientific Inc,Energy,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+MISMATCH,NPWR,NET Power Inc.,Energy,rsi_universe,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Electrical Equipment,yes
+MISMATCH,CELH,Celsius Holdings,Healthcare,built-in,Consumer Staples,Consumer Defensive,Beverages - Non-Alcoholic,Consumer Staples,Beverages,yes
+MISMATCH,B,Barnes Group,Industrials,built-in,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+MISMATCH,GNW,Genworth Financial Inc,Industrials,user,Financials,Financial Services,Insurance - Life,Financials,Insurance,yes
+MISMATCH,THRM,Gentherm Incorporated,Industrials,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Parts,Consumer Disc.,Auto Components,yes
+MISMATCH,TROX,Tronox Holdings PLC,Industrials,user,Materials,Basic Materials,Chemicals,Materials,Chemicals,yes
+MISMATCH,UFPT,UFP Technologies Inc,Industrials,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+MISMATCH,FLNC,Fluence Energy,Materials,built-in,Industrials,Industrials,Electrical Equipment & Parts,Industrials,Electrical Equipment,yes
+MISMATCH,TSM,Taiwan Semiconductor Manufacturing Co Ltd,Materials,user,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,UFI,Unifi Inc,Materials,rsi_universe,Consumer Disc.,Consumer Cyclical,Textile Manufacturing,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+MISMATCH,AIRJ,AirJoule Technologies Corporation,Technology,rsi_universe,Industrials,Industrials,Building Products & Equipment,Industrials,Machinery,yes
+MISMATCH,ASML,ASML Holding NV,Technology,user,Semiconductors,Technology,Semiconductor Equipment & Materials,Semiconductors,Semiconductors,yes
+MISMATCH,AVGO,Broadcom,Technology,built-in,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,CRDO,Credo Technology Group Holding Ltd,Technology,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,GOOG,Alphabet Inc.,Technology,user,Telecom,Communication Services,Internet Content & Information,Telecom,Media,yes
+MISMATCH,GOOGL,Alphabet,Technology,built-in,Telecom,Communication Services,Internet Content & Information,Telecom,Media,yes
+MISMATCH,HNGE,"Hinge Health, Inc.",Technology,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Health Care,yes
+MISMATCH,LMND,Lemonade Inc,Technology,rsi_universe,Financials,Financial Services,Insurance - Property & Casualty,Financials,Insurance,yes
+MISMATCH,MCHP,Microchip Technology Inc,Technology,user,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,META,Meta Platforms,Technology,built-in,Telecom,Communication Services,Internet Content & Information,Telecom,Media,yes
+MISMATCH,MRVL,Marvell Technology,Technology,built-in,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,NVDA,NVIDIA,Technology,built-in,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,POET,POET Technologies Inc,Technology,user,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,QNST,QuinStreet Inc,Technology,rsi_universe,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+MISMATCH,RBLX,Roblox Corporation,Technology,rsi_universe,Telecom,Communication Services,Electronic Gaming & Multimedia,Telecom,Media,yes
+MISMATCH,RDDT,"Reddit, Inc.",Technology,rsi_universe,Telecom,Communication Services,Internet Content & Information,Telecom,Media,yes
+MISMATCH,RIVN,Rivian Automotive,Technology,built-in,Consumer Disc.,Consumer Cyclical,Auto Manufacturers,Consumer Disc.,Automobiles,yes
+MISMATCH,STAK,STAK Inc,Technology,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+MISMATCH,TEM,"Tempus AI, Inc.",Technology,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Life Sciences Tools & Services,yes
+MISMATCH,TSLA,Tesla,Technology,built-in,Consumer Disc.,Consumer Cyclical,Auto Manufacturers,Consumer Disc.,Automobiles,yes
+MISMATCH,TTD,The Trade Desk,Technology,built-in,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+MISMATCH,TXN,Texas Instruments Incorporated,Technology,user,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+MISMATCH,VEEV,Veeva Systems Inc.,Technology,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Health Care,yes
+MISMATCH,ZD,Ziff Davis Inc,Technology,rsi_universe,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+MISMATCH,FA,First Advantage Corporation,Telecom,rsi_universe,Industrials,Industrials,Specialty Business Services,Industrials,Professional Services,yes
+MISMATCH,ANDE,Andersons Inc,Consumer Disc.,rsi_universe,Consumer Staples,Consumer Defensive,Food Distribution,Consumer Disc.,Retail,no
+MISMATCH,APEI,"American Public Education, Inc.",Consumer Disc.,rsi_universe,Consumer Staples,Consumer Defensive,Education & Training Services,Consumer Disc.,Diversified Consumer Services,no
+MISMATCH,ARMK,Aramark,Consumer Disc.,rsi_universe,Industrials,Industrials,Specialty Business Services,Consumer Disc.,"Hotels, Restaurants & Leisure",no
+MISMATCH,DAVE,Dave Inc.,Consumer Disc.,rsi_universe,Technology,Technology,Software - Application,Financials,Financial Services,no
+MISMATCH,GOLD,Gold.com Inc,Consumer Disc.,rsi_universe,Financials,Financial Services,Capital Markets,Consumer Disc.,Distributors,no
+MISMATCH,IMKTA,"Ingles Markets, Incorporated",Consumer Disc.,rsi_universe,Consumer Staples,Consumer Defensive,Grocery Stores,Consumer Disc.,Retail,no
+MISMATCH,LRN,Stride Inc,Consumer Disc.,rsi_universe,Consumer Staples,Consumer Defensive,Education & Training Services,Consumer Disc.,Diversified Consumer Services,no
+MISMATCH,PRDO,Perdoceo Education Corporation,Consumer Disc.,rsi_universe,Consumer Staples,Consumer Defensive,Education & Training Services,Consumer Disc.,Diversified Consumer Services,no
+MISMATCH,PSO,Pearson PLC,Consumer Disc.,rsi_universe,Telecom,Communication Services,Publishing,Consumer Disc.,Diversified Consumer Services,no
+MISMATCH,PSQH,PSQ Holdings Inc,Consumer Disc.,rsi_universe,Technology,Technology,Software - Application,Telecom,Media,no
+MISMATCH,SABR,Sabre Corporation,Consumer Disc.,rsi_universe,Technology,Technology,Software - Infrastructure,Consumer Disc.,"Hotels, Restaurants & Leisure",no
+MISMATCH,TH,Target Hospitality Corp.,Consumer Disc.,rsi_universe,Industrials,Industrials,Specialty Business Services,Consumer Disc.,"Hotels, Restaurants & Leisure",no
+MISMATCH,WMK,"Weis Markets, Inc.",Consumer Disc.,rsi_universe,Consumer Staples,Consumer Defensive,Grocery Stores,Consumer Disc.,Retail,no
+MISMATCH,BZH,"Beazer Homes USA, Inc.",Consumer Staples,rsi_universe,Consumer Disc.,Consumer Cyclical,Residential Construction,Consumer Staples,Consumer products,no
+MISMATCH,HOV,"Hovnanian Enterprises, Inc.",Consumer Staples,rsi_universe,Consumer Disc.,Consumer Cyclical,Residential Construction,Consumer Staples,Consumer products,no
+MISMATCH,KBH,KB Home,Consumer Staples,rsi_universe,Consumer Disc.,Consumer Cyclical,Residential Construction,Consumer Staples,Consumer products,no
+MISMATCH,MHK,"Mohawk Industries, Inc.",Consumer Staples,rsi_universe,Consumer Disc.,Consumer Cyclical,"Furnishings, Fixtures & Appliances",Consumer Staples,Consumer products,no
+MISMATCH,MHO,M/I Homes Inc,Consumer Staples,rsi_universe,Consumer Disc.,Consumer Cyclical,Residential Construction,Consumer Staples,Consumer products,no
+MISMATCH,PHM,"PulteGroup, Inc.",Consumer Staples,rsi_universe,Consumer Disc.,Consumer Cyclical,Residential Construction,Consumer Staples,Consumer products,no
+MISMATCH,SEB,Seaboard Corporation,Consumer Staples,rsi_universe,Industrials,Industrials,Conglomerates,Consumer Staples,Food Products,no
+MISMATCH,TOL,Toll Brothers Inc,Consumer Staples,rsi_universe,Consumer Disc.,Consumer Cyclical,Residential Construction,Consumer Staples,Consumer products,no
+MISMATCH,WDFC,WD-40 Company,Consumer Staples,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Consumer Staples,Consumer products,no
+MISMATCH,AAOI,"Applied Optoelectronics, Inc.",Custom,user,Technology,Technology,Communication Equipment,Telecom,Communications,no
+MISMATCH,AAON,"AAON, Inc.",Custom,user,Industrials,Industrials,Building Products & Equipment,,Building,
+MISMATCH,ABAT,American Battery Technology Company,Custom,user,Industrials,Industrials,Waste Management,Materials,Metals & Mining,no
+MISMATCH,HKIT,,Custom,user,Technology,Technology,Information Technology Services,,,
+MISMATCH,VELO,Velo3D Inc,Custom,user,Technology,Technology,Computer Hardware,Industrials,Machinery,no
+MISMATCH,ASC,Ardmore Shipping Corp,Energy,rsi_universe,Industrials,Industrials,Marine Shipping,Energy,Energy,no
+MISMATCH,CLMT,"Calumet, Inc.",Energy,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Energy,Energy,no
+MISMATCH,CSIQ,Canadian Solar Inc.,Energy,user,Technology,Technology,Solar,Semiconductors,Semiconductors,no
+MISMATCH,ECO,Okeanis Eco Tankers Corp,Energy,rsi_universe,Industrials,Industrials,Marine Shipping,Energy,Energy,no
+MISMATCH,ENPH,"Enphase Energy, Inc.",Energy,rsi_universe,Technology,Technology,Solar,Semiconductors,Semiconductors,no
+MISMATCH,FF,FutureFuel Corp,Energy,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Energy,Energy,no
+MISMATCH,FSLR,First Solar,Energy,built-in,Technology,Technology,Solar,Semiconductors,Semiconductors,no
+MISMATCH,GPRE,Green Plains Inc.,Energy,rsi_universe,Materials,Basic Materials,Chemicals,Energy,Energy,no
+MISMATCH,LWLG,"Lightwave Logic, Inc.",Energy,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Industrials,Electrical Equipment,no
+MISMATCH,NUAI,New Era Energy & Digital Inc,Energy,rsi_universe,Technology,Technology,Software - Infrastructure,Energy,Energy,no
+MISMATCH,REX,REX American Resources Corporation,Energy,rsi_universe,Materials,Basic Materials,Chemicals,Energy,Energy,no
+MISMATCH,SHLS,"Shoals Technologies Group, Inc.",Energy,rsi_universe,Technology,Technology,Solar,Industrials,Electrical Equipment,no
+MISMATCH,SLNH,Soluna Holdings Inc,Energy,rsi_universe,Financials,Financial Services,Capital Markets,Technology,Technology,no
+MISMATCH,SMHI,SEACOR Marine Holdings Inc,Energy,rsi_universe,Industrials,Industrials,Marine Shipping,Energy,Energy,no
+MISMATCH,STDN,Standard Nuclear Inc,Energy,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Energy,Energy,no
+MISMATCH,FTFT,Future Fintech Group Inc,Financials,rsi_universe,Technology,Technology,Software - Application,Financials,Financial Services,no
+MISMATCH,IMXI,International Money Express Inc,Financials,rsi_universe,Technology,Technology,Software - Infrastructure,Financials,Financial Services,no
+MISMATCH,PAY,Paymentus Holdings Inc,Financials,rsi_universe,Technology,Technology,Software - Infrastructure,Financials,Financial Services,no
+MISMATCH,PAYS,Paysign Inc,Financials,rsi_universe,Technology,Technology,Software - Infrastructure,Financials,Financial Services,no
+MISMATCH,PRG,PROG Holdings Inc,Financials,rsi_universe,Industrials,Industrials,Rental & Leasing Services,Financials,Financial Services,no
+MISMATCH,PRTH,Priority Technology Holdings Inc,Financials,rsi_universe,Technology,Technology,Software - Infrastructure,Financials,Financial Services,no
+MISMATCH,USIO,"Usio, Inc.",Financials,rsi_universe,Technology,Technology,Software - Infrastructure,Financials,Financial Services,no
+MISMATCH,WLTH,Wealthfront Corporation,Financials,rsi_universe,Technology,Technology,Software - Application,Financials,Financial Services,no
+MISMATCH,CYPH,Cypherpunk Technologies Inc,Healthcare,rsi_universe,Financials,Financial Services,Asset Management,Healthcare,Biotechnology,no
+MISMATCH,PRE,Prenetics Global Ltd,Healthcare,rsi_universe,Consumer Staples,Consumer Defensive,Packaged Foods,Healthcare,Health Care,no
+MISMATCH,PURR,Hyperliquid Strategies Inc,Healthcare,rsi_universe,Financials,Financial Services,Capital Markets,Healthcare,Biotechnology,no
+MISMATCH,SBC,SBC Medical Group Holdings Inc,Healthcare,rsi_universe,Industrials,Industrials,Consulting Services,Healthcare,Health Care,no
+MISMATCH,SNDL,SNDL Inc,Healthcare,rsi_universe,Consumer Staples,Consumer Defensive,Beverages - Wineries & Distilleries,Healthcare,Pharmaceuticals,no
+MISMATCH,ANDG,Andersen Group Inc,Industrials,rsi_universe,Consumer Disc.,Consumer Cyclical,Personal Services,Industrials,Professional Services,no
+MISMATCH,ARBE,Arbe Robotics Ltd,Industrials,rsi_universe,Technology,Technology,Scientific & Technical Instruments,Industrials,Electrical Equipment,no
+MISMATCH,ARW,"Arrow Electronics, Inc.",Industrials,rsi_universe,Technology,Technology,Electronics & Computer Distribution,Industrials,Electrical Equipment,no
+MISMATCH,AVT,"Avnet, Inc.",Industrials,rsi_universe,Technology,Technology,Electronics & Computer Distribution,Industrials,Electrical Equipment,no
+MISMATCH,BEEM,Beam Global,Industrials,rsi_universe,Technology,Technology,Solar,Industrials,Electrical Equipment,no
+MISMATCH,FEIM,Frequency Electronics Inc,Industrials,rsi_universe,Technology,Technology,Communication Equipment,Industrials,Electrical Equipment,no
+MISMATCH,FVRR,Fiverr International Ltd,Industrials,rsi_universe,Telecom,Communication Services,Internet Content & Information,Industrials,Professional Services,no
+MISMATCH,GRAB,Grab Holdings Limited,Industrials,user,Technology,Technology,Software - Application,Industrials,Road & Rail,no
+MISMATCH,LQDT,Liquidity Services Inc,Industrials,rsi_universe,Consumer Disc.,Consumer Cyclical,Internet Retail,Industrials,Commercial Services & Supplies,no
+MISMATCH,LYFT,"Lyft, Inc.",Industrials,user,Technology,Technology,Software - Application,Industrials,Road & Rail,no
+MISMATCH,MLR,Miller Industries Inc,Industrials,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Parts,Industrials,Machinery,no
+MISMATCH,MYE,Myers Industries Inc,Industrials,rsi_universe,Consumer Disc.,Consumer Cyclical,Packaging & Containers,Materials,Packaging,no
+MISMATCH,NATL,NCR Atleos Corporation,Industrials,user,Technology,Technology,Software - Application,Financials,Financial Services,no
+MISMATCH,NSIT,Insight Enterprises Inc,Industrials,rsi_universe,Technology,Technology,Electronics & Computer Distribution,Industrials,Electrical Equipment,no
+MISMATCH,NWPX,"NWPX Infrastructure, Inc.",Industrials,rsi_universe,Materials,Basic Materials,Steel,Industrials,Construction,no
+MISMATCH,PAYC,"Paycom Software, Inc.",Industrials,rsi_universe,Technology,Technology,Software - Application,Industrials,Professional Services,no
+MISMATCH,SCSC,"ScanSource, Inc.",Industrials,rsi_universe,Technology,Technology,Electronics & Computer Distribution,Industrials,Electrical Equipment,no
+MISMATCH,SNX,TD SYNNEX Corporation,Industrials,rsi_universe,Technology,Technology,Electronics & Computer Distribution,Industrials,Electrical Equipment,no
+MISMATCH,SOAR,"SOAR AI, Inc.",Industrials,rsi_universe,Technology,Technology,Information Technology Services,Industrials,Airlines,no
+MISMATCH,SOTK,Sono-Tek Corp,Industrials,rsi_universe,Technology,Technology,Scientific & Technical Instruments,Industrials,Electrical Equipment,no
+MISMATCH,STRA,"Strategic Education, Inc.",Industrials,rsi_universe,Consumer Staples,Consumer Defensive,Education & Training Services,Consumer Disc.,Diversified Consumer Services,no
+MISMATCH,SUNE,Sunation Energy Inc,Industrials,rsi_universe,Technology,Technology,Solar,Industrials,Electrical Equipment,no
+MISMATCH,SVRN,"SVRN, Inc.",Industrials,rsi_universe,Financials,Financial Services,Asset Management,Industrials,Marine,no
+MISMATCH,TILE,"Interface, Inc.",Industrials,rsi_universe,Consumer Disc.,Consumer Cyclical,"Furnishings, Fixtures & Appliances",Industrials,Commercial Services & Supplies,no
+MISMATCH,UBER,"Uber Technologies, Inc.",Industrials,user,Technology,Technology,Software - Application,Industrials,Road & Rail,no
+MISMATCH,UTI,"Universal Technical Institute, Inc.",Industrials,rsi_universe,Consumer Staples,Consumer Defensive,Education & Training Services,Consumer Disc.,Diversified Consumer Services,no
+MISMATCH,VIRC,Virco Mfg Corp,Industrials,rsi_universe,Consumer Disc.,Consumer Cyclical,"Furnishings, Fixtures & Appliances",Industrials,Commercial Services & Supplies,no
+MISMATCH,CSTE,Caesarstone Ltd,Materials,rsi_universe,Industrials,Industrials,Building Products & Equipment,,Building,
+MISMATCH,KRT,Karat Packaging Inc,Materials,rsi_universe,Consumer Disc.,Consumer Cyclical,Packaging & Containers,Industrials,Trading Companies & Distributors,no
+MISMATCH,PKG,Packaging Corp of America,Materials,rsi_universe,Consumer Disc.,Consumer Cyclical,Packaging & Containers,Materials,Packaging,no
+MISMATCH,TRS,TriMas Corporation,Materials,rsi_universe,Consumer Disc.,Consumer Cyclical,Packaging & Containers,Materials,Packaging,no
+MISMATCH,ABTC,American Bitcoin Corp.,Other,user,Financials,Financial Services,Capital Markets,Technology,Technology,no
+MISMATCH,AEON,AEON Biopharma Inc,Scanner,rsi_universe,Healthcare,Healthcare,Biotechnology,,N/A,
+MISMATCH,NFJ,Virtus Dividend Interest & Premium Strategy Fund,Scanner,rsi_universe,Financials,Financial Services,Asset Management,,N/A,
+MISMATCH,NX,Quanex Building Products Corp,Scanner,rsi_universe,Industrials,Industrials,Building Products & Equipment,,Building,
+MISMATCH,LITE,Lumentum Holdings Inc.,Semiconductors,rsi_universe,Technology,Technology,Communication Equipment,Telecom,Communications,no
+MISMATCH,WNDW,SolarWindow Technologies Inc,Semiconductors,rsi_universe,Utilities,Utilities,Utilities - Renewable,Semiconductors,Semiconductors,no
+MISMATCH,ALP,Alpha Compute Corp,Technology,rsi_universe,Financials,Financial Services,Asset Management,Healthcare,Biotechnology,no
+MISMATCH,KIDZ,KIDZ AI Inc,Technology,rsi_universe,Consumer Staples,Consumer Defensive,Education & Training Services,Consumer Disc.,Diversified Consumer Services,no
+MISMATCH,NBIS,Nebius Group NV,Technology,user,Telecom,Communication Services,Internet Content & Information,Technology,Technology,no
+MISMATCH,OSCR,"Oscar Health, Inc.",Technology,rsi_universe,Healthcare,Healthcare,Healthcare Plans,Financials,Insurance,no
+MISMATCH,SERV,Serve Robotics Inc.,Technology,rsi_universe,Industrials,Industrials,Integrated Freight & Logistics,Consumer Disc.,"Hotels, Restaurants & Leisure",no
+MISMATCH,SST,"System1, Inc.",Technology,rsi_universe,Industrials,Industrials,Specialty Business Services,Telecom,Media,no
+MISMATCH,USDE,Stablecoinx Inc,Technology,rsi_universe,Financials,Financial Services,Capital Markets,Technology,Technology,no
+MISMATCH,XRX,Xerox Holdings Corp,Technology,rsi_universe,Industrials,Industrials,Business Equipment & Supplies,Technology,Technology,no
+MISMATCH,ITRN,Ituran Location and Control Ltd,Telecom,rsi_universe,Technology,Technology,Scientific & Technical Instruments,Telecom,Communications,no
+MISMATCH,NOK,Nokia Oyj,Telecom,rsi_universe,Technology,Technology,Communication Equipment,Telecom,Communications,no
+MISMATCH,NTGR,"NETGEAR, Inc.",Telecom,rsi_universe,Technology,Technology,Communication Equipment,Telecom,Communications,no
+MISMATCH,SILC,Silicom Ltd,Telecom,rsi_universe,Technology,Technology,Communication Equipment,Telecom,Communications,no
+MISMATCH,SY,So-Young International Inc,Telecom,rsi_universe,Healthcare,Healthcare,Health Information Services,Telecom,Media,no
+MISMATCH,VISN,Vistance Networks Inc,Telecom,rsi_universe,Technology,Technology,Communication Equipment,Telecom,Communications,no
+MISMATCH,MNTK,"Montauk Renewables, Inc",Utilities,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Utilities,Utilities,no
+no profile,CORN,,Consumer Staples,user,,,,,,
+no profile,FDP,,Consumer Staples,rsi_universe,,,,,,
+no profile,ETHA,,Custom,user,,,,,,
+no profile,INTW,,Custom,user,,,,,,
+no profile,KWEB,,ETF,user,,,,,,
+no profile,PSQ,,ETF,user,,,,,,
+no profile,QLD,,ETF,user,,,,,,
+no profile,QQQM,,ETF,user,,,,,,
+no profile,SQQQ,,ETF,user,,,,,,
+no profile,TQQQ,,ETF,user,,,,,,
+no profile,GREE,,Energy,rsi_universe,,,,,,
+no profile,MER,,Energy,user,,,,,,
+no profile,USO,,Energy,user,,,,,,
+no profile,XOP,,Energy,user,,,,,,
+no profile,AVAN,,Financials,user,,,,,,
+no profile,TOI,,Healthcare,rsi_universe,,,,,,
+no profile,ITA,,Industrials,user,,,,,,
+no profile,SILJ,,Materials,user,,,,,,
+no profile,TSLL,,Scanner,rsi_universe,,,,,,
+no profile,IGV,,Technology,user,,,,,,
+no profile,MSTU,,Technology,user,,,,,,
+manual group (not audited),HL,Hecla Mining,Commodities,built-in,Materials,Basic Materials,Other Precious Metals & Mining,Materials,Metals & Mining,yes
+manual group (not audited),CIFR,Cipher Mining,Crypto / Digital Assets,built-in,Technology,Technology,Information Technology Services,Technology,Technology,yes
+manual group (not audited),MSTR,Strategy (MicroStrategy),Crypto / Digital Assets,built-in,Technology,Technology,Software - Application,Technology,Technology,yes
+manual group (not audited),SBET,Sharplink Inc,Crypto / Digital Assets,user,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+manual group (not audited),BTDR,Bitdeer Technologies,Crypto / Digital Assets | Custom,built-in | user,Technology,Technology,Software - Application,Technology,Technology,yes
+manual group (not audited),COIN,Coinbase,Crypto / Digital Assets | Custom,built-in | user,Financials,Financial Services,Financial Data & Stock Exchanges,Financials,Financial Services,yes
+manual group (not audited),APLD,Applied Digital,Special Situations,built-in,Technology,Technology,Information Technology Services,Technology,Technology,yes
+manual group (not audited),FNMA,Fannie Mae,Special Situations,built-in,Financials,Financial Services,Mortgage Finance,Financials,Financial Services,yes
+manual group (not audited),PL,Planet Labs,Special Situations,built-in,Industrials,Industrials,Aerospace & Defense,Industrials,Professional Services,yes
+manual group (not audited),QBTS,D-Wave Quantum,Special Situations,built-in,Technology,Technology,Computer Hardware,Technology,Technology,yes
+manual group (not audited),SOFI,SoFi Technologies,Special Situations,built-in,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+manual group (not audited),HOOD,Robinhood Markets,Special Situations | Custom,built-in | user,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+manual group (not audited),GDX,VanEck Gold Miners ETF,Commodities,built-in,,,,,,
+manual group (not audited),GLD,SPDR Gold Shares,Commodities | Custom,built-in | user,,,,,,
+manual group (not audited),SLV,iShares Silver Trust,Commodities | Custom,built-in | user,,,,,,
+manual group (not audited),CLSK,CleanSpark,Crypto / Digital Assets,built-in,Financials,Financial Services,Capital Markets,Technology,Technology,no
+manual group (not audited),CRCL,Circle Internet Group,Crypto / Digital Assets,built-in,Financials,Financial Services,Capital Markets,Technology,Technology,no
+manual group (not audited),IBIT,iShares Bitcoin Trust,Crypto / Digital Assets,built-in,,,,,,
+manual group (not audited),IREN,Iris Energy,Crypto / Digital Assets,built-in,Financials,Financial Services,Capital Markets,Technology,Technology,no
+manual group (not audited),MARA,MARA Holdings,Crypto / Digital Assets,built-in,Financials,Financial Services,Capital Markets,Technology,Technology,no
+manual group (not audited),RIOT,"Riot Platforms, Inc.",Crypto / Digital Assets,user,Financials,Financial Services,Capital Markets,Technology,Technology,no
+manual group (not audited),WULF,TeraWulf,Crypto / Digital Assets,built-in,Financials,Financial Services,Capital Markets,Technology,Technology,no
+manual group (not audited),EEM,iShares MSCI Emerging Mkts,Market References,built-in,,,,,,
+manual group (not audited),HYG,iShares High Yield Bond,Market References,built-in,,,,,,
+manual group (not audited),IWM,iShares Russell 2000,Market References,built-in,,,,,,
+manual group (not audited),SOXL,Direxion Daily Semis 3X ETF,Market References,built-in,,,,,,
+manual group (not audited),SPY,SPDR S&P 500 ETF,Market References,built-in,,,,,,
+manual group (not audited),XLE,Energy Select Sector SPDR,Market References,built-in,,,,,,
+manual group (not audited),QQQ,Invesco QQQ Trust,Market References | Custom,built-in | user,,,,,,
+manual group (not audited),BMNR,BitMiner,Special Situations | Custom,built-in | user,Financials,Financial Services,Capital Markets,Technology,Technology,no
+manual group (not audited),ONDS,Ondas Holdings,Special Situations | Technology,built-in | user,Technology,Technology,Communication Equipment,Telecom,Communications,no
+match,SIRI,Sirius XM Holdings Inc.,Communication,user,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+match,ABNB,"Airbnb, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Travel Services,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,AMZN,Amazon,Consumer Disc.,built-in,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,ANF,Abercrombie & Fitch Co.,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Apparel Retail,Consumer Disc.,Retail,yes
+match,AOUT,American Outdoor Brands Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Leisure,Consumer Disc.,Leisure Products,yes
+match,BABA,Alibaba Group,Consumer Disc.,built-in,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,BJRI,BJ's Restaurants Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Restaurants,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,BWA,BorgWarner Inc.,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Parts,Consumer Disc.,Auto Components,yes
+match,CAAS,China Automotive Systems Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Parts,Consumer Disc.,Auto Components,yes
+match,CAKE,Cheesecake Factory Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Restaurants,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,CBRL,Cracker Barrel Old Country Store Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Restaurants,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,CCL,Carnival Corporation Ltd,Consumer Disc.,user,Consumer Disc.,Consumer Cyclical,Travel Services,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,CMG,Chipotle Mexican Grill,Consumer Disc.,built-in,Consumer Disc.,Consumer Cyclical,Restaurants,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,CVNA,Carvana Co,Consumer Disc.,user,Consumer Disc.,Consumer Cyclical,Auto & Truck Dealerships,Consumer Disc.,Retail,yes
+match,DASH,"Doordash, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,DBGI,Digital Brands Group Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Apparel Retail,Consumer Disc.,Retail,yes
+match,DKS,"DICK'S Sporting Goods, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Specialty Retail,Consumer Disc.,Retail,yes
+match,DLTH,Duluth Holdings Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Apparel Retail,Consumer Disc.,Retail,yes
+match,EAT,Brinker International Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Restaurants,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,ETSY,"Etsy, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,EXPE,"Expedia Group, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Travel Services,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,FFAI,Faraday Future Intelligent Electric Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Manufacturers,Consumer Disc.,Automobiles,yes
+match,FIGS,"FIGS, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Apparel Manufacturing,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,FIVE,"Five Below, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Specialty Retail,Consumer Disc.,Retail,yes
+match,FNKO,"Funko, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Leisure,Consumer Disc.,Leisure Products,yes
+match,FOSL,Fossil Group Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Footwear & Accessories,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,GIII,G-III Apparel Group Ltd,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Apparel Manufacturing,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,GM,General Motors Co,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Manufacturers,Consumer Disc.,Automobiles,yes
+match,GOOS,Canada Goose Holdings Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Apparel Manufacturing,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,GRWG,GrowGeneration Corp,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Specialty Retail,Consumer Disc.,Retail,yes
+match,JAKK,JAKKS Pacific Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Leisure,Consumer Disc.,Leisure Products,yes
+match,JD,JD.com Inc,Consumer Disc.,user,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,KMX,Carmax Inc,Consumer Disc.,user,Consumer Disc.,Consumer Cyclical,Auto & Truck Dealerships,Consumer Disc.,Retail,yes
+match,LAD,Lithia Motors Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto & Truck Dealerships,Consumer Disc.,Retail,yes
+match,LEVI,Levi Strauss,Consumer Disc.,built-in,Consumer Disc.,Consumer Cyclical,Apparel Manufacturing,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,LIND,"Lindblad Expeditions Holdings, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Travel Services,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,MBLY,Mobileye Global Inc,Consumer Disc.,user,Consumer Disc.,Consumer Cyclical,Auto Parts,Consumer Disc.,Auto Components,yes
+match,MGA,Magna International Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Parts,Consumer Disc.,Auto Components,yes
+match,MOV,Movado Group Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Luxury Goods,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,NKE,Nike,Consumer Disc.,built-in,Consumer Disc.,Consumer Cyclical,Footwear & Accessories,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,PAG,Penske Automotive Group Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto & Truck Dealerships,Consumer Disc.,Retail,yes
+match,PDD,PDD Holdings Inc.,Consumer Disc.,user,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,PHIN,PHINIA Inc.,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Parts,Consumer Disc.,Auto Components,yes
+match,PTON,Peloton Interactive,Consumer Disc.,built-in,Consumer Disc.,Consumer Cyclical,Leisure,Consumer Disc.,Leisure Products,yes
+match,PTRN,Pattern Group Inc.,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,RSI,"Rush Street Interactive, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Gambling,Consumer Disc.,"Hotels, Restaurants & Leisure",yes
+match,SAH,Sonic Automotive Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto & Truck Dealerships,Consumer Disc.,Retail,yes
+match,SE,Sea Ltd,Consumer Disc.,user,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,SHOO,"Steven Madden, Ltd.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Footwear & Accessories,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,SIG,Signet Jewelers Limited,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Luxury Goods,Consumer Disc.,Retail,yes
+match,SSM,Sono Group NV,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Auto Manufacturers,Consumer Disc.,Auto Components,yes
+match,TDUP,ThredUp Inc.,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Internet Retail,Consumer Disc.,Retail,yes
+match,VNCE,Vince Holding Corp,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Apparel Manufacturing,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,VRA,Vera Bradley Inc,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,Footwear & Accessories,Consumer Disc.,"Textiles, Apparel & Luxury Goods",yes
+match,CALM,"Cal-Maine Foods, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Farm Products,Consumer Staples,Food Products,yes
+match,CENT,Central Garden & Pet Co,Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Packaged Foods,Consumer Staples,Consumer products,yes
+match,CENTA,Central Garden & Pet Co,Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Packaged Foods,Consumer Staples,Consumer products,yes
+match,CL,Colgate-Palmolive,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Household & Personal Products,Consumer Staples,Consumer products,yes
+match,HNST,"The Honest Company, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Household & Personal Products,Consumer Staples,Consumer products,yes
+match,KO,Coca-Cola,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Beverages - Non-Alcoholic,Consumer Staples,Beverages,yes
+match,MDLZ,Mondelez Intl,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Confectioners,Consumer Staples,Food Products,yes
+match,MNST,Monster Beverage,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Beverages - Non-Alcoholic,Consumer Staples,Beverages,yes
+match,MO,Altria Group,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Tobacco,Consumer Staples,Tobacco,yes
+match,NUS,"Nu Skin Enterprises, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Household & Personal Products,Consumer Staples,Consumer products,yes
+match,ODD,ODDITY Tech Ltd.,Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Household & Personal Products,Consumer Staples,Consumer products,yes
+match,PEP,PepsiCo,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Beverages - Non-Alcoholic,Consumer Staples,Beverages,yes
+match,PG,Procter & Gamble,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Household & Personal Products,Consumer Staples,Consumer products,yes
+match,PM,Philip Morris Intl,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Tobacco,Consumer Staples,Tobacco,yes
+match,SENEA,Seneca Foods Corporation,Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Packaged Foods,Consumer Staples,Food Products,yes
+match,SPB,"Spectrum Brands Holdings, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Household & Personal Products,Consumer Staples,Consumer products,yes
+match,UTZ,"Utz Brands, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Packaged Foods,Consumer Staples,Food Products,yes
+match,UVV,Universal Corporation,Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Tobacco,Consumer Staples,Tobacco,yes
+match,AESI,Atlas Energy Solutions Inc.,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,APA,APA Corporation,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,BKR,Baker Hughes Company,Energy,user,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,BSIN,Big Sky Industrial Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,BWLP,BW LPG Ltd,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,CLNE,Clean Energy Fuels Corp.,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,COP,ConocoPhillips,Energy,built-in,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,CVI,CVR Energy Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,CVX,Chevron,Energy,built-in,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,DHT,"DHT Holdings, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,DINO,HF Sinclair Corporation,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,DK,Delek US Holdings Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,DWSN,Dawson Geophysical Co,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,EC,Ecopetrol SA,Energy,user,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,EE,"Excelerate Energy, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,EPD,Enterprise Products Partners L.P,Energy,user,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,EQNR,Equinor ASA,Energy,rsi_universe,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,EQT,EQT Corporation,Energy,user,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,ET,Energy Transfer,Energy,built-in,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,FANG,Diamondback Energy,Energy,built-in,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,FET,Forum Energy Technologies Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,FRO,Frontline PLC,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,GEOS,Geospace Technologies Corp,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,GFR,Greenfire Resources Ltd,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,GLND,Greenland Energy Co,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,HP,"Helmerich & Payne, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Drilling,Energy,Energy,yes
+match,HPK,Highpeak Energy Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,INSW,"International Seaways, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,KMI,Kinder Morgan,Energy,built-in,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,LBRT,Liberty Energy Inc.,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,LPG,Dorian LPG Ltd.,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,MPC,Marathon Petroleum Corporation,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,MUR,Murphy Oil Corporation,Energy,user,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,NESR,National Energy Services Reunited Corp.,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,NGL,NGL Energy Partners LP,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,NXE,Nexgen Energy Ltd,Energy,user,Energy,Energy,Uranium,Energy,Energy,yes
+match,OII,Oceaneering International Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,OIS,"Oil States International, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,OXY,Occidental Petroleum,Energy,built-in,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,PARR,"Par Pacific Holdings, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,PBF,PBF Energy Inc.,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,PBR,Petroleo Brasileiro SA Petrobras,Energy,user,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,PSX,Phillips 66,Energy,built-in,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,RIG,Transocean,Energy,built-in,Energy,Energy,Oil & Gas Drilling,Energy,Energy,yes
+match,RNGR,Ranger Energy Services Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,SD,SandRidge Energy Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,SHEL,Shell,Energy,built-in,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,SKYQ,Sky Quarry Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,SLB,Schlumberger,Energy,built-in,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,SM,SM Energy Co,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,STNG,Scorpio Tankers Inc.,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,SUNC,SunocoCorp LLC,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,TALO,Talos Energy Inc.,Energy,rsi_universe,Energy,Energy,Oil & Gas E&P,Energy,Energy,yes
+match,TDW,Tidewater Inc.,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,TEN,Tsakos Energy Navigation Ltd,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,TGS,Transportadora de Gas del Sur SA,Energy,rsi_universe,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,TK,Teekay Corp Ltd,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,TNK,Teekay Tankers Ltd,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,TRGP,Targa Resources Corp.,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,TRMD,Torm PLC,Energy,rsi_universe,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,TS,Tenaris SA,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,TTE,TotalEnergies,Energy,built-in,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,URG,Ur-Energy Inc,Energy,rsi_universe,Energy,Energy,Uranium,Energy,Energy,yes
+match,VLO,Valero Energy Corp,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,WHD,"Cactus, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,WKC,World Kinect Corporation,Energy,rsi_universe,Energy,Energy,Oil & Gas Refining & Marketing,Energy,Energy,yes
+match,WMB,Williams Companies,Energy,built-in,Energy,Energy,Oil & Gas Midstream,Energy,Energy,yes
+match,WTTR,"Select Water Solutions, Inc.",Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Energy,Energy,yes
+match,CCJ,Cameco,Energy | Energy,built-in | user,Energy,Energy,Uranium,Energy,Energy,yes
+match,XOM,ExxonMobil,Energy | Energy,built-in | user,Energy,Energy,Oil & Gas Integrated,Energy,Energy,yes
+match,AIZ,Assurant Inc,Financials,rsi_universe,Financials,Financial Services,Insurance - Property & Casualty,Financials,Insurance,yes
+match,AMG,"Affiliated Managers Group, Inc.",Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,AMTB,Amerant Bancorp Inc.,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,AXP,American Express,Financials,built-in,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+match,BAC,Bank of America,Financials,built-in,Financials,Financial Services,Banks - Diversified,Financials,Banking,yes
+match,BBD,Banco Bradesco SA,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,C,Citigroup,Financials,built-in,Financials,Financial Services,Banks - Diversified,Financials,Banking,yes
+match,CBAN,Colony Bankcorp Inc,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,CBNK,Capital Bancorp Inc,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,CFG,Citizens Financial Group Inc,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,CNO,"CNO Financial Group, Inc.",Financials,rsi_universe,Financials,Financial Services,Insurance - Life,Financials,Insurance,yes
+match,CRBG,Corebridge Financial Inc,Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,ENVA,"Enova International, Inc.",Financials,rsi_universe,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+match,FHI,Federated Hermes Inc,Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,FITB,Fifth Third Bancorp,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,FMNB,Farmers National Banc Corp,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,GCMG,GCM Grosvenor Inc.,Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,IBKR,Interactive Brokers Group Inc,Financials,rsi_universe,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+match,IVZ,Invesco Ltd,Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,JCAP,Jefferson Capital Inc,Financials,rsi_universe,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+match,JPM,JPMorgan Chase,Financials,built-in,Financials,Financial Services,Banks - Diversified,Financials,Banking,yes
+match,JXN,Jackson Financial Inc.,Financials,rsi_universe,Financials,Financial Services,Insurance - Life,Financials,Financial Services,yes
+match,KB,KB Financial Group Inc,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,KLAR,Klarna Group PLC,Financials,rsi_universe,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+match,LCLN,Lincoln International Inc,Financials,rsi_universe,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+match,LIFE,Ethos Technologies Inc,Financials,rsi_universe,Financials,Financial Services,Insurance Brokers,Financials,Insurance,yes
+match,MA,Mastercard Incorporated,Financials,user,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+match,MBIN,Merchants Bancorp,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Financial Services,yes
+match,MET,"MetLife, Inc.",Financials,user,Financials,Financial Services,Insurance - Life,Financials,Insurance,yes
+match,MGLD,Marygold Companies Inc,Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,MRX,Marex Group Ltd,Financials,rsi_universe,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+match,MTB,M&T Bank Corporation,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,NBBK,NB Bancorp Inc,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,NCPL,Netcapital Inc,Financials,rsi_universe,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+match,NIC,Nicolet Bankshares Inc,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,OFG,OFG Bancorp,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,OPRT,Oportun Financial Corp,Financials,rsi_universe,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+match,PNC,"The PNC Financial Services Group, Inc.",Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,PRK,Park National Corp,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,SAFT,Safety Insurance Group Inc,Financials,rsi_universe,Financials,Financial Services,Insurance - Property & Casualty,Financials,Insurance,yes
+match,SCHW,Charles Schwab,Financials,built-in,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+match,SKWD,Skyward Specialty Insurance Group Inc,Financials,rsi_universe,Financials,Financial Services,Insurance - Property & Casualty,Financials,Insurance,yes
+match,SLDE,"Slide Insurance Holdings, Inc.",Financials,rsi_universe,Financials,Financial Services,Insurance - Property & Casualty,Financials,Insurance,yes
+match,SMFG,"Sumitomo Mitsui Financial Group, Inc",Financials,rsi_universe,Financials,Financial Services,Banks - Diversified,Financials,Banking,yes
+match,STT,State Street Corporation,Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,TCBK,Trico Bancshares,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,TRV,"The Travelers Companies, Inc.",Financials,rsi_universe,Financials,Financial Services,Insurance - Property & Casualty,Financials,Insurance,yes
+match,USB,U.S. Bancorp,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,V,Visa,Financials,built-in,Financials,Financial Services,Credit Services,Financials,Financial Services,yes
+match,VCTR,"Victory Capital Holdings, Inc.",Financials,rsi_universe,Financials,Financial Services,Asset Management,Financials,Financial Services,yes
+match,VIRT,Virtu Financial Inc,Financials,rsi_universe,Financials,Financial Services,Capital Markets,Financials,Financial Services,yes
+match,WASH,Washington Trust Bancorp Inc,Financials,rsi_universe,Financials,Financial Services,Banks - Regional,Financials,Banking,yes
+match,WFC,Wells Fargo,Financials,built-in,Financials,Financial Services,Banks - Diversified,Financials,Banking,yes
+match,A,Agilent Technologies,Healthcare,built-in,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,ABCL,AbCellera Biologics Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Life Sciences Tools & Services,yes
+match,ABSI,Absci Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ADPT,Adaptive Biotechnologies Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,AGEN,Agenus Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,AGL,"agilon health, inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,ALDX,Aldeyra Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ALEC,"Alector, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,AMGN,Amgen Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - General,Healthcare,Biotechnology,yes
+match,AMIX,"Autonomix Medical, Inc",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,AMLX,"Amylyx Pharmaceuticals, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,AMN,"AMN Healthcare Services, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,AMRX,"Amneal Pharmaceuticals, Inc",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,AMWL,American Well Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Health Care,yes
+match,ANGO,"AngioDynamics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Health Care,yes
+match,ANRO,Alto Neuroscience Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,APRE,Aprea Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ARCT,Arcturus Therapeutics Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ARDX,"Ardelyx, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ARGX,argenx SE,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ATRC,"AtriCure, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Health Care,yes
+match,AUPH,Aurinia Pharmaceuticals Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,AUTL,Autolus Therapeutics PLC,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,AVAH,Aveanna Healthcare Holdings Inc,Healthcare,user,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,BCRX,"BioCryst Pharmaceuticals, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Biotechnology,yes
+match,BDRX,Biodexa Pharmaceuticals PLC,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,BDSX,Biodesix Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Health Care,yes
+match,BFRI,Biofrontera Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,BHC,Bausch Health Companies Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,BHVN,Biohaven Ltd.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,BIIB,Biogen Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - General,Healthcare,Biotechnology,yes
+match,BIO,"Bio-Rad Laboratories, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Life Sciences Tools & Services,yes
+match,BIOA,"BioAge Labs, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,BIVI,BioVie Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,BLFS,"BioLife Solutions, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Life Sciences Tools & Services,yes
+match,BLTE,"Belite Bio, Inc",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,BMEA,"Biomea Fusion, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,BMY,Bristol-Myers Squibb Company,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - General,Healthcare,Pharmaceuticals,yes
+match,BNTX,Biontech SE,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,BVS,Bioventus Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,BWAY,Brainsway Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,BYSI,Beyondspring Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CAH,"Cardinal Health, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Distribution,Healthcare,Health Care,yes
+match,CAI,"Caris Life Sciences, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CANF,Can Fite Biopharma Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CAPR,"Capricor Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CDNA,"CareDx, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Biotechnology,yes
+match,CELU,Celularity Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CELZ,Creative Medical Technology Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CGEM,"Cullinan Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CHRS,Coherus Oncology Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CLDX,"Celldex Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CLGN,Collplant Biotechnologies Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CMPX,Compass Therapeutics Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CNC,Centene Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Healthcare Plans,Healthcare,Health Care,yes
+match,COAG,Hemab Therapeutics Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CORT,Corcept Therapeutics Incorporated,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,CRL,"Charles River Laboratories International, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,CSTL,"Castle Biosciences, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Health Care,yes
+match,CTNM,"Contineum Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,CTXR,Citius Pharmaceuticals Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,CVKD,Cadrenal Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,DCOY,Decoy Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,DCTH,Delcath Systems Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,DGX,Quest Diagnostics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Health Care,yes
+match,DNA,"Ginkgo Bioworks Holdings, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Life Sciences Tools & Services,yes
+match,DNTH,"Dianthus Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,DOCS,"Doximity, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Health Care,yes
+match,DRMA,Dermata Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,DRTS,Alpha Tau Medical Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Health Care,yes
+match,DTIL,"Precision Biosciences, Inc",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,DVA,DaVita Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,DXCM,Dexcom Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,EBS,Emergent BioSolutions Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Biotechnology,yes
+match,EHC,Encompass Health Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,ELV,Elevance Health Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Healthcare Plans,Healthcare,Health Care,yes
+match,ENTX,Entera Bio Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,EOLS,Evolus Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,ETON,Eton Pharmaceuticals Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,EWTX,"Edgewise Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,FBRX,"Forte Biosciences, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,FDMT,4D Molecular Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,FLGT,"Fulgent Genetics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Health Care,yes
+match,FLNA,"Filana Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,FTRE,Fortrea Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Life Sciences Tools & Services,yes
+match,GCTK,GlucoTrack Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,GKOS,Glaukos Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,GLUE,"Monte Rosa Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,GOVX,GeoVax Labs Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,GRI,GRI Bio Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,GUTS,"Fractyl Health, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Health Care,yes
+match,HAE,Haemonetics Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,HALO,"Halozyme Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,HELP,Cybin Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,HOWL,Werewolf Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,HRMY,"Harmony Biosciences Holdings, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,HSIC,"Henry Schein, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Distribution,Healthcare,Health Care,yes
+match,HTFL,"Heartflow, Inc",Healthcare,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Health Care,yes
+match,HUM,Humana,Healthcare,built-in,Healthcare,Healthcare,Healthcare Plans,Healthcare,Health Care,yes
+match,HUMA,Humacyte Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,IDYA,"IDEAYA Biosciences, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,IKT,"Inhibikase Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ILMN,Illumina Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,IMRN,Immuron Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,INCY,Incyte Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,INDP,Indaptus Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,INMB,INmune Bio Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,INO,Inovio Pharmaceuticals Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,INSM,Insmed Incorporated,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,IOVA,Iovance Biotherapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,IPHA,Innate Pharma SA,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,IQV,IQVIA Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,IRD,Opus Genetics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ITGR,Integer Holdings Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,IVVD,"Invivyd, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,JAGX,Jaguar Health Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,JAZZ,Jazz Pharmaceuticals PLC,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,JNJ,Johnson & Johnson,Healthcare,user,Healthcare,Healthcare,Drug Manufacturers - General,Healthcare,Pharmaceuticals,yes
+match,JSPR,"Jasper Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,KNSA,"Kiniksa Pharmaceuticals International, PLC",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Biotechnology,yes
+match,KROS,"Keros Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,KURA,"Kura Oncology, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,KYMR,"Kymera Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,LBRX,LB Pharmaceuticals Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,LFCR,"Lifecore Biomedical, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Life Sciences Tools & Services,yes
+match,LH,Labcorp Holdings Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Health Care,yes
+match,LIMN,Liminatus Pharma Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,LITS,Lite Strategy Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,LLY,Eli Lilly and Company,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - General,Healthcare,Pharmaceuticals,yes
+match,LONA,LeonaBio Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,LQDA,Liquidia Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,LSTA,"Lisata Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,LUNG,Pulmonx Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,MEDP,"Medpace Holdings, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,MIRM,"Mirum Pharmaceuticals, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,MMED,MiniMed Group Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Health Care,yes
+match,MNOV,MediciNova Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,MPLT,"MapLight Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,MRNA,Moderna,Healthcare,built-in,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,MRVI,Maravai LifeSciences Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Life Sciences Tools & Services,yes
+match,NBIX,"Neurocrine Biosciences, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Biotechnology,yes
+match,NEO,"NeoGenomics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Health Care,yes
+match,NEOG,Neogen Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,NEUP,Neuphoria Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,NKTX,"Nkarta, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,NRIX,"Nurix Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,NRSN,Neurosense Therapeutics Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,NRXP,NRX Pharmaceuticals Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,NTRA,"Natera, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Biotechnology,yes
+match,NUTX,Nutex Health Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,NVAX,"Novavax, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,NVCR,NovoCure Limited,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,OABI,OmniAb Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Life Sciences Tools & Services,yes
+match,OBIO,Orchestra Biomed Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Health Care,yes
+match,OMER,Omeros Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,ONCO,Onconetix Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ORIC,"ORIC Pharmaceuticals, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,ORMP,Oramed Pharmaceuticals Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,OSRH,OSR Health Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,OSUR,OraSure Technologies Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Health Care,yes
+match,PBYI,Puma Biotechnology Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,PCRX,"Pacira BioSciences, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,PDSB,PDS Biotechnology Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,PEPG,PepGen Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,PFE,Pfizer,Healthcare,built-in,Healthcare,Healthcare,Drug Manufacturers - General,Healthcare,Pharmaceuticals,yes
+match,PHVS,Pharvaris N.V.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,PLSE,Pulse Biosciences Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Health Care,yes
+match,PMI,Picard Medical Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,PNTG,"The Pennant Group, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,PPBT,Purple Biotech Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,PRAX,"Praxis Precision Medicines, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,PRLD,Prelude Therapeutics Incorporated,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,PRME,"Prime Medicine, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,PSNL,"Personalis, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,PTGX,"Protagonist Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,QTTB,Q32 Bio Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,RANI,Rani Therapeutics Holdings Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,RCEL,AVITA Medical Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Biotechnology,yes
+match,RCUS,"Arcus Biosciences, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,REGN,"Regeneron Pharmaceuticals, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,REPL,"Replimune Group, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,RGEN,Repligen Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Life Sciences Tools & Services,yes
+match,RNXT,RenovoRx Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,RVMD,"Revolution Medicines, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,RVTY,"Revvity, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Life Sciences Tools & Services,yes
+match,SCNI,Scinai Immunotherapeutics Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SCYX,SCYNEXIS Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,SDGR,Schrodinger Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Health Care,yes
+match,SGMT,Sagimet Biosciences Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SIGA,SIGA Technologies Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,SION,"Sionna Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SLN,Silence Therapeutics PLC,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SLS,Sellas Life Sciences Group Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SLXN,Silexion Therapeutics Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SMMT,Summit Therapeutics Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SNDX,"Syndax Pharmaceuticals, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SOPH,SOPHiA GENETICS SA,Healthcare,rsi_universe,Healthcare,Healthcare,Health Information Services,Healthcare,Health Care,yes
+match,SPRC,Scisparc Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,SPRO,"Spero Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,STIM,Neuronetics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,STOK,"Stoke Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,SYRE,Spyre Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,TARS,"Tarsus Pharmaceuticals, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,TBPH,"Theravance Biopharma, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,TENX,Tenax Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,TEVA,Teva Pharmaceutical Industries Ltd,Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Pharmaceuticals,yes
+match,THC,Tenet Healthcare Corp,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Care Facilities,Healthcare,Health Care,yes
+match,TKNO,"Alpha Teknova, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Drug Manufacturers - Specialty & Generic,Healthcare,Life Sciences Tools & Services,yes
+match,TNDM,"Tandem Diabetes Care, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,TPST,Tempest Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,TWST,Twist Bioscience Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,TXG,"10x Genomics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Life Sciences Tools & Services,yes
+match,UNH,UnitedHealth Group,Healthcare,built-in,Healthcare,Healthcare,Healthcare Plans,Healthcare,Health Care,yes
+match,URGN,UroGen Pharma Ltd.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,VALN,Valneva SE,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,VBIO,Valion Bio Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,VCYT,"Veracyte, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Diagnostics & Research,Healthcare,Biotechnology,yes
+match,VIR,"Vir Biotechnology, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,VREX,Varex Imaging Corporation,Healthcare,rsi_universe,Healthcare,Healthcare,Medical Devices,Healthcare,Health Care,yes
+match,VRTX,Vertex Pharmaceuticals Incorporated,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,VRXA,Veraxa Biotech AG,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,VTGN,"Vistagen Therapeutics, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,WST,"West Pharmaceutical Services, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Medical Instruments & Supplies,Healthcare,Life Sciences Tools & Services,yes
+match,XNCR,"Xencor, Inc.",Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,XRTX,XORTX Therapeutics Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Pharmaceuticals,yes
+match,ZYME,Zymeworks Inc.,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,Healthcare,Biotechnology,yes
+match,CVS,CVS Health,Healthcare | Custom,built-in | user,Healthcare,Healthcare,Healthcare Plans,Healthcare,Health Care,yes
+match,AAL,American Airlines,Industrials,built-in,Industrials,Industrials,Airlines,Industrials,Airlines,yes
+match,ABM,ABM Industries Inc,Industrials,rsi_universe,Industrials,Industrials,Specialty Business Services,Industrials,Commercial Services & Supplies,yes
+match,ACCO,ACCO Brands Corp,Industrials,rsi_universe,Industrials,Industrials,Business Equipment & Supplies,Industrials,Commercial Services & Supplies,yes
+match,AMSC,American Superconductor Corp,Industrials,rsi_universe,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Electrical Equipment,yes
+match,ATKR,Atkore Inc.,Industrials,rsi_universe,Industrials,Industrials,Electrical Equipment & Parts,Industrials,Electrical Equipment,yes
+match,ATRO,Astronics Corporation,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,AVAV,"AeroVironment, Inc.",Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,AXON,"Axon Enterprise, Inc.",Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,BWMN,Bowman Consulting Group Ltd.,Industrials,rsi_universe,Industrials,Industrials,Engineering & Construction,Industrials,Construction,yes
+match,BXC,BlueLinx Holdings Inc.,Industrials,rsi_universe,Industrials,Industrials,Industrial Distribution,Industrials,Trading Companies & Distributors,yes
+match,CAT,Caterpillar Inc,Industrials,user,Industrials,Industrials,Farm & Heavy Construction Machinery,Industrials,Machinery,yes
+match,CBAT,CBAK Energy Technology Ltd,Industrials,rsi_universe,Industrials,Industrials,Electrical Equipment & Parts,Industrials,Electrical Equipment,yes
+match,CLH,Clean Harbors Inc,Industrials,rsi_universe,Industrials,Industrials,Waste Management,Industrials,Commercial Services & Supplies,yes
+match,CNH,CNH Industrial N.V.,Industrials,rsi_universe,Industrials,Industrials,Farm & Heavy Construction Machinery,Industrials,Machinery,yes
+match,CSX,CSX Corporation,Industrials,rsi_universe,Industrials,Industrials,Railroads,Industrials,Road & Rail,yes
+match,CTAS,Cintas Corporation,Industrials,user,Industrials,Industrials,Specialty Business Services,Industrials,Commercial Services & Supplies,yes
+match,CW,Curtiss-Wright Corporation,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,DAC,Danaos Corporation,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,DAL,Delta Air Lines,Industrials,built-in,Industrials,Industrials,Airlines,Industrials,Airlines,yes
+match,DE,Deere & Co,Industrials,user,Industrials,Industrials,Farm & Heavy Construction Machinery,Industrials,Machinery,yes
+match,DPRO,Draganfly Inc,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,DSGR,"Distribution Solutions Group, Inc.",Industrials,rsi_universe,Industrials,Industrials,Industrial Distribution,Industrials,Trading Companies & Distributors,yes
+match,DSX,Diana Shipping Inc,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,EDRY,EuroDry Ltd,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,ELMT,Elmet Group Co,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Machinery,yes
+match,ESEA,Euroseas Ltd,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,ETN,Eaton Corporation PLC,Industrials,user,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Electrical Equipment,yes
+match,EXPD,Expeditors International of Washington Inc,Industrials,rsi_universe,Industrials,Industrials,Integrated Freight & Logistics,Industrials,Logistics & Transportation,yes
+match,FAST,Fastenal Company,Industrials,user,Industrials,Industrials,Industrial Distribution,Industrials,Trading Companies & Distributors,yes
+match,FDX,FedEx Corp,Industrials,user,Industrials,Industrials,Integrated Freight & Logistics,Industrials,Logistics & Transportation,yes
+match,GE,General Electric Company,Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,GENC,Gencor Industries Inc,Industrials,rsi_universe,Industrials,Industrials,Farm & Heavy Construction Machinery,Industrials,Machinery,yes
+match,GEV,GE Vernova Inc.,Industrials,user,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Electrical Equipment,yes
+match,GLBS,Globus Maritime Limited,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,HOVR,New Horizon Aircraft Ltd,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,HSHP,Himalaya Shipping Ltd,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,JBHT,"J.B. Hunt Transport Services, Inc.",Industrials,rsi_universe,Industrials,Industrials,Integrated Freight & Logistics,Industrials,Road & Rail,yes
+match,KE,Kimball Electronics Inc,Industrials,rsi_universe,Industrials,Industrials,Electrical Equipment & Parts,Industrials,Electrical Equipment,yes
+match,KELYA,Kelly Services Inc,Industrials,rsi_universe,Industrials,Industrials,Staffing & Employment Services,Industrials,Professional Services,yes
+match,KFRC,Kforce Inc.,Industrials,rsi_universe,Industrials,Industrials,Staffing & Employment Services,Industrials,Professional Services,yes
+match,KRNT,Kornit Digital Ltd.,Industrials,rsi_universe,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Machinery,yes
+match,KTOS,"Kratos Defense & Security Solutions, Inc.",Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,LMT,Lockheed Martin Corporation,Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,MAN,ManpowerGroup Inc.,Industrials,rsi_universe,Industrials,Industrials,Staffing & Employment Services,Industrials,Professional Services,yes
+match,MATX,Matson Inc,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,MG,Mistras Group Inc,Industrials,rsi_universe,Industrials,Industrials,Security & Protection Services,Industrials,Professional Services,yes
+match,MTW,Manitowoc Company Inc,Industrials,rsi_universe,Industrials,Industrials,Farm & Heavy Construction Machinery,Industrials,Machinery,yes
+match,NDSN,Nordson Corporation,Industrials,rsi_universe,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Machinery,yes
+match,NEOV,NeoVolta Inc,Industrials,rsi_universe,Industrials,Industrials,Electrical Equipment & Parts,Industrials,Electrical Equipment,yes
+match,NNBR,NN Inc,Industrials,rsi_universe,Industrials,Industrials,Conglomerates,Industrials,Machinery,yes
+match,NOC,Northrop Grumman Corp,Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,NSC,Norfolk Southern Corp,Industrials,rsi_universe,Industrials,Industrials,Railroads,Industrials,Road & Rail,yes
+match,ODFL,"Old Dominion Freight Line, Inc.",Industrials,rsi_universe,Industrials,Industrials,Trucking,Industrials,Road & Rail,yes
+match,OESX,Orion Energy Systems Inc,Industrials,rsi_universe,Industrials,Industrials,Electrical Equipment & Parts,Industrials,Electrical Equipment,yes
+match,PESI,Perma-Fix Environmental Services Inc,Industrials,rsi_universe,Industrials,Industrials,Waste Management,Industrials,Commercial Services & Supplies,yes
+match,PRLB,"Proto Labs, Inc.",Industrials,rsi_universe,Industrials,Industrials,Metal Fabrication,Industrials,Machinery,yes
+match,PWR,Quanta Services Inc,Industrials,rsi_universe,Industrials,Industrials,Engineering & Construction,Industrials,Construction,yes
+match,QUAD,Quad/Graphics Inc,Industrials,rsi_universe,Industrials,Industrials,Specialty Business Services,Industrials,Commercial Services & Supplies,yes
+match,R,Ryder System,Industrials,built-in,Industrials,Industrials,Rental & Leasing Services,Industrials,Road & Rail,yes
+match,RCAT,Red Cat Holdings Inc,Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,RCMT,R C M Technologies Inc,Industrials,rsi_universe,Industrials,Industrials,Conglomerates,Industrials,Professional Services,yes
+match,RDW,Redwire Corporation,Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,RKLB,Rocket Lab Corp,Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,RLGT,Radiant Logistics Inc,Industrials,rsi_universe,Industrials,Industrials,Integrated Freight & Logistics,Industrials,Logistics & Transportation,yes
+match,RR,Rolls-Royce Holdings,Industrials,built-in,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Machinery,yes
+match,RTX,RTX Corporation,Industrials,user,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,SHIP,Seanergy Maritime Holdings Corp,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,SIDU,Sidus Space Inc,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,SPCE,Virgin Galactic Holdings Inc,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Industrials,Aerospace & Defense,yes
+match,SWVL,Swvl Holdings Corp,Industrials,rsi_universe,Industrials,Industrials,Railroads,Industrials,Road & Rail,yes
+match,SYM,Symbotic Inc.,Industrials,user,Industrials,Industrials,Specialty Industrial Machinery,Industrials,Machinery,yes
+match,TITN,Titan Machinery Inc,Industrials,rsi_universe,Industrials,Industrials,Industrial Distribution,Industrials,Trading Companies & Distributors,yes
+match,TPC,Tutor Perini Corporation,Industrials,rsi_universe,Industrials,Industrials,Engineering & Construction,Industrials,Construction,yes
+match,UNF,UniFirst,Industrials,built-in,Industrials,Industrials,Specialty Business Services,Industrials,Commercial Services & Supplies,yes
+match,URI,"United Rentals, Inc.",Industrials,rsi_universe,Industrials,Industrials,Rental & Leasing Services,Industrials,Trading Companies & Distributors,yes
+match,UUU,"DeFi Capital Markets, Inc.",Industrials,rsi_universe,Industrials,Industrials,Building Products & Equipment,Industrials,Electrical Equipment,yes
+match,WAB,Westinghouse Air Brake Technologies Corp,Industrials,rsi_universe,Industrials,Industrials,Railroads,Industrials,Machinery,yes
+match,WOR,"Worthington Enterprises, Inc.",Industrials,rsi_universe,Industrials,Industrials,Metal Fabrication,Industrials,Machinery,yes
+match,ZIM,ZIM Integrated Shipping Services Ltd,Industrials,rsi_universe,Industrials,Industrials,Marine Shipping,Industrials,Marine,yes
+match,ALOY,REalloys Inc,Materials,rsi_universe,Materials,Basic Materials,Other Industrial Metals & Mining,Materials,Metals & Mining,yes
+match,APD,Air Products,Materials,built-in,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,ASH,Ashland Inc.,Materials,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,ASPN,"Aspen Aerogels, Inc.",Materials,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,AU,Anglogold Ashanti PLC,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,AVNT,Avient Corp,Materials,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,BHP,BHP Group Ltd,Materials,rsi_universe,Materials,Basic Materials,Other Industrial Metals & Mining,Materials,Metals & Mining,yes
+match,CENX,Century Aluminum,Materials,built-in,Materials,Basic Materials,Aluminum,Materials,Metals & Mining,yes
+match,CGAU,Centerra Gold Inc,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,CLF,Cleveland-Cliffs,Materials,built-in,Materials,Basic Materials,Steel,Materials,Metals & Mining,yes
+match,CMCL,Caledonia Mining Corporation PLC,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,CMT,Core Molding Technologies Inc,Materials,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,CRML,Critical Metals Corp,Materials,rsi_universe,Materials,Basic Materials,Other Industrial Metals & Mining,Materials,Metals & Mining,yes
+match,CSTM,Constellium,Materials,built-in,Materials,Basic Materials,Aluminum,Materials,Metals & Mining,yes
+match,CTVA,Corteva,Materials,built-in,Materials,Basic Materials,Agricultural Inputs,Materials,Chemicals,yes
+match,DRD,DRDGOLD Ltd,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,EGO,Eldorado Gold Corp,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,ERO,Ero Copper Corp,Materials,rsi_universe,Materials,Basic Materials,Copper,Materials,Metals & Mining,yes
+match,FMC,FMC Corporation,Materials,built-in,Materials,Basic Materials,Agricultural Inputs,Materials,Chemicals,yes
+match,FSM,Fortuna Mining Corp,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,GORO,Goldgroup Mining Inc,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,HLP,Hongli Group Inc,Materials,rsi_universe,Materials,Basic Materials,Steel,Materials,Metals & Mining,yes
+match,HMY,Harmony Gold Mining Company Ltd,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,IOSP,Innospec Inc,Materials,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,IPI,Intrepid Potash Inc,Materials,rsi_universe,Materials,Basic Materials,Agricultural Inputs,Materials,Chemicals,yes
+match,KALU,Kaiser Aluminum,Materials,built-in,Materials,Basic Materials,Aluminum,Materials,Metals & Mining,yes
+match,KGC,Kinross Gold Corp,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,LIN,Linde,Materials,built-in,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,MTRN,Materion Corporation,Materials,rsi_universe,Materials,Basic Materials,Other Industrial Metals & Mining,Materials,Metals & Mining,yes
+match,MTUS,Metallus Inc,Materials,rsi_universe,Materials,Basic Materials,Steel,Materials,Metals & Mining,yes
+match,NEM,Newmont,Materials,built-in,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,NTCPF,Northisle Copper and Gold Inc,Materials,rsi_universe,Materials,Basic Materials,Other Industrial Metals & Mining,Materials,Metals & Mining,yes
+match,NUE,Nucor,Materials,built-in,Materials,Basic Materials,Steel,Materials,Metals & Mining,yes
+match,OGC,OceanaGold Corp,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,ORZCF,Orezone Gold Corp,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,PAAS,Pan American Silver Corp,Materials,rsi_universe,Materials,Basic Materials,Gold,Materials,Metals & Mining,yes
+match,RIO,Rio Tinto,Materials,built-in,Materials,Basic Materials,Other Industrial Metals & Mining,Materials,Metals & Mining,yes
+match,RS,Reliance Steel,Materials,built-in,Materials,Basic Materials,Steel,Materials,Metals & Mining,yes
+match,SHW,Sherwin-Williams Co,Materials,user,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,SSL,Sasol Ltd,Materials,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,SVM,Silvercorp Metals Inc,Materials,rsi_universe,Materials,Basic Materials,Silver,Materials,Metals & Mining,yes
+match,SXT,Sensient Technologies Corporation,Materials,rsi_universe,Materials,Basic Materials,Specialty Chemicals,Materials,Chemicals,yes
+match,TECK,Teck Resources Ltd,Materials,user,Materials,Basic Materials,Copper,Materials,Metals & Mining,yes
+match,TGB,Taseko Mines Ltd,Materials,rsi_universe,Materials,Basic Materials,Copper,Materials,Metals & Mining,yes
+match,VALE,Vale SA,Materials,user,Materials,Basic Materials,Other Industrial Metals & Mining,Materials,Metals & Mining,yes
+match,VHI,Valhi Inc,Materials,rsi_universe,Materials,Basic Materials,Chemicals,Materials,Chemicals,yes
+match,AA,Alcoa,Materials | Custom,built-in | user,Materials,Basic Materials,Aluminum,Materials,Metals & Mining,yes
+match,FCX,Freeport-McMoRan,Materials | Custom,built-in | user,Materials,Basic Materials,Copper,Materials,Metals & Mining,yes
+match,DLR,"Digital Realty Trust, Inc.",Real Estate,rsi_universe,Real Estate,Real Estate,REIT - Specialty,Real Estate,Real Estate,yes
+match,EQIX,"Equinix, Inc.",Real Estate,rsi_universe,Real Estate,Real Estate,REIT - Specialty,Real Estate,Real Estate,yes
+match,GTY,Getty Realty Corp.,Real Estate,rsi_universe,Real Estate,Real Estate,REIT - Retail,Real Estate,Real Estate,yes
+match,ILPT,Industrial Logistics Properties Trust,Real Estate,rsi_universe,Real Estate,Real Estate,REIT - Industrial,Real Estate,Real Estate,yes
+match,JLL,Jones Lang LaSalle Incorporated,Real Estate,rsi_universe,Real Estate,Real Estate,Real Estate Services,Real Estate,Real Estate,yes
+match,SBRA,"Sabra Health Care REIT, Inc.",Real Estate,rsi_universe,Real Estate,Real Estate,REIT - Healthcare Facilities,Real Estate,Real Estate,yes
+match,AMD,Advanced Micro Devices,Semiconductors,built-in,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,INTC,Intel,Semiconductors,built-in,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,KLAC,KLA Corporation,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductor Equipment & Materials,Semiconductors,Semiconductors,yes
+match,LRCX,Lam Research Corporation,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductor Equipment & Materials,Semiconductors,Semiconductors,yes
+match,MPWR,Monolithic Power Systems Inc,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,MU,Micron Technology,Semiconductors,built-in,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,MX,Magnachip Semiconductor Corp,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,NVEC,NVE Corp,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,PLAB,"Photronics, Inc.",Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductor Equipment & Materials,Semiconductors,Semiconductors,yes
+match,QCOM,Qualcomm,Semiconductors,built-in,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,QRVO,"Qorvo, Inc.",Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,SMTC,Semtech Corporation,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,TRT,Trio-Tech International,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductor Equipment & Materials,Semiconductors,Semiconductors,yes
+match,TSEM,Tower Semiconductor Ltd.,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,WOLF,Wolfspeed Inc,Semiconductors,rsi_universe,Semiconductors,Technology,Semiconductors,Semiconductors,Semiconductors,yes
+match,AAPL,Apple,Technology,built-in,Technology,Technology,Consumer Electronics,Technology,Technology,yes
+match,ADBE,Adobe,Technology,built-in,Technology,Technology,Software - Application,Technology,Technology,yes
+match,AMPL,"Amplitude, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,APPS,"Digital Turbine, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,AUUD,Auddia Inc.,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,BLZE,Backblaze Inc,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,BOX,Box Inc,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,CMRC,"Commerce.com, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,CRM,Salesforce,Technology,built-in,Technology,Technology,Software - Application,Technology,Technology,yes
+match,CRSR,Corsair Gaming Inc,Technology,rsi_universe,Technology,Technology,Computer Hardware,Technology,Technology,yes
+match,CRWD,"CrowdStrike Holdings, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,CRWV,"CoreWeave, Inc.",Technology,user,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,CTSH,Cognizant Technology Solutions Corporation,Technology,rsi_universe,Technology,Technology,Information Technology Services,Technology,Technology,yes
+match,CXAI,CXApp Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,DAIC,CID HoldCo Inc,Technology,rsi_universe,Technology,Technology,Information Technology Services,Technology,Technology,yes
+match,DDOG,Datadog Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,DELL,Dell Technologies Inc,Technology,rsi_universe,Technology,Technology,Computer Hardware,Technology,Technology,yes
+match,DGNX,Diginex Limited,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,DT,"Dynatrace, Inc",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,DUOT,Duos Technologies Group Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,EGAN,eGain Corp,Technology,user,Technology,Technology,Software - Application,Technology,Technology,yes
+match,EXFY,"Expensify, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,FIVN,"Five9, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,FRSH,Freshworks Inc.,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,FTNT,"Fortinet, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,FUSE,Fusemachines Inc.,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,GLOO,"Gloo Holdings, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,HPE,Hewlett Packard Enterprise Company,Technology,rsi_universe,Technology,Technology,Communication Equipment,Technology,Technology,yes
+match,HPQ,HP Inc,Technology,user,Technology,Technology,Computer Hardware,Technology,Technology,yes
+match,IBM,International Business Machines Corporation,Technology,user,Technology,Technology,Information Technology Services,Technology,Technology,yes
+match,IMMR,Immersion Corp,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,KARO,Karooooo Ltd,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,KLTR,Kaltura Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,MANH,"Manhattan Associates, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,MDB,"MongoDB, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,MSFT,Microsoft,Technology,built-in,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,MTLS,Materialise NV,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,NET,"Cloudflare, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,NTAP,NetApp Inc,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,NTWK,NetSol Technologies Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,NXTT,Next Technology Holding Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,OKTA,"Okta, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,ORCL,Oracle,Technology,built-in,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,OSPN,OneSpan Inc.,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,PGY,Pagaya Technologies Ltd.,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,PLTR,Palantir Technologies,Technology,built-in,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,QLYS,"Qualys, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,QMCO,Quantum Corp,Technology,rsi_universe,Technology,Technology,Computer Hardware,Technology,Technology,yes
+match,RBRK,"Rubrik, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,RDVT,Red Violet Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,RDWR,Radware Ltd.,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,RMNI,Rimini Street Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,RNG,"RingCentral, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,RPD,"Rapid7, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,RSKD,Riskified Ltd,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,RZLV,Rezolve AI PLC,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,S,SentinelOne Inc,Technology,user,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,SAGT,Sagtec Global Ltd,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,SAIL,"SailPoint, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,SMCI,Super Micro Computer,Technology,built-in,Technology,Technology,Computer Hardware,Technology,Technology,yes
+match,SMWB,Similarweb Ltd.,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,SNDK,SanDisk Corporation,Technology,rsi_universe,Technology,Technology,Computer Hardware,Technology,Technology,yes
+match,SNOW,Snowflake Inc.,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,SOUN,"SoundHound AI, Inc.",Technology,user,Technology,Technology,Software - Application,Technology,Technology,yes
+match,SPT,"Sprout Social, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,SSTI,SoundThinking Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,TEAM,Atlassian Corp,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,TENB,"Tenable Holdings, Inc",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,TWLO,Twilio Inc.,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,U,Unity Software Inc.,Technology,user,Technology,Technology,Software - Application,Technology,Technology,yes
+match,VEEA,Veea Inc,Technology,rsi_universe,Technology,Technology,Information Technology Services,Technology,Technology,yes
+match,VERI,Veritone Inc,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Technology,Technology,yes
+match,WCT,Wellchange Holdings Co Ltd,Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,WDAY,"Workday, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Technology,Technology,yes
+match,WDC,Western Digital Corp,Technology,rsi_universe,Technology,Technology,Computer Hardware,Technology,Technology,yes
+match,ZM,"Zoom Communications, Inc.",Technology,user,Technology,Technology,Software - Application,Technology,Technology,yes
+match,AMCX,AMC Global Media Inc.,Telecom,rsi_universe,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+match,BMBL,Bumble Inc.,Telecom,rsi_universe,Telecom,Communication Services,Internet Content & Information,Telecom,Media,yes
+match,DDI,DoubleDown Interactive Co Ltd,Telecom,rsi_universe,Telecom,Communication Services,Electronic Gaming & Multimedia,Telecom,Media,yes
+match,IDT,IDT Corporation,Telecom,rsi_universe,Telecom,Communication Services,Telecom Services,Telecom,Telecommunication,yes
+match,NEXN,Nexxen International Ltd,Telecom,rsi_universe,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+match,PUBGY,Publicis Groupe SA,Telecom,rsi_universe,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+match,ROKU,"Roku, Inc.",Telecom,rsi_universe,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+match,SCHL,Scholastic Corporation,Telecom,rsi_universe,Telecom,Communication Services,Publishing,Telecom,Media,yes
+match,STGW,Stagwell Inc.,Telecom,rsi_universe,Telecom,Communication Services,Advertising Agencies,Telecom,Media,yes
+match,T,AT&T,Telecom,built-in,Telecom,Communication Services,Telecom Services,Telecom,Telecommunication,yes
+match,TMUS,T-Mobile US,Telecom,built-in,Telecom,Communication Services,Telecom Services,Telecom,Telecommunication,yes
+match,TRVG,Trivago NV,Telecom,rsi_universe,Telecom,Communication Services,Internet Content & Information,Telecom,Media,yes
+match,VEON,VEON Ltd,Telecom,rsi_universe,Telecom,Communication Services,Telecom Services,Telecom,Telecommunication,yes
+match,VZ,Verizon Communications,Telecom,built-in,Telecom,Communication Services,Telecom Services,Telecom,Telecommunication,yes
+match,WBD,"Warner Bros. Discovery, Inc.",Telecom,rsi_universe,Telecom,Communication Services,Entertainment,Telecom,Media,yes
+match,WSHP,WeShop Holdings Limited,Telecom,rsi_universe,Telecom,Communication Services,Internet Content & Information,Telecom,Media,yes
+match,AEP,American Electric Power,Utilities,built-in,Utilities,Utilities,Utilities - Regulated Electric,Utilities,Utilities,yes
+match,BKH,Black Hills Corp,Utilities,rsi_universe,Utilities,Utilities,Utilities - Regulated Gas,Utilities,Utilities,yes
+match,CEG,Constellation Energy,Utilities,built-in,Utilities,Utilities,Utilities - Independent Power Producers,Utilities,Utilities,yes
+match,D,Dominion Energy,Utilities,built-in,Utilities,Utilities,Utilities - Regulated Electric,Utilities,Utilities,yes
+match,DUK,Duke Energy,Utilities,built-in,Utilities,Utilities,Utilities - Regulated Electric,Utilities,Utilities,yes
+match,EXC,Exelon,Utilities,built-in,Utilities,Utilities,Utilities - Regulated Electric,Utilities,Utilities,yes
+match,NEE,NextEra Energy,Utilities,built-in,Utilities,Utilities,Utilities - Regulated Electric,Utilities,Utilities,yes
+match,NWE,"NorthWestern Energy Group, Inc.",Utilities,rsi_universe,Utilities,Utilities,Utilities - Regulated Electric,Utilities,Utilities,yes
+match,OKLO,Oklo Inc.,Utilities,user,Utilities,Utilities,Utilities - Independent Power Producers,Utilities,Utilities,yes
+match,SRE,Sempra,Utilities,built-in,Utilities,Utilities,Utilities - Diversified,Utilities,Utilities,yes
+match,VST,Vistra Energy,Utilities,built-in,Utilities,Utilities,Utilities - Independent Power Producers,Utilities,Utilities,yes
+match,XEL,Xcel Energy,Utilities,built-in,Utilities,Utilities,Utilities - Regulated Electric,Utilities,Utilities,yes
+match,PSKY,,Communication,user,Telecom,Communication Services,Entertainment,,,
+match,HBB,Hamilton Beach Brands Holding Company,Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,"Furnishings, Fixtures & Appliances",Consumer Staples,Consumer products,no
+match,SN,"SharkNinja, Inc.",Consumer Disc.,rsi_universe,Consumer Disc.,Consumer Cyclical,"Furnishings, Fixtures & Appliances",Consumer Staples,Consumer products,no
+match,ACI,"Albertsons Companies, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Grocery Stores,Consumer Disc.,Retail,no
+match,CHEF,"The Chefs' Warehouse, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Food Distribution,Consumer Disc.,Retail,no
+match,COST,Costco,Consumer Staples,built-in,Consumer Staples,Consumer Defensive,Discount Stores,Consumer Disc.,Retail,no
+match,PSMT,"PriceSmart, Inc.",Consumer Staples,rsi_universe,Consumer Staples,Consumer Defensive,Discount Stores,Consumer Disc.,Retail,no
+match,TMHC,Taylor Morrison Home Corporation,Consumer Staples,rsi_universe,,,,Consumer Staples,Consumer products,
+match,WMT,Walmart,Consumer Staples | Custom,built-in | user,Consumer Staples,Consumer Defensive,Discount Stores,Consumer Disc.,Retail,no
+match,FTK,Flotek Industries Inc,Energy,rsi_universe,Energy,Energy,Oil & Gas Equipment & Services,Materials,Chemicals,no
+match,STEX,Streamex Corp,Financials,rsi_universe,Financials,Financial Services,Capital Markets,Healthcare,Health Care,no
+match,BTAI,BioXcel Therapeutics Inc,Healthcare,rsi_universe,,,,Healthcare,Biotechnology,
+match,CVAC,CureVac NV,Healthcare,rsi_universe,,,,Healthcare,Biotechnology,
+match,MRAI,Marpai Inc,Healthcare,rsi_universe,Healthcare,Healthcare,Healthcare Plans,Financials,Insurance,no
+match,VYNE,,Healthcare,rsi_universe,Healthcare,Healthcare,Biotechnology,,,
+match,CSW,"CSW Industrials, Inc.",Industrials,rsi_universe,Industrials,Industrials,Specialty Industrial Machinery,,Building,
+match,DFNS,T3 Defense Inc,Industrials,rsi_universe,Industrials,Industrials,Aerospace & Defense,Technology,Technology,no
+match,GFF,Griffon Corporation,Industrials,rsi_universe,Industrials,Industrials,Building Products & Equipment,,Building,
+match,HSII,Heidrick & Struggles International Inc,Industrials,rsi_universe,,,,Industrials,Professional Services,
+match,JELD,JELD-WEN Holding Inc,Industrials,rsi_universe,Industrials,Industrials,Building Products & Equipment,,Building,
+match,OC,Owens Corning,Industrials,rsi_universe,Industrials,Industrials,Building Products & Equipment,,Building,
+match,CRH,CRH plc,Materials,built-in,Materials,Basic Materials,Building Materials,Industrials,Construction,no
+match,MLM,Martin Marietta,Materials,built-in,Materials,Basic Materials,Building Materials,Industrials,Construction,no
+match,SILV,Silvercrest Metals ULC,Materials,rsi_universe,,,,Materials,Metals & Mining,
+match,VMC,Vulcan Materials Co,Materials,user,Materials,Basic Materials,Building Materials,Industrials,Construction,no
+match,ANET,"Arista Networks, Inc.",Technology,user,Technology,Technology,Computer Hardware,Telecom,Communications,no
+match,ANSS,Ansys Inc,Technology,rsi_universe,,,,Technology,Technology,
+match,ASTS,"AST SpaceMobile, Inc.",Technology,user,Technology,Technology,Communication Equipment,Telecom,Telecommunication,no
+match,BAND,Bandwidth Inc.,Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Telecom,Telecommunication,no
+match,CSCO,Cisco Systems Inc,Technology,user,Technology,Technology,Communication Equipment,Telecom,Communications,no
+match,DDD,3D Systems Corp,Technology,rsi_universe,Technology,Technology,Computer Hardware,Industrials,Machinery,no
+match,DGII,Digi International Inc.,Technology,rsi_universe,Technology,Technology,Communication Equipment,Telecom,Communications,no
+match,DHX,DHI Group Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Telecom,Media,no
+match,DOMO,,Technology,rsi_universe,Technology,Technology,Software - Application,,,
+match,DUOL,"Duolingo, Inc.",Technology,rsi_universe,Technology,Technology,Software - Application,Consumer Disc.,Diversified Consumer Services,no
+match,KNRX,Knorex Ltd,Technology,rsi_universe,Technology,Technology,Software - Application,Telecom,Media,no
+match,LPTH,LightPath Technologies Inc,Technology,rsi_universe,Technology,Technology,Electronic Components,Industrials,Electrical Equipment,no
+match,NLST,Netlist Inc,Technology,rsi_universe,Technology,Technology,Electronics & Computer Distribution,Industrials,Electrical Equipment,no
+match,NTCT,"NetScout Systems, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Telecom,Communications,no
+match,OLO,Olo Inc,Technology,rsi_universe,,,,Technology,Technology,
+match,PDYN,Palladyne AI Corp,Technology,user,Technology,Technology,Software - Infrastructure,Industrials,Machinery,no
+match,PENG,Penguin Solutions Inc,Technology,rsi_universe,Technology,Technology,Information Technology Services,Semiconductors,Semiconductors,no
+match,SMRT,SmartRent Inc,Technology,rsi_universe,Technology,Technology,Software - Application,Industrials,Electrical Equipment,no
+match,TASK,Taskus Inc,Technology,rsi_universe,Technology,Technology,Information Technology Services,Industrials,Professional Services,no
+match,TOST,"Toast, Inc.",Technology,rsi_universe,Technology,Technology,Software - Infrastructure,Financials,Financial Services,no
+match,ZBRA,Zebra Technologies Corp,Technology,rsi_universe,Technology,Technology,Communication Equipment,Industrials,Electrical Equipment,no
+match,NIQ,NIQ Global Intelligence PLC,Telecom,rsi_universe,,,,Telecom,Media,

@@ -171,7 +171,9 @@ body.light-mode .wl-col-hdr{color:#1a2235;background:#dde3ef;}
 body.light-mode .wl-dense-row:hover{background:rgba(0,0,0,0.04);}
 .wl-sym-cell{font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;}
 body.light-mode .wl-sym-cell{color:#0d1420;}
-.wl-name-cell{font-size:11px;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;}
+.wl-name-cell{font-size:11px;color:#e8edf5;overflow:hidden;white-space:nowrap;max-width:140px;min-width:0;display:flex;align-items:center;gap:4px;}
+.wl-name-txt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.wl-sec-sel{flex:0 0 auto;width:66px;max-width:66px;text-overflow:ellipsis;}
 body.light-mode .wl-name-cell{color:#4a5a70;}
 .wl-price-cell{font-size:12px;font-weight:700;color:var(--text);text-align:right;white-space:nowrap;}
 body.light-mode .wl-price-cell{color:#0d1420;}
@@ -701,7 +703,10 @@ select option{background:var(--bg2);}
   <div class="wl-sticky" id="wl-sticky">
   <!-- Top controls row -->
   <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
-    <input type="text" id="wl-search" placeholder="Search symbol or name..." style="width:180px;" oninput="renderWatchlist()"/>
+    <span style="position:relative;display:inline-flex;align-items:center;">
+      <input type="text" id="wl-search" placeholder="Search symbol or name..." style="width:180px;padding-right:22px;" oninput="renderWatchlist()" onkeydown="if(event.key==='Escape')_wlClearSearch(event)"/>
+      <button id="wl-search-clear" type="button" onclick="_wlClearSearch(event)" title="Clear search (Esc)" style="display:none;position:absolute;right:3px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#8090a0;cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;">✕</button>
+    </span>
     <div class="filter-row" style="margin:0;">
       <button class="fbtn active" onclick="setWlFilter('all',this)">All</button>
       <button class="fbtn" onclick="setWlFilter('Consumer Staples',this)">Staples</button>
@@ -1683,6 +1688,7 @@ let flowData = _safeLS('sp_flow', []);
 let _flowSentimentTimeframe = 'D';
 let _userWatchlist = [];  // array of {symbol, sector, added_at}
 let _rsiBySym = {};       // symbol -> rsi_snapshot row (written by the rsi-scan edge function)
+let _sectorOverride = {}; // symbol -> sector chosen by the user (public.sector_override); beats every other sector source
 let _priceLive = {};      // symbol -> price_live row (Yahoo batch quotes written every 5 min by the price-scan edge function)
 let _priceLiveLoadedAt = 0;
 const PRICE_LIVE_MAX_AGE_MS = 15 * 60 * 1000; // older rows are ignored (scan paused / market closed)
@@ -1831,7 +1837,7 @@ const COMPANY_NAMES = {
   // Telecom
   T:'AT&T', TMUS:'T-Mobile US', VZ:'Verizon Communications',
   // Industrials
-  AAL:'American Airlines', B:'Barnes Group', DAL:'Delta Air Lines', R:'Ryder System',
+  AAL:'American Airlines', B:'Barrick Mining', DAL:'Delta Air Lines', R:'Ryder System',
   UNF:'UniFirst', RR:'Rolls-Royce Holdings',
   // Crypto / Digital Assets
   BTDR:'Bitdeer Technologies', CIFR:'Cipher Mining', CLSK:'CleanSpark', COIN:'Coinbase',
@@ -3595,19 +3601,12 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
     const isCustom = customTickers.includes(sym);
     const userRow = isCustom ? (_userWatchlist||[]).find(r=>r.symbol===sym) : null;
     const symSector = userRow?.sector||'';
-    const sectorNeedsEdit = isCustom && (!symSector || symSector==='Custom');
-    // Inline sector edit widget for user-added stocks
-    const sectorEditHtml = isCustom
-      ? `<span onclick="event.stopPropagation();" style="margin-left:6px;display:inline-flex;align-items:center;gap:3px;">
-          <select onchange="updateUserTickerSector('${sym}',this.value);this.blur();" style="background:var(--bg3);border:1px solid ${sectorNeedsEdit?'var(--amber)':'var(--border2)'};border-radius:3px;color:${sectorNeedsEdit?'var(--amber)':'#8090a0'};padding:1px 4px;font-size:9px;font-family:var(--font);cursor:pointer;max-width:100px;" title="Edit sector">
-            ${(!symSector||symSector==='Custom')?'<option value="" disabled selected>set sector</option>':'<option value="" disabled>change…</option>'}
-            ${_wlSectorOptions()}
-          </select>
-         </span>`
-      : '';
+    const sectorNeedsEdit = isCustom && (!symSector || symSector==='Custom') && !_sectorOverride[sym];
+    // Compact sector select on every row (built-in, user and RSI-only): writes public.sector_override.
+    const sectorEditHtml = _wlRowSectorSelect(sym, sector, sectorNeedsEdit);
     return `<div class="wl-dense-row" data-sym="${sym}" data-sector="${String(sector).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
       <span class="wl-sym-cell">${sym}${_wlRsiBadge(rsi?.rsi_1d)}</span>
-      <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}>${combined ? `${COMPANY_NAMES[sym] || ''}<span class="wl-sec-muted">${COMPANY_NAMES[sym] ? ' · ' : ''}${sector}</span>` : (COMPANY_NAMES[sym] || sector)}${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:4px;" title="Remove from watchlist">×</button>` : ''}</span>
+      <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}><span class="wl-name-txt">${COMPANY_NAMES[sym] || ''}</span>${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:2px;flex:0 0 auto;" title="Remove from watchlist">×</button>` : ''}</span>
       ${priceCellHtml}
       <span class="pct-cell ${netClr}" style="text-align:right;">${netVal == null ? '—' : (netVal >= 0 ? '+' : '') + Number(netVal).toFixed(2)}</span>
       ${_wlPctCell(m5)}
@@ -3680,42 +3679,44 @@ function _wlEtTime(iso) {
 
 // Built-in WATCHLIST + user_watchlist + RSI-only universe symbols, grouped by sector name.
 function _wlCollectSectors() {
-  const sectors = { ...WATCHLIST };
-  const userBySector = {};
-  (_userWatchlist || []).forEach(row => {
-    const sec = row.sector || 'Custom';
-    if (!userBySector[sec]) userBySector[sec] = [];
-    userBySector[sec].push(row.symbol);
-  });
-  Object.entries(userBySector).forEach(([sec, syms]) => {
-    if (sectors[sec]) {
-      const existing = new Set(sectors[sec]);
-      sectors[sec] = [...sectors[sec], ...syms.filter(s => !existing.has(s))];
-    } else {
-      sectors[sec] = syms;
-    }
-  });
+  const override = _sectorOverride || {};
+  const sectors = {};
+  // Built-in groups, minus symbols the user moved elsewhere.
+  Object.entries(WATCHLIST).forEach(([sec, syms]) => { sectors[sec] = syms.filter(sym => !override[sym]); });
+  const place = (sym, sec) => {
+    if (!sectors[sec]) sectors[sec] = [];
+    if (!sectors[sec].includes(sym)) sectors[sec].push(sym);
+  };
+  // Overridden built-in symbols go to their chosen group (placed once, so a symbol also in user_watchlist is no longer listed twice).
+  Object.values(WATCHLIST).flat().forEach(sym => { if (override[sym]) place(sym, override[sym]); });
+  (_userWatchlist || []).forEach(row => place(row.symbol, override[row.symbol] || row.sector || 'Custom'));
+  // Overridden symbols are never shown in a second group.
   const known = new Set(Object.values(sectors).flat());
-  const universeBySector = {};
   _rsiOnlySet = new Set();
   (_rsiUniverse || []).forEach(row => {
     if (!row.symbol || known.has(row.symbol)) return;
     known.add(row.symbol);
     _rsiOnlySet.add(row.symbol);
-    const sec = row.sector || 'Scanner';
-    if (!universeBySector[sec]) universeBySector[sec] = [];
-    universeBySector[sec].push(row.symbol);
+    place(row.symbol, override[row.symbol] || row.sector || 'Scanner');
   });
-  Object.entries(universeBySector).forEach(([sec, syms]) => {
-    sectors[sec] = sectors[sec] ? [...sectors[sec], ...syms] : syms;
-  });
+  _wlSectorNames = Object.keys(sectors);
   return sectors;
 }
 
 function _wlSyncViewButtons() {
+  const clearBtn = document.getElementById('wl-search-clear');
+  if (clearBtn) clearBtn.style.display = (document.getElementById('wl-search')?.value || '') ? '' : 'none';
   document.getElementById('wl-view-sector')?.classList.toggle('active', _wlView === 'sector');
   document.getElementById('wl-view-combined')?.classList.toggle('active', _wlView === 'combined');
   document.querySelectorAll('.wl-opt-btn').forEach(b => b.classList.toggle('active', b.dataset.opt === _wlOptFilter));
+}
+function _wlClearSearch(event) {
+  const input = document.getElementById('wl-search');
+  if (!input || !input.value) return;   // Esc in an empty box does nothing
+  if (event) event.preventDefault();
+  input.value = '';
+  renderWatchlist();                    // also hides the ✕
+  input.focus();
 }
 function setWlView(view) {
   _wlView = view === 'combined' ? 'combined' : 'sector';
@@ -7064,6 +7065,67 @@ async function loadUserWatchlist(){
     return _userWatchlist;
   }catch(e){console.warn('[user_watchlist] load failed:',e);return[];}
 }
+// ── Sector override ──────────────────────────────────────────────────
+async function loadSectorOverride() {
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  try {
+    const PAGE = 1000, map = {};
+    let from = 0;
+    while (true) {
+      const { data, error } = await supa.from('sector_override').select('symbol, sector').order('symbol').range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || !data.length) break;
+      data.forEach(r => { if (r.symbol && r.sector) map[String(r.symbol).toUpperCase()] = r.sector; });
+      if (data.length < PAGE) break;
+      from += PAGE; if (from > 100000) break;
+    }
+    _sectorOverride = map;
+  } catch (e) { console.warn('[sector_override] load failed:', e); }
+}
+// Set (sector = name) or reset (sector = null) one symbol's override. The row moves immediately; a failed write is rolled back.
+async function setSectorOverride(symbol, sector) {
+  const sym = String(symbol || '').trim().toUpperCase();
+  if (!sym) return;
+  const supa = await getSupabaseAsync();
+  if (!supa) return;
+  const previous = _sectorOverride[sym];
+  if (sector) _sectorOverride[sym] = sector; else delete _sectorOverride[sym];
+  renderWatchlist();
+  try {
+    const { error } = sector
+      ? await supa.from('sector_override').upsert({ symbol: sym, sector, updated_at: new Date().toISOString() }, { onConflict: 'symbol' })
+      : await supa.from('sector_override').delete().eq('symbol', sym);
+    if (error) throw error;
+  } catch (e) {
+    console.warn('[sector_override] write failed:', e);
+    if (previous) _sectorOverride[sym] = previous; else delete _sectorOverride[sym];
+    renderWatchlist();
+    if (typeof showToast === 'function') showToast(sym, 'Could not save the sector change', 'error');
+  }
+}
+function setSectorOverrideFromRow(symbol, selectEl) {
+  const value = selectEl.value;
+  if (value === '__reset__') return setSectorOverride(symbol, null);
+  if (value === '__other__') {
+    const name = (window.prompt('Sector name for ' + symbol + ':') || '').trim();
+    if (!name) { renderWatchlist(); return; }
+    return setSectorOverride(symbol, name);
+  }
+  return setSectorOverride(symbol, value);
+}
+let _wlSectorNames = [];  // every sector name currently on the Watchlist (feeds the row selects)
+function _wlRowSectorSelect(sym, sector, needsSector) {
+  const esc = t => String(t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const overridden = !!_sectorOverride[sym];
+  const names = [...new Set([..._wlSectorNames, sector])].filter(n => n && (n !== 'Custom' || n === sector)).sort();
+  const options = names.map(n => `<option value="${esc(n)}"${n === sector ? ' selected' : ''}>${esc(n)}</option>`).join('')
+    + '<option value="__other__">Other…</option>'
+    + (overridden ? '<option value="__reset__">Reset to default</option>' : '');
+  return `<select class="wl-sec-sel" onclick="event.stopPropagation()" onchange="setSectorOverrideFromRow('${sym}',this);this.blur();" title="${esc(sector)}${overridden ? ' (manual override)' : ''}"
+    style="background:var(--bg3);border:1px solid ${needsSector ? 'var(--amber)' : 'var(--border2)'};border-radius:3px;color:${needsSector ? 'var(--amber)' : '#8090a0'};padding:1px 2px;font-size:9px;font-family:var(--font);cursor:pointer;">${options}</select>`;
+}
+
 // price_live -> the Watchlist's price/change source. Fresh = updated within PRICE_LIVE_MAX_AGE_MS.
 function _wlPriceLiveInfo(sym) {
   const row = _priceLive[sym];
@@ -10241,7 +10303,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
     renderBriefTopFlow();  // Re-fire the Top Flow card now that DB is ready
     loadHeaderVixFromDb();
     loadMmEtf1d();
-    loadUserWatchlist().then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); }).then(()=>loadRsiSnapshot()).then(()=>loadPriceLive());
+    loadUserWatchlist().then(()=>loadSectorOverride()).then(()=>{ if(typeof renderWatchlist==='function')renderWatchlist(); }).then(()=>loadRsiSnapshot()).then(()=>loadPriceLive());
   };
   s.onerror=function(){
     console.warn('Supabase CDN failed — using local cache');
@@ -13367,6 +13429,7 @@ async function _mmLoadUniverse() {
   (_userWatchlist  || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
   (_swingData      || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
   (_scannerData    || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
+  Object.entries(_sectorOverride || {}).forEach(([s, sec]) => { symSector[s] = sec; }); // manual override wins
 
   // ── collect all symbols ────────────────────────────────────
   const allSyms = new Set(listedSet); // start with what we already know
@@ -13634,6 +13697,7 @@ async function _mmLoadBuyWatch() {
   Object.entries(SECTOR_BY_SYMBOL || {}).forEach(([s, sec]) => { symSector[s] = sec; });
   (_userWatchlist || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
   (_swingData    || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
+  Object.entries(_sectorOverride || {}).forEach(([s, sec]) => { symSector[s] = sec; }); // manual override wins
 
   const listedSet = new Set([
     ...Object.values(WATCHLIST).flat(),
@@ -14463,6 +14527,7 @@ async function _mmLoadDipWatch() {
   (_userWatchlist || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
   (_swingData    || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
   (_scannerData  || []).forEach(r => { if (r.symbol && r.sector) symSector[r.symbol] = r.sector; });
+  Object.entries(_sectorOverride || {}).forEach(([s, sec]) => { symSector[s] = sec; }); // manual override wins
 
   const listedSet = new Set([
     ...Object.values(WATCHLIST).flat(),
