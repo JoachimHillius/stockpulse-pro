@@ -29,7 +29,7 @@ const SLOTS_ET: Array<[string, number]> = [
   ['13:00', 13 * 60], ['15:00', 15 * 60], ['16:15', 16 * 60 + 15],
 ];
 const SLOT_TOLERANCE_MIN = 10;
-const MAX_ALERT_LINES = 25;
+const MAX_LINES_PER_SECTION = 15; // per High / Low section in the Telegram alert
 const TIMEFRAMES = ['1h', '4h', '1d', '1w'] as const;
 type Timeframe = typeof TIMEFRAMES[number];
 
@@ -411,19 +411,43 @@ function findCrossings(rows: any[], previous: Map<string, any>): Crossing[] {
   return crossings;
 }
 
+const crossingLine = (c: Crossing): string =>
+  `${c.direction === 'up' ? '▲' : '▼'} ${c.symbol} ${c.frames.map(([tf, v]) => `${tf.toUpperCase()} ${v.toFixed(1)}`).join(' · ')} (price ${Number(c.price).toFixed(2)})`;
+
+// "High:" lists the ▲ crossings, most extreme (highest RSI in the line) first; "Low:" lists the ▼ crossings, lowest RSI first.
+// A section with no crossings is omitted entirely; with nothing at all there is no message (null).
+function formatTelegramMessage(label: string, crossings: Crossing[]): string | null {
+  const section = (title: string, direction: 'up' | 'down'): string[] => {
+    const sign = direction === 'up' ? -1 : 1;
+    const extreme = (c: Crossing) => direction === 'up' ? Math.max(...c.frames.map(f => f[1])) : Math.min(...c.frames.map(f => f[1]));
+    const items = crossings.filter(c => c.direction === direction)
+      .sort((a, b) => (extreme(a) - extreme(b)) * sign || a.symbol.localeCompare(b.symbol));
+    if (!items.length) return [];
+    const lines = items.slice(0, MAX_LINES_PER_SECTION).map(crossingLine);
+    if (items.length > MAX_LINES_PER_SECTION) lines.push(`+${items.length - MAX_LINES_PER_SECTION} more`);
+    return [`${title}:`, ...lines];
+  };
+  const high = section('High', 'up');
+  const low = section('Low', 'down');
+  if (!high.length && !low.length) return null;
+  const parts = [`RSI alerts — ${label} ET`, ''];
+  if (high.length) parts.push(...high);
+  if (high.length && low.length) parts.push('');
+  if (low.length) parts.push(...low);
+  return parts.join('\n');
+}
+
 async function sendTelegram(label: string, crossings: Crossing[]): Promise<string> {
   const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
   if (!token || !chatId) { console.error('[telegram] TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set; alert skipped'); return 'skipped_no_secrets'; }
-  const lines = crossings.map(c =>
-    `${c.direction === 'up' ? '▲' : '▼'} ${c.symbol} ${c.frames.map(([tf, v]) => `${tf.toUpperCase()} ${v.toFixed(1)}`).join(' · ')} (price ${Number(c.price).toFixed(2)})`);
-  const shown = lines.slice(0, MAX_ALERT_LINES);
-  if (lines.length > MAX_ALERT_LINES) shown.push(`+${lines.length - MAX_ALERT_LINES} more`);
+  const text = formatTelegramMessage(label, crossings);
+  if (!text) return 'none';
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: `RSI alerts — ${label} ET\n${shown.join('\n')}` }),
+      body: JSON.stringify({ chat_id: chatId, text }),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) { console.error('[telegram] HTTP', res.status); return `failed_http_${res.status}`; }
