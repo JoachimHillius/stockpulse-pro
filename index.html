@@ -139,9 +139,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .wl-pat{font-size:9px;color:var(--amber);}
 
 /* WATCHLIST — dense single-line layout */
-/* 18 columns: SYM | NAME | Price | Net$ | 5m | 1h | RSI1H | RSI4H | 1D | RSI1D | 1W | RSI1W | 1M | 6M | 1Y | Bull | Bear | dots */
+/* 18 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | RSI1H | RSI4H | 1D | RSI1D | 1W | RSI1W | 1M | 6M | 1Y | Bull | Bear | dots */
 :root{
-  --wl-grid:60px 140px 80px 70px 50px 50px 46px 46px 60px 46px 55px 46px 55px 55px 65px 65px 65px 22px;
+  --wl-grid:96px 140px 80px 70px 50px 50px 46px 46px 60px 46px 55px 46px 55px 55px 65px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
@@ -207,6 +207,21 @@ body.light-mode .mom-dense-row:hover{background:rgba(0,0,0,0.04);}
 .pct-neg{color:var(--red);}
 .pct-zero{color:#e0e0e0;font-weight:400;font-size:11px;}
 .pct-na{color:#e0e0e0;font-weight:400;font-size:11px;}
+.rsi-badge{display:inline-block;margin-left:4px;padding:0 4px;border-radius:7px;font-size:9px;font-weight:600;line-height:14px;vertical-align:middle;background:rgba(255,255,255,0.06);letter-spacing:0;}
+.rb-p3{color:var(--green);font-weight:800;}
+.rb-p2{color:#7ee2a8;}
+.rb-p1{color:#b5ecc9;}
+.rb-m1{color:#ffc078;}
+.rb-m2{color:#ff9f43;}
+.rb-m3{color:#ff5c5c;font-weight:800;}
+body.light-mode .rsi-badge{background:rgba(0,0,0,0.06);}
+body.light-mode .rb-p3{color:#0a7a3b;}
+body.light-mode .rb-p2{color:#1f9d57;}
+body.light-mode .rb-p1{color:#4a9d6e;}
+body.light-mode .rb-m1{color:#b86e00;}
+body.light-mode .rb-m2{color:#c76a00;}
+body.light-mode .rb-m3{color:#c62828;}
+.wl-sec-muted{color:#8090a0;font-size:10px;}
 .rsi-cell{font-size:12px;text-align:right;white-space:nowrap;font-weight:400;}
 .rsi-ob{color:var(--green);font-weight:700;}
 .rsi-hi{color:#7ee2a8;}
@@ -665,6 +680,10 @@ select option{background:var(--bg2);}
   </div>
   <!-- Bull/Bear window selector -->
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding:5px 8px;background:var(--bg2);border-radius:4px;border:1px solid var(--border);">
+    <span style="display:flex;gap:4px;margin-right:6px;">
+      <button class="fbtn wl-view-btn active" id="wl-view-sector" onclick="setWlView('sector')">By Sector</button>
+      <button class="fbtn wl-view-btn" id="wl-view-combined" onclick="setWlView('combined')">Combined RSI</button>
+    </span>
     <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;">Avg Bull/Bear Window:</span>
     <div class="bb-tf-bar">
       <button class="bb-tf-btn" onclick="setFlowWindow('5D',this)">5D</button>
@@ -1593,6 +1612,14 @@ let flowData = _safeLS('sp_flow', []);
 let _flowSentimentTimeframe = 'D';
 let _userWatchlist = [];  // array of {symbol, sector, added_at}
 let _rsiBySym = {};       // symbol -> rsi_snapshot row (written by the rsi-scan edge function)
+let _rsiUniverse = [];    // rsi_universe rows: scanner/alerts/momentum symbols outside WATCHLIST + user_watchlist (RSI-only rows)
+let _rsiOnlySet = new Set(); // symbols currently rendered from _rsiUniverse (rebuilt on every render)
+let _wlView = 'sector';   // 'sector' | 'combined'
+let _wlCombinedSort = 'rsi1d_hi';
+try{
+  const _v=localStorage.getItem('sp_wl_view'); if(_v==='sector'||_v==='combined')_wlView=_v;
+  const _cs=localStorage.getItem('sp_wl_combined_sort'); if(_cs&&/^rsi(1h|4h|1d|1w)_(hi|lo)$/.test(_cs))_wlCombinedSort=_cs;
+}catch(e){}
 let _omenTickerCache = null;
 // Step 36: Promise that resolves when Supabase SDK has loaded.
 let _supabaseReadyResolve = null;
@@ -3024,7 +3051,7 @@ function setMktRange(r,btn){
 // ============================================================
 // WATCHLIST
 // ============================================================
-function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
+function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn:not(.wl-view-btn)').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
 
 // ============================================================
 // WATCHLIST ANALYTICS HELPERS
@@ -3210,6 +3237,44 @@ function _wlBbCell(val) {
   return `<span class="pct-cell ${cls}" style="font-weight:700;">${val}%</span>`;
 }
 
+function _wlRsiBadge(val) {
+  if (val == null) return '';
+  const n = Number(val);
+  if (!isFinite(n)) return '';
+  let txt, cls;
+  if (n >= 70) { txt = 'RSI+++'; cls = 'rb-p3'; }
+  else if (n >= 60) { txt = 'RSI++'; cls = 'rb-p2'; }
+  else if (n >= 50) { txt = 'RSI+'; cls = 'rb-p1'; }
+  else if (n > 40) return '';
+  else if (n <= 20) { txt = 'RSI---'; cls = 'rb-m3'; }
+  else if (n <= 30) { txt = 'RSI--'; cls = 'rb-m2'; }
+  else { txt = 'RSI-'; cls = 'rb-m1'; }
+  return `<span class="rsi-badge ${cls}" title="RSI 1D: ${n.toFixed(1)}">${txt}</span>`;
+}
+
+const _WL_RSI_SORTS = [
+  ['rsi1h_hi', 'RSI 1H High→Low', 'rsi_1h', -1], ['rsi1h_lo', 'RSI 1H Low→High', 'rsi_1h', 1],
+  ['rsi4h_hi', 'RSI 4H High→Low', 'rsi_4h', -1], ['rsi4h_lo', 'RSI 4H Low→High', 'rsi_4h', 1],
+  ['rsi1d_hi', 'RSI 1D High→Low', 'rsi_1d', -1], ['rsi1d_lo', 'RSI 1D Low→High', 'rsi_1d', 1],
+  ['rsi1w_hi', 'RSI 1W High→Low', 'rsi_1w', -1], ['rsi1w_lo', 'RSI 1W Low→High', 'rsi_1w', 1],
+];
+// Missing RSI always sorts last, whichever direction is chosen.
+function _wlRsiSortCmp(sort) {
+  const spec = _WL_RSI_SORTS.find(x => x[0] === sort);
+  if (!spec) return null;
+  const field = spec[2], dir = spec[3];
+  return (a, b) => {
+    const va = _rsiBySym[a]?.[field], vb = _rsiBySym[b]?.[field];
+    if (va == null && vb == null) return a.localeCompare(b);
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return (Number(va) - Number(vb)) * dir || a.localeCompare(b);
+  };
+}
+function _wlRsiSortOptions(selected) {
+  return _WL_RSI_SORTS.map(([val, label]) => `<option value="${val}" ${selected === val ? 'selected' : ''}>${label}</option>`).join('');
+}
+
 // ── Per-group sort state ───────────────────────────────────────────────
 const _wlCtl = {};        // { [secId]: { sort: 'default' } }
 let _wlSectorsCache = {}; // { [secId]: { sector, tickers } } populated by renderWatchlist
@@ -3217,6 +3282,8 @@ let _wlSectorsCache = {}; // { [secId]: { sector, tickers } } populated by rende
 function _wlSortTickers(secId, tickers) {
   const sort = (_wlCtl[secId] || { sort: 'default' }).sort;
   if (sort === 'default') return tickers;
+  const rsiCmp = _wlRsiSortCmp(sort);
+  if (rsiCmp) return [...tickers].sort(rsiCmp);
   return [...tickers].sort((a, b) => {
     if (sort === 'sym_az') return a.localeCompare(b);
     if (sort === 'sym_za') return b.localeCompare(a);
@@ -3254,45 +3321,7 @@ function _rerenderWlGroup(secId) {
   el.outerHTML = _wlBuildGroup(cached.sector, cached.tickers, search, customTickers);
 }
 
-function _wlBuildGroup(sector, tickers, search, customTickers) {
-  const matched = tickers.filter(s => {
-    if (!search) return true;
-    return s.includes(search) || (COMPANY_NAMES[s] || '').toUpperCase().includes(search);
-  });
-  if (!matched.length) return '';
-  const secId = sector.replace(/[^a-z0-9]/gi, '_');
-  if (!_wlCtl[secId]) _wlCtl[secId] = { sort: 'default' };
-  const ctl = _wlCtl[secId];
-  const sorted = _wlSortTickers(secId, matched);
-  const isCollapsed = collapsedSectors.has(sector);
-
-  const sortOpts = [
-    ['default', 'Sort: Default'],
-    ['sym_az',  'Symbol A→Z'],
-    ['sym_za',  'Symbol Z→A'],
-    ['net_hi',  'Day Net$ High→Low'],
-    ['d1_hi',   '1D% High→Low'],
-    ['w1_hi',   '1W% High→Low'],
-    ['bull_hi', 'AvgBull High→Low'],
-  ].map(([val, label]) =>
-    `<option value="${val}" ${ctl.sort === val ? 'selected' : ''}>${label}</option>`
-  ).join('');
-
-  const sectorHdr = `<div class="wl-sector-hd-dense" onclick="toggleSector('${sector.replace(/'/g, "\\'")}')">
-    <span class="wl-chevron${isCollapsed ? ' closed' : ''}" id="wl-chev-${secId}">▾</span>
-    <span>${sector}</span>
-    <span style="color:#e0e0e0;margin-left:8px;font-size:9px;">${matched.length} stocks</span>
-    <span style="margin-left:12px;display:flex;align-items:center;gap:5px;" onclick="event.stopPropagation()">
-      <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.6px;">SORT</span>
-      <select onchange="_wlBlkSetSort('${secId}',this.value)" style="width:auto;max-width:190px;flex-shrink:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${sortOpts}</select>
-    </span>
-  </div>`;
-
-  // Compute max latestDate across all histBaselines entries to detect stale symbols
-  const _allDates = Object.values(histBaselines).map(b=>b?.latestDate).filter(Boolean).sort();
-  const _maxDate = _allDates.at(-1) || null;
-
-  const rows = sorted.map(sym => {
+function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
     const q = getQ(sym);
     const p = histBaselines[sym]?.perf;
     const latestDate = histBaselines[sym]?.latestDate || null;
@@ -3311,6 +3340,10 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
     const bullPct = fa?.bullPct ?? null;
     const bearPct = fa?.bearPct ?? null;
     const rsi = _rsiBySym[sym];
+    // RSI-only rows have no live quote loop; fall back to the price captured by the RSI scan.
+    const priceCellHtml = (q.p == null && _rsiOnlySet.has(sym) && rsi?.price != null)
+      ? `<span class="wl-price-cell" title="price from RSI scan ${_wlEtTime(rsi.computed_at)} ET">${fmtPrice(sym, Number(rsi.price))}</span>`
+      : `<span class="wl-price-cell">${fmtPrice(sym, q.p)}</span>`;
     const dots = [];
     const earnData = earningsCache[sym];
     if (earnData?.length) {
@@ -3340,9 +3373,9 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
          </span>`
       : '';
     return `<div class="wl-dense-row" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
-      <span class="wl-sym-cell">${sym}</span>
-      <span class="wl-name-cell">${COMPANY_NAMES[sym] || sector}${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:4px;" title="Remove from watchlist">×</button>` : ''}</span>
-      <span class="wl-price-cell">${fmtPrice(sym, q.p)}</span>
+      <span class="wl-sym-cell">${sym}${_wlRsiBadge(rsi?.rsi_1d)}</span>
+      <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}>${combined ? `${COMPANY_NAMES[sym] || ''}<span class="wl-sec-muted">${COMPANY_NAMES[sym] ? ' · ' : ''}${sector}</span>` : (COMPANY_NAMES[sym] || sector)}${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:4px;" title="Remove from watchlist">×</button>` : ''}</span>
+      ${priceCellHtml}
       <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
@@ -3359,17 +3392,60 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
       ${_wlBbCell(bearPct)}
       <div class="wl-dot-wrap">${dots.join('')}</div>
     </div>`;
-  }).join('');
+}
+
+function _wlBuildGroup(sector, tickers, search, customTickers) {
+  const matched = tickers.filter(s => {
+    if (!search) return true;
+    return s.includes(search) || (COMPANY_NAMES[s] || '').toUpperCase().includes(search);
+  });
+  if (!matched.length) return '';
+  const secId = sector.replace(/[^a-z0-9]/gi, '_');
+  if (!_wlCtl[secId]) _wlCtl[secId] = { sort: 'default' };
+  const ctl = _wlCtl[secId];
+  const sorted = _wlSortTickers(secId, matched);
+  const isCollapsed = collapsedSectors.has(sector);
+
+  const sortOpts = [
+    ['default', 'Sort: Default'],
+    ['sym_az',  'Symbol A→Z'],
+    ['sym_za',  'Symbol Z→A'],
+    ['net_hi',  'Day Net$ High→Low'],
+    ['d1_hi',   '1D% High→Low'],
+    ['w1_hi',   '1W% High→Low'],
+    ['bull_hi', 'AvgBull High→Low'],
+    ..._WL_RSI_SORTS.map(([val, label]) => [val, label]),
+  ].map(([val, label]) =>
+    `<option value="${val}" ${ctl.sort === val ? 'selected' : ''}>${label}</option>`
+  ).join('');
+
+  const sectorHdr = `<div class="wl-sector-hd-dense" onclick="toggleSector('${sector.replace(/'/g, "\\'")}')">
+    <span class="wl-chevron${isCollapsed ? ' closed' : ''}" id="wl-chev-${secId}">▾</span>
+    <span>${sector}</span>
+    <span style="color:#e0e0e0;margin-left:8px;font-size:9px;">${matched.length} stocks</span>
+    <span style="margin-left:12px;display:flex;align-items:center;gap:5px;" onclick="event.stopPropagation()">
+      <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.6px;">SORT</span>
+      <select onchange="_wlBlkSetSort('${secId}',this.value)" style="width:auto;max-width:190px;flex-shrink:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${sortOpts}</select>
+    </span>
+  </div>`;
+
+  // Compute max latestDate across all histBaselines entries to detect stale symbols
+  const _allDates = Object.values(histBaselines).map(b=>b?.latestDate).filter(Boolean).sort();
+  const _maxDate = _allDates.at(-1) || null;
+
+  const rows = sorted.map(sym => _wlBuildRow(sym, sector, customTickers, _maxDate, false)).join('');
 
   return `<div id="wl-grp-${secId}">${sectorHdr}<div class="wl-sector-rows${isCollapsed ? ' collapsed' : ''}" id="wl-sec-rows-${secId}">${rows}</div></div>`;
 }
 
-function renderWatchlist() {
-  const search = (document.getElementById('wl-search')?.value || '').toUpperCase();
-  const body = document.getElementById('watchlist-body');
-  if (!body) return;
+function _wlEtTime(iso) {
+  try { return new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }); }
+  catch (e) { return ''; }
+}
 
-  const sectorsToRender = { ...WATCHLIST };
+// Built-in WATCHLIST + user_watchlist + RSI-only universe symbols, grouped by sector name.
+function _wlCollectSectors() {
+  const sectors = { ...WATCHLIST };
   const userBySector = {};
   (_userWatchlist || []).forEach(row => {
     const sec = row.sector || 'Custom';
@@ -3377,20 +3453,93 @@ function renderWatchlist() {
     userBySector[sec].push(row.symbol);
   });
   Object.entries(userBySector).forEach(([sec, syms]) => {
-    if (sectorsToRender[sec]) {
-      const existing = new Set(sectorsToRender[sec]);
-      const newSyms = syms.filter(s => !existing.has(s));
-      sectorsToRender[sec] = [...sectorsToRender[sec], ...newSyms];
+    if (sectors[sec]) {
+      const existing = new Set(sectors[sec]);
+      sectors[sec] = [...sectors[sec], ...syms.filter(s => !existing.has(s))];
     } else {
-      sectorsToRender[sec] = syms;
+      sectors[sec] = syms;
     }
   });
+  const known = new Set(Object.values(sectors).flat());
+  const universeBySector = {};
+  _rsiOnlySet = new Set();
+  (_rsiUniverse || []).forEach(row => {
+    if (!row.symbol || known.has(row.symbol)) return;
+    known.add(row.symbol);
+    _rsiOnlySet.add(row.symbol);
+    const sec = row.sector || 'Scanner';
+    if (!universeBySector[sec]) universeBySector[sec] = [];
+    universeBySector[sec].push(row.symbol);
+  });
+  Object.entries(universeBySector).forEach(([sec, syms]) => {
+    sectors[sec] = sectors[sec] ? [...sectors[sec], ...syms] : syms;
+  });
+  return sectors;
+}
+
+function _wlSyncViewButtons() {
+  document.getElementById('wl-view-sector')?.classList.toggle('active', _wlView === 'sector');
+  document.getElementById('wl-view-combined')?.classList.toggle('active', _wlView === 'combined');
+}
+function setWlView(view) {
+  _wlView = view === 'combined' ? 'combined' : 'sector';
+  try { localStorage.setItem('sp_wl_view', _wlView); } catch (e) {}
+  renderWatchlist();
+}
+function _wlSetCombinedSort(val) {
+  if (!_WL_RSI_SORTS.some(x => x[0] === val)) return;
+  _wlCombinedSort = val;
+  try { localStorage.setItem('sp_wl_combined_sort', val); } catch (e) {}
+  renderWatchlist();
+}
+
+// One flat list of every watchlist row, sorted by the chosen RSI column.
+function _wlBuildCombined(sectorsToRender, search, customTickers) {
+  const rows = [];
+  Object.entries(sectorsToRender).forEach(([sector, tickers]) => {
+    if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
+    tickers.forEach(sym => {
+      if (search && !(sym.includes(search) || (COMPANY_NAMES[sym] || '').toUpperCase().includes(search))) return;
+      rows.push({ sym, sector });
+    });
+  });
+  if (!rows.length) return '';
+  const secBySym = {};
+  rows.forEach(r => { if (!secBySym[r.sym]) secBySym[r.sym] = r.sector; });
+  const cmp = _wlRsiSortCmp(_wlCombinedSort);
+  const syms = Object.keys(secBySym).sort(cmp);
+  const allDates = Object.values(histBaselines).map(b => b?.latestDate).filter(Boolean).sort();
+  const maxDate = allDates.at(-1) || null;
+  const hdr = `<div class="wl-sector-hd-dense" style="cursor:default;">
+    <span>All symbols</span>
+    <span style="color:#e0e0e0;margin-left:8px;font-size:9px;">${syms.length} stocks</span>
+    <span style="margin-left:12px;display:flex;align-items:center;gap:5px;">
+      <span style="font-size:9px;font-weight:700;color:#6a7a8a;letter-spacing:0.6px;">SORT</span>
+      <select onchange="_wlSetCombinedSort(this.value)" style="width:auto;max-width:190px;flex-shrink:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 6px;font-size:9px;font-family:var(--font);cursor:pointer;">${_wlRsiSortOptions(_wlCombinedSort)}</select>
+    </span>
+  </div>`;
+  return `<div id="wl-combined">${hdr}${syms.map(sym => _wlBuildRow(sym, secBySym[sym], customTickers, maxDate, true)).join('')}</div>`;
+}
+
+function renderWatchlist() {
+  const search = (document.getElementById('wl-search')?.value || '').toUpperCase();
+  const body = document.getElementById('watchlist-body');
+  if (!body) return;
+  _wlSyncViewButtons();
+
+  const sectorsToRender = _wlCollectSectors();
 
   const customTickers = (_userWatchlist || []).map(r => r.symbol);
+  if (_wlView === 'combined') {
+    body.innerHTML = _wlBuildCombined(sectorsToRender, search, customTickers) || '<div class="empty">No tickers match your filter</div>';
+    return;
+  }
   _wlSectorsCache = {};
   let html = '';
   let sectorEntries = Object.entries(sectorsToRender);
   if (currentWlFilter === 'all') sectorEntries = _sortSectorsByPerf(sectorEntries);
+  // The catch-all 'Scanner' group always goes last.
+  sectorEntries = [...sectorEntries.filter(([sec]) => sec !== 'Scanner'), ...sectorEntries.filter(([sec]) => sec === 'Scanner')];
   sectorEntries.forEach(([sector, tickers]) => {
     if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
     const secId = sector.replace(/[^a-z0-9]/gi, '_');
@@ -6660,7 +6809,7 @@ async function loadRsiSnapshot(){
     let latest=null;
     let from=0;
     while(true){
-      const{data,error}=await supa.from('rsi_snapshot').select('symbol, rsi_1h, rsi_4h, rsi_1d, rsi_1w, computed_at').order('symbol').range(from,from+PAGE-1);
+      const{data,error}=await supa.from('rsi_snapshot').select('symbol, price, rsi_1h, rsi_4h, rsi_1d, rsi_1w, computed_at').order('symbol').range(from,from+PAGE-1);
       if(error)throw error;
       if(!data||!data.length)break;
       data.forEach(r=>{map[r.symbol]=r;if(!latest||r.computed_at>latest)latest=r.computed_at;});
@@ -6668,6 +6817,20 @@ async function loadRsiSnapshot(){
       from+=PAGE;if(from>100000)break;
     }
     _rsiBySym=map;
+    // RSI-only symbols (scanner / alerts / momentum). Missing table or empty result just means no extra rows.
+    try{
+      const universe=[];
+      let uFrom=0;
+      while(true){
+        const{data,error}=await supa.from('rsi_universe').select('symbol, sector, sources').order('symbol').range(uFrom,uFrom+PAGE-1);
+        if(error)throw error;
+        if(!data||!data.length)break;
+        universe.push(...data);
+        if(data.length<PAGE)break;
+        uFrom+=PAGE;if(uFrom>100000)break;
+      }
+      _rsiUniverse=universe;
+    }catch(e){console.warn('[rsi_universe] load failed:',e);}
     const label=document.getElementById('wl-rsi-asof');
     if(label)label.textContent=latest?new Date(latest).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'})+' ET':'—';
   }catch(e){console.warn('[rsi_snapshot] load failed:',e);}
