@@ -139,9 +139,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .wl-pat{font-size:9px;color:var(--amber);}
 
 /* WATCHLIST — dense single-line layout */
-/* 18 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | RSI1H | RSI4H | 1D | RSI1D | 1W | RSI1W | 1M | 6M | 1Y | Bull | Bear | dots */
+/* 18 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | RSI 1H | RSI 4H | RSI 1D | RSI 1W | Bull | Bear | dots
+   The four RSI columns are one block: 54px each, +6px on the outer sides of RSI 1H / RSI 1W for spacing from 1Y% / AvgBull. */
 :root{
-  --wl-grid:96px 140px 80px 70px 50px 50px 46px 46px 60px 46px 55px 46px 55px 55px 65px 65px 65px 22px;
+  --wl-grid:96px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
@@ -222,7 +223,16 @@ body.light-mode .rb-m1{color:#b86e00;}
 body.light-mode .rb-m2{color:#c76a00;}
 body.light-mode .rb-m3{color:#c62828;}
 .wl-sec-muted{color:#8090a0;font-size:10px;}
-.rsi-cell{font-size:12px;text-align:right;white-space:nowrap;font-weight:400;}
+.rsi-cell{font-size:12px;text-align:center;white-space:nowrap;font-weight:400;}
+/* RSI block: cells stretch to the full row height (negative margin cancels row padding) so the dividers run unbroken. */
+.rsi-c{display:flex;align-items:center;justify-content:center;align-self:stretch;margin-top:-5px;margin-bottom:-5px;padding:5px 0;}
+.wl-col-hdr .rsi-c{margin-top:-6px;margin-bottom:-6px;padding:6px 0;text-align:center;}
+.rsi-c1{border-left:2px solid var(--border2);margin-left:6px;}
+.rsi-c2,.rsi-c3{border-left:1px solid var(--border2);}
+.rsi-c4{border-left:1px solid var(--border2);border-right:2px solid var(--border2);margin-right:6px;}
+body.light-mode .rsi-c1{border-left-color:rgba(0,0,0,0.25);}
+body.light-mode .rsi-c2,body.light-mode .rsi-c3{border-left-color:rgba(0,0,0,0.14);}
+body.light-mode .rsi-c4{border-left-color:rgba(0,0,0,0.14);border-right-color:rgba(0,0,0,0.25);}
 .rsi-ob{color:var(--green);font-weight:700;}
 .rsi-hi{color:#7ee2a8;}
 .rsi-mid{color:#8090a0;}
@@ -702,15 +712,15 @@ select option{background:var(--bg2);}
     <span style="text-align:right;">Net $</span>
     <span style="text-align:right;" title="5-minute price change — shows — until live data has been running for ~5 minutes">5m%</span>
     <span style="text-align:right;" title="1-hour price change — shows — until live data has been running for ~60 minutes">1h%</span>
-    <span style="text-align:right;" title="RSI(14) on 1-hour bars, incl. pre/after-hours">RSI1H</span>
-    <span style="text-align:right;" title="RSI(14) on 4-hour ET blocks (04–08, 08–12, 12–16, 16–20)">RSI4H</span>
     <span style="text-align:right;">1D%</span>
-    <span style="text-align:right;" title="RSI(14) on daily closes">RSI1D</span>
     <span style="text-align:right;">1W%</span>
-    <span style="text-align:right;" title="RSI(14) on weekly closes">RSI1W</span>
     <span style="text-align:right;">1M%</span>
     <span style="text-align:right;">6M%</span>
     <span style="text-align:right;">1Y%</span>
+    <span class="rsi-c rsi-c1" title="RSI(14) on 1-hour bars, incl. pre/after-hours">RSI 1H</span>
+    <span class="rsi-c rsi-c2" title="RSI(14) on 4-hour ET blocks (04–08, 08–12, 12–16, 16–20)">RSI 4H</span>
+    <span class="rsi-c rsi-c3" title="RSI(14) on daily closes">RSI 1D</span>
+    <span class="rsi-c rsi-c4" title="RSI(14) on weekly closes">RSI 1W</span>
     <span style="text-align:right;">AvgBull</span>
     <span style="text-align:right;">AvgBear</span>
     <span></span>
@@ -3221,11 +3231,12 @@ function _wlPctCell(val) {
   const cls = Math.abs(val) < 0.05 ? 'pct-zero' : val > 0 ? 'pct-pos' : 'pct-neg';
   return `<span class="pct-cell ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</span>`;
 }
-function _wlRsiCell(val) {
-  if (val == null) return `<span class="rsi-cell pct-na">—</span>`;
+function _wlRsiCell(val, pos) {
+  const blk = `rsi-c rsi-c${pos}`;
+  if (val == null) return `<span class="rsi-cell ${blk} pct-na">—</span>`;
   const n = Number(val);
   const cls = n >= 70 ? 'rsi-ob' : n >= 50 ? 'rsi-hi' : n >= 30 ? 'rsi-mid' : n >= 20 ? 'rsi-lo' : 'rsi-os';
-  return `<span class="rsi-cell ${cls}">${n.toFixed(1)}</span>`;
+  return `<span class="rsi-cell ${blk} ${cls}">${n.toFixed(1)}</span>`;
 }
 function _wlStaleCell(latestDate) {
   const d = latestDate ? latestDate.slice(0,10) : '?';
@@ -3379,15 +3390,15 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
       <span class="pct-cell ${netClr}" style="text-align:right;">${q.d == null ? '—' : (q.d >= 0 ? '+' : '') + q.d.toFixed(2)}</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
-      ${_wlRsiCell(rsi?.rsi_1h)}
-      ${_wlRsiCell(rsi?.rsi_4h)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(d1)}
-      ${_wlRsiCell(rsi?.rsi_1d)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(w1)}
-      ${_wlRsiCell(rsi?.rsi_1w)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(m1)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(m6)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(y1)}
+      ${_wlRsiCell(rsi?.rsi_1h, 1)}
+      ${_wlRsiCell(rsi?.rsi_4h, 2)}
+      ${_wlRsiCell(rsi?.rsi_1d, 3)}
+      ${_wlRsiCell(rsi?.rsi_1w, 4)}
       ${_wlBbCell(bullPct)}
       ${_wlBbCell(bearPct)}
       <div class="wl-dot-wrap">${dots.join('')}</div>
