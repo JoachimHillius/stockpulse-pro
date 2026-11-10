@@ -139,10 +139,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 .wl-pat{font-size:9px;color:var(--amber);}
 
 /* WATCHLIST — dense single-line layout */
-/* 18 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | RSI 1H | RSI 4H | RSI 1D | RSI 1W | Bull | Bear | dots
+/* 19 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | RSI 1H | RSI 4H | RSI 1D | RSI 1W | OPTIONS | Bull | Bear | dots
    The four RSI columns are one block: 54px each, +6px on the outer sides of RSI 1H / RSI 1W for spacing from 1Y% / AvgBull. */
 :root{
-  --wl-grid:96px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 65px 65px 22px;
+  --wl-grid:96px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 52px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
@@ -226,6 +226,13 @@ body.light-mode .rb-m1{color:#b86e00;}
 body.light-mode .rb-m2{color:#c76a00;}
 body.light-mode .rb-m3{color:#c62828;}
 .wl-sec-muted{color:#8090a0;font-size:10px;}
+.opt-cell{font-size:11px;font-weight:700;text-align:center;white-space:nowrap;}
+.opt-yes{color:var(--green);}
+.opt-low{color:#ffc078;}
+.opt-no{color:#8090a0;font-weight:600;}
+body.light-mode .opt-yes{color:#0a7a3b;}
+body.light-mode .opt-low{color:#b86e00;}
+body.light-mode .opt-no{color:#5a6b7d;}
 .rsi-cell{font-size:12px;text-align:center;white-space:nowrap;font-weight:400;}
 /* RSI block: cells stretch to the full row height (negative margin cancels row padding) so the dividers run unbroken. */
 .rsi-c{display:flex;align-items:center;justify-content:center;align-self:stretch;margin-top:-5px;margin-bottom:-5px;padding:5px 0;}
@@ -707,6 +714,13 @@ select option{background:var(--bg2);}
       <button class="bb-tf-btn" onclick="setFlowWindow('6M',this)">6M</button>
       <button class="bb-tf-btn" onclick="setFlowWindow('1Y',this)">1Y</button>
     </div>
+    <span style="display:flex;align-items:center;gap:4px;margin-left:10px;">
+      <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;margin-right:2px;">Options:</span>
+      <button class="fbtn wl-opt-btn active" data-opt="all" onclick="setWlOptFilter('all')">All</button>
+      <button class="fbtn wl-opt-btn" data-opt="yes" onclick="setWlOptFilter('yes')">Yes</button>
+      <button class="fbtn wl-opt-btn" data-opt="low" onclick="setWlOptFilter('low')">Low</button>
+      <button class="fbtn wl-opt-btn" data-opt="no" onclick="setWlOptFilter('no')">No</button>
+    </span>
     <span style="color:#e0e0e0;margin-left:auto;">Based on uploaded OMEN CSVs</span>
   </div>
   <!-- Column header (sticky) -->
@@ -726,6 +740,7 @@ select option{background:var(--bg2);}
     <span class="rsi-c rsi-c2" title="RSI(14) on 4-hour ET blocks (04–08, 08–12, 12–16, 16–20)">RSI 4H</span>
     <span class="rsi-c rsi-c3" title="RSI(14) on daily closes">RSI 1D</span>
     <span class="rsi-c rsi-c4" title="RSI(14) on weekly closes">RSI 1W</span>
+    <span style="text-align:center;font-size:10.5px;letter-spacing:0.2px;overflow:hidden;" title="Listed options + Omen options-flow history. Yes: has options and flow on 3+ of the last 30 days · Low: has options, less flow · No: no listed options · —: unknown">OPTIONS</span>
     <span style="text-align:right;">AvgBull</span>
     <span style="text-align:right;">AvgBear</span>
     <span></span>
@@ -3076,7 +3091,7 @@ _syncStickyOffset();
 window.addEventListener('resize',_syncStickyOffset);
 window.addEventListener('load',_syncStickyOffset);
 try{ if(window.ResizeObserver){ const _h=document.querySelector('.header'); if(_h)new ResizeObserver(_syncStickyOffset).observe(_h); } }catch(e){}
-function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn:not(.wl-view-btn)').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
+function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn:not(.wl-view-btn):not(.wl-opt-btn)').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
 
 // ============================================================
 // WATCHLIST ANALYTICS HELPERS
@@ -3263,6 +3278,37 @@ function _wlBbCell(val) {
   return `<span class="pct-cell ${cls}" style="font-weight:700;">${val}%</span>`;
 }
 
+// Yes needs this many distinct Omen flow days in the last 30 (rsi_snapshot.flow_days_30d).
+const OPTIONS_YES_MIN_FLOW_DAYS = 3;
+// 'yes' | 'low' | 'no' | null (unknown). Flow history proves the symbol trades options, whatever the availability check said.
+function _wlOptionsValue(row) {
+  if (!row) return null;
+  const hasOptions = row.flow_ever === true ? true : row.has_options;
+  if (hasOptions == null) return null;
+  if (hasOptions === false) return 'no';
+  return (row.flow_days_30d || 0) >= OPTIONS_YES_MIN_FLOW_DAYS ? 'yes' : 'low';
+}
+function _wlOptionsCell(row) {
+  const value = _wlOptionsValue(row);
+  if (!value) return `<span class="opt-cell pct-na" title="Options availability not checked yet">—</span>`;
+  let tip = 'No Omen flow on record';
+  if (row.flow_ever && row.last_flow_date) {
+    const [, month, day] = String(row.last_flow_date).split('-');
+    tip = `Options flow: ${row.flow_days_30d || 0} days in last 30 · last ${Number(month)}/${Number(day)}`;
+  }
+  return `<span class="opt-cell opt-${value}" title="${tip}">${{ yes: 'Yes', low: 'Low', no: 'No' }[value]}</span>`;
+}
+let _wlOptFilter = 'all'; // 'all' | 'yes' | 'low' | 'no'
+try { const _of = localStorage.getItem('sp_wl_opt'); if (['all', 'yes', 'low', 'no'].includes(_of)) _wlOptFilter = _of; } catch (e) {}
+function _wlOptPass(sym) {
+  return _wlOptFilter === 'all' || _wlOptionsValue(_rsiBySym[sym]) === _wlOptFilter;
+}
+function setWlOptFilter(value) {
+  _wlOptFilter = ['yes', 'low', 'no'].includes(value) ? value : 'all';
+  try { localStorage.setItem('sp_wl_opt', _wlOptFilter); } catch (e) {}
+  renderWatchlist();
+}
+
 function _wlRsiBadge(val) {
   if (val == null) return '';
   const n = Number(val);
@@ -3414,6 +3460,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
       ${_wlRsiCell(rsi?.rsi_4h, 2)}
       ${_wlRsiCell(rsi?.rsi_1d, 3)}
       ${_wlRsiCell(rsi?.rsi_1w, 4)}
+      ${_wlOptionsCell(rsi)}
       ${_wlBbCell(bullPct)}
       ${_wlBbCell(bearPct)}
       <div class="wl-dot-wrap">${dots.join('')}</div>
@@ -3422,6 +3469,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
 
 function _wlBuildGroup(sector, tickers, search, customTickers) {
   const matched = tickers.filter(s => {
+    if (!_wlOptPass(s)) return false;
     if (!search) return true;
     return s.includes(search) || (COMPANY_NAMES[s] || '').toUpperCase().includes(search);
   });
@@ -3506,6 +3554,7 @@ function _wlCollectSectors() {
 function _wlSyncViewButtons() {
   document.getElementById('wl-view-sector')?.classList.toggle('active', _wlView === 'sector');
   document.getElementById('wl-view-combined')?.classList.toggle('active', _wlView === 'combined');
+  document.querySelectorAll('.wl-opt-btn').forEach(b => b.classList.toggle('active', b.dataset.opt === _wlOptFilter));
 }
 function setWlView(view) {
   _wlView = view === 'combined' ? 'combined' : 'sector';
@@ -3525,6 +3574,7 @@ function _wlBuildCombined(sectorsToRender, search, customTickers) {
   Object.entries(sectorsToRender).forEach(([sector, tickers]) => {
     if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
     tickers.forEach(sym => {
+      if (!_wlOptPass(sym)) return;
       if (search && !(sym.includes(search) || (COMPANY_NAMES[sym] || '').toUpperCase().includes(search))) return;
       rows.push({ sym, sector });
     });
@@ -6835,7 +6885,7 @@ async function loadRsiSnapshot(){
     let latest=null;
     let from=0;
     while(true){
-      const{data,error}=await supa.from('rsi_snapshot').select('symbol, price, rsi_1h, rsi_4h, rsi_1d, rsi_1w, computed_at').order('symbol').range(from,from+PAGE-1);
+      const{data,error}=await supa.from('rsi_snapshot').select('symbol, price, rsi_1h, rsi_4h, rsi_1d, rsi_1w, computed_at, has_options, flow_ever, flow_days_30d, last_flow_date').order('symbol').range(from,from+PAGE-1);
       if(error)throw error;
       if(!data||!data.length)break;
       data.forEach(r=>{map[r.symbol]=r;if(!latest||r.computed_at>latest)latest=r.computed_at;});
