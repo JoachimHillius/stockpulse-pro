@@ -146,6 +146,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
+.wl-sticky{position:sticky;top:var(--hdr-h,141px);z-index:150;background:var(--bg);box-shadow:0 6px 8px -4px rgba(0,0,0,0.45);}
+body.light-mode .wl-sticky{box-shadow:0 6px 8px -4px rgba(0,0,0,0.18);}
+/* Add Stock popup overlays the frozen block instead of growing it */
+.wl-sticky #add-stock-popup{position:absolute;left:0;right:0;z-index:5;box-shadow:0 8px 24px rgba(0,0,0,0.5);}
 .wl-col-hdr{
   display:grid;grid-template-columns:var(--wl-grid);gap:2px;
   padding:6px 10px;
@@ -153,7 +157,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
   color:var(--text);                          /* bright white in dark mode */
   background:var(--bg2);
   border-bottom:2px solid var(--border2);
-  position:sticky;top:48px;z-index:10;
   border-radius:4px 4px 0 0;
 }
 body.light-mode .wl-col-hdr{color:#1a2235;background:#dde3ef;}
@@ -650,6 +653,8 @@ select option{background:var(--bg2);}
 
 <!-- ============ PAGE: WATCHLIST ============ -->
 <div id="page-watchlist" class="page">
+  <!-- Frozen block: controls + Bull/Bear bar + column header stay put while the rows scroll -->
+  <div class="wl-sticky" id="wl-sticky">
   <!-- Top controls row -->
   <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
     <input type="text" id="wl-search" placeholder="Search symbol or name..." style="width:180px;" oninput="renderWatchlist()"/>
@@ -725,6 +730,7 @@ select option{background:var(--bg2);}
     <span style="text-align:right;">AvgBear</span>
     <span></span>
   </div>
+  </div><!-- /wl-sticky -->
   <div id="watchlist-body" style="border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;overflow:hidden;"></div>
 </div>
 
@@ -3061,6 +3067,15 @@ function setMktRange(r,btn){
 // ============================================================
 // WATCHLIST
 // ============================================================
+// The top nav wraps onto several rows, so its height varies; the frozen Watchlist block sticks right below it.
+function _syncStickyOffset(){
+  const h=document.querySelector('.header');
+  if(h)document.documentElement.style.setProperty('--hdr-h',h.offsetHeight+'px');
+}
+_syncStickyOffset();
+window.addEventListener('resize',_syncStickyOffset);
+window.addEventListener('load',_syncStickyOffset);
+try{ if(window.ResizeObserver){ const _h=document.querySelector('.header'); if(_h)new ResizeObserver(_syncStickyOffset).observe(_h); } }catch(e){}
 function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn:not(.wl-view-btn)').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
 
 // ============================================================
