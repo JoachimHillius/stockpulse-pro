@@ -391,7 +391,7 @@ async function loadPreviousZones(supa: any, symbols: string[]): Promise<Map<stri
   return previous;
 }
 
-interface Crossing { symbol: string; direction: 'up' | 'down'; frames: Array<[Timeframe, number]>; price: number; }
+interface Crossing { symbol: string; direction: 'up' | 'down'; frames: Array<[Timeframe, number]>; price: number; hasOptions: boolean | null; }
 
 function findCrossings(rows: any[], previous: Map<string, any>): Crossing[] {
   const crossings: Crossing[] = [];
@@ -405,8 +405,9 @@ function findCrossings(rows: any[], previous: Map<string, any>): Crossing[] {
       if (row[`zone_${tf}`] === 'ob') up.push([tf, row[`rsi_${tf}`]]);
       if (row[`zone_${tf}`] === 'os') down.push([tf, row[`rsi_${tf}`]]);
     }
-    if (up.length) crossings.push({ symbol: row.symbol, direction: 'up', frames: up, price: row.price });
-    if (down.length) crossings.push({ symbol: row.symbol, direction: 'down', frames: down, price: row.price });
+    const hasOptions = typeof row.has_options === 'boolean' ? row.has_options : null; // carried so a no-options symbol needs no lookup
+    if (up.length) crossings.push({ symbol: row.symbol, direction: 'up', frames: up, price: row.price, hasOptions });
+    if (down.length) crossings.push({ symbol: row.symbol, direction: 'down', frames: down, price: row.price, hasOptions });
   }
   return crossings;
 }
@@ -414,21 +415,123 @@ function findCrossings(rows: any[], previous: Map<string, any>): Crossing[] {
 const crossingLine = (c: Crossing): string =>
   `${c.direction === 'up' ? '▲' : '▼'} ${c.symbol} ${c.frames.map(([tf, v]) => `${tf.toUpperCase()} ${v.toFixed(1)}`).join(' · ')} (price ${Number(c.price).toFixed(2)})`;
 
+// ---- Near-the-money options volume tag --------------------------------------------------------------------------------
+const OPT_VOL_HIGH = 1000;
+const OPT_VOL_MID = 500;
+const OPT_STRIKES_NEAR = 3;           // the strike closest to the price plus its neighbours above and below
+const OPT_LOOKUP_CONCURRENCY = 6;
+const TELEGRAM_MAX_CHARS = 4000;      // Telegram's hard limit is 4096
+
+interface NearOptionsVolume { expiry: string; atm: number; call: number; put: number; prev: boolean; }
+type OptionsLookup = { kind: 'ok', v: NearOptionsVolume } | { kind: 'none' } | { kind: 'error' };
+
+const withCommas = (n: number): string => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const volumeTag = (n: number): 'HIGH' | 'MID' | 'LOW' => n >= OPT_VOL_HIGH ? 'HIGH' : n >= OPT_VOL_MID ? 'MID' : 'LOW';
+const strikeLabel = (strike: number): string => String(Math.round(strike * 100) / 100);
+
+// Nearest expiration only. Strikes: the one closest to `price` (ATM) plus one above and one below (fewer if they don't exist).
+// Calls and puts are summed separately, counting only contracts that last traded on the chain's most recent trading date (ET);
+// a missing volume is 0, and `prev` is set when that date is before today (pre-market, weekends, holidays).
+function summarizeNearestChain(chain: { expirationDate: number, calls: any[], puts: any[] }, price: number, todayEt: string): OptionsLookup {
+  const calls = chain.calls || []; const puts = chain.puts || [];
+  const strikes = [...new Set([...calls, ...puts].map(c => Number(c.strike)).filter(Number.isFinite))].sort((a, b) => a - b);
+  if (!strikes.length || !Number.isFinite(price)) return { kind: 'none' };
+  let atmIndex = 0;
+  strikes.forEach((strike, i) => { if (Math.abs(strike - price) < Math.abs(strikes[atmIndex] - price)) atmIndex = i; }); // ties keep the lower strike
+  const below = Math.floor((OPT_STRIKES_NEAR - 1) / 2); const above = OPT_STRIKES_NEAR - 1 - below;
+  const chosen = new Set(strikes.slice(Math.max(0, atmIndex - below), atmIndex + above + 1));
+  const lastTrades = [...calls, ...puts].map(c => Number(c.lastTradeDate)).filter(t => Number.isFinite(t) && t > 0);
+  const referenceDate = lastTrades.length ? etDateHour(Math.max(...lastTrades)).date : null;
+  const sideVolume = (contracts: any[]): number => contracts.reduce((sum, c) => {
+    const traded = Number(c.lastTradeDate);
+    if (!chosen.has(Number(c.strike)) || !Number.isFinite(traded) || traded <= 0 || etDateHour(traded).date !== referenceDate) return sum;
+    return sum + (Number(c.volume) || 0);
+  }, 0);
+  const expiry = new Date(Number(chain.expirationDate) * 1000); // Yahoo stamps expirations at 00:00 UTC of the expiry date
+  return { kind: 'ok', v: { expiry: `${expiry.getUTCMonth() + 1}/${expiry.getUTCDate()}`, atm: strikes[atmIndex],
+    call: sideVolume(calls), put: sideVolume(puts), prev: referenceDate !== null && referenceDate < todayEt } };
+}
+
+function formatOptionsSuffix(lookup: OptionsLookup | undefined): string {
+  if (!lookup) return '';
+  if (lookup.kind === 'none') return ' · Opt: NONE';
+  if (lookup.kind === 'error') return ' · Opt: n/a';
+  const { expiry, atm, call, put, prev } = lookup.v;
+  return ` · Opt ${expiry} $${strikeLabel(atm)}: C ${volumeTag(call)} ${withCommas(call)} / P ${volumeTag(put)} ${withCommas(put)}${prev ? ' (prev)' : ''}`;
+}
+
+async function lookupNearestOptions(symbol: string, price: number, hasOptions: boolean | null, session: { current: YahooSession | null }, todayEt: string): Promise<OptionsLookup> {
+  if (hasOptions === false) return { kind: 'none' };
+  const fetchChain = async (query: string): Promise<any | 'none' | null> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!session.current) return null;
+      const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol.replace('.', '-'))}?${query}crumb=${encodeURIComponent(session.current.crumb)}`, {
+        headers: { 'User-Agent': OPTIONS_UA, Cookie: session.current.cookie }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (res.status === 401 && attempt === 0) { try { await res.body?.cancel(); } catch (_) { /* ignore */ } session.current = await yahooSession(); continue; }
+      if (res.status === 404) { try { await res.body?.cancel(); } catch (_) { /* ignore */ } return 'none'; }
+      if (!res.ok) { try { await res.body?.cancel(); } catch (_) { /* ignore */ } return null; }
+      return (await res.json())?.optionChain?.result?.[0] ?? 'none';
+    }
+    return null;
+  };
+  try {
+    let result = await fetchChain('');
+    if (result === 'none') return { kind: 'none' };
+    if (!result) return { kind: 'error' };
+    const nearest = result.expirationDates?.[0];
+    if (!nearest) return { kind: 'none' };
+    let chain = result.options?.[0];
+    if (chain && chain.expirationDate !== nearest) { // the default chain isn't the nearest expiry: ask for it explicitly
+      result = await fetchChain(`date=${nearest}&`);
+      if (result === 'none') return { kind: 'none' };
+      if (!result) return { kind: 'error' };
+      chain = result.options?.[0];
+    }
+    if (!chain) return { kind: 'none' };
+    return summarizeNearestChain({ expirationDate: nearest, calls: chain.calls || [], puts: chain.puts || [] }, price, todayEt);
+  } catch (_) { return { kind: 'error' }; }
+}
+
+// One lookup per symbol that is actually in the outgoing message (symbols can appear in both sections).
+async function optionsSuffixes(shown: Crossing[]): Promise<Map<string, string>> {
+  const bySymbol = new Map<string, Crossing>(); shown.forEach(c => { if (!bySymbol.has(c.symbol)) bySymbol.set(c.symbol, c); });
+  const session = { current: [...bySymbol.values()].some(c => c.hasOptions !== false) ? await yahooSession() : null };
+  const todayEt = etParts(new Date()).date; const pending = [...bySymbol.values()]; const out = new Map<string, string>(); let cursor = 0;
+  const worker = async () => {
+    while (cursor < pending.length) {
+      const c = pending[cursor++];
+      out.set(c.symbol, formatOptionsSuffix(await lookupNearestOptions(c.symbol, c.price, c.hasOptions, session, todayEt)));
+    }
+  };
+  await Promise.all(Array.from({ length: OPT_LOOKUP_CONCURRENCY }, worker));
+  return out;
+}
+
 // "High:" lists the ▲ crossings, most extreme (highest RSI in the line) first; "Low:" lists the ▼ crossings, lowest RSI first.
-// A section with no crossings is omitted entirely; with nothing at all there is no message (null).
-function formatTelegramMessage(label: string, crossings: Crossing[]): string | null {
-  const section = (title: string, direction: 'up' | 'down'): string[] => {
+// Each section is capped at MAX_LINES_PER_SECTION; a section with no crossings is omitted entirely.
+interface AlertSelection { high: Crossing[]; highMore: number; low: Crossing[]; lowMore: number; }
+function selectAlertLines(crossings: Crossing[]): AlertSelection {
+  const section = (direction: 'up' | 'down'): { items: Crossing[], more: number } => {
     const sign = direction === 'up' ? -1 : 1;
     const extreme = (c: Crossing) => direction === 'up' ? Math.max(...c.frames.map(f => f[1])) : Math.min(...c.frames.map(f => f[1]));
-    const items = crossings.filter(c => c.direction === direction)
+    const all = crossings.filter(c => c.direction === direction)
       .sort((a, b) => (extreme(a) - extreme(b)) * sign || a.symbol.localeCompare(b.symbol));
+    return { items: all.slice(0, MAX_LINES_PER_SECTION), more: Math.max(0, all.length - MAX_LINES_PER_SECTION) };
+  };
+  const high = section('up'); const low = section('down');
+  return { high: high.items, highMore: high.more, low: low.items, lowMore: low.more };
+}
+
+function renderTelegramMessage(label: string, selection: AlertSelection, suffixes: Map<string, string> = new Map()): string | null {
+  const block = (title: string, items: Crossing[], more: number): string[] => {
     if (!items.length) return [];
-    const lines = items.slice(0, MAX_LINES_PER_SECTION).map(crossingLine);
-    if (items.length > MAX_LINES_PER_SECTION) lines.push(`+${items.length - MAX_LINES_PER_SECTION} more`);
+    const lines = items.map(c => crossingLine(c) + (suffixes.get(c.symbol) ?? ''));
+    if (more > 0) lines.push(`+${more} more`);
     return [`${title}:`, ...lines];
   };
-  const high = section('High', 'up');
-  const low = section('Low', 'down');
+  const high = block('High', selection.high, selection.highMore);
+  const low = block('Low', selection.low, selection.lowMore);
   if (!high.length && !low.length) return null;
   const parts = [`RSI alerts — ${label} ET`, ''];
   if (high.length) parts.push(...high);
@@ -437,11 +540,26 @@ function formatTelegramMessage(label: string, crossings: Crossing[]): string | n
   return parts.join('\n');
 }
 
+function formatTelegramMessage(label: string, crossings: Crossing[], suffixes?: Map<string, string>): string | null {
+  return renderTelegramMessage(label, selectAlertLines(crossings), suffixes);
+}
+
 async function sendTelegram(label: string, crossings: Crossing[]): Promise<string> {
   const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
   if (!token || !chatId) { console.error('[telegram] TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set; alert skipped'); return 'skipped_no_secrets'; }
-  const text = formatTelegramMessage(label, crossings);
+  const selection = selectAlertLines(crossings);
+  const shown = [...selection.high, ...selection.low];
+  if (!shown.length) return 'none';
+  let text: string | null = null;
+  try {
+    text = renderTelegramMessage(label, selection, await optionsSuffixes(shown));
+    // Telegram rejects messages over 4096 characters; the plain format is always shorter.
+    if (text && text.length > TELEGRAM_MAX_CHARS) text = renderTelegramMessage(label, selection);
+  } catch (e) {
+    console.error('[telegram] options tags failed:', String(e).slice(0, 80));
+    text = renderTelegramMessage(label, selection);
+  }
   if (!text) return 'none';
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -576,7 +694,8 @@ function sanitizeCrossings(raw: unknown): Crossing[] {
       ? c.frames.filter((f: any) => Array.isArray(f) && (TIMEFRAMES as readonly string[]).includes(f[0]) && Number.isFinite(Number(f[1])))
           .map((f: any) => [f[0], Number(f[1])] as [Timeframe, number])
       : [];
-    if (symbol && direction && frames.length && Number.isFinite(Number(c?.price))) out.push({ symbol, direction, frames, price: Number(c.price) });
+    const hasOptions = typeof c?.hasOptions === 'boolean' ? c.hasOptions : null;
+    if (symbol && direction && frames.length && Number.isFinite(Number(c?.price))) out.push({ symbol, direction, frames, price: Number(c.price), hasOptions });
   }
   return out;
 }
