@@ -142,7 +142,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 /* 19 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | RSI 1H | RSI 4H | RSI 1D | RSI 1W | OPTIONS | Bull | Bear | dots
    The four RSI columns are one block: 54px each, +6px on the outer sides of RSI 1H / RSI 1W for spacing from 1Y% / AvgBull. */
 :root{
-  --wl-grid:96px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 52px 78px 65px 65px 22px;
+  --wl-grid:96px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 52px 78px 46px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
@@ -244,10 +244,10 @@ body.light-mode .rb-m3{color:#c62828;}
   #wl-print tr{break-inside:avoid;page-break-inside:avoid;}
   #wl-print th{font-size:7.5px;font-weight:700;text-transform:uppercase;text-align:right;padding:3px 2px;color:#0d1420 !important;background:#e8edf5 !important;border-bottom:1.5px solid #8a96a8;white-space:nowrap;}
   #wl-print th:nth-child(1),#wl-print th:nth-child(2){text-align:left;}
-  #wl-print th:nth-child(12),#wl-print th:nth-child(13),#wl-print th:nth-child(14),#wl-print th:nth-child(15),#wl-print th:nth-child(16),#wl-print th:nth-child(17){text-align:center;}
+  #wl-print th:nth-child(12),#wl-print th:nth-child(13),#wl-print th:nth-child(14),#wl-print th:nth-child(15),#wl-print th:nth-child(16),#wl-print th:nth-child(17),#wl-print th:nth-child(18){text-align:center;}
   #wl-print td{padding:1.5px 2px;border-bottom:0.5px solid #d5dbe6;text-align:right;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
   #wl-print td:nth-child(1),#wl-print td:nth-child(2){text-align:left;}
-  #wl-print td:nth-child(12),#wl-print td:nth-child(13),#wl-print td:nth-child(14),#wl-print td:nth-child(15),#wl-print td:nth-child(16),#wl-print td:nth-child(17){text-align:center;}
+  #wl-print td:nth-child(12),#wl-print td:nth-child(13),#wl-print td:nth-child(14),#wl-print td:nth-child(15),#wl-print td:nth-child(16),#wl-print td:nth-child(17),#wl-print td:nth-child(18){text-align:center;}
   #wl-print td:nth-child(12){border-left:1.5px solid #8a96a8;}
   #wl-print td:nth-child(15){border-right:1.5px solid #8a96a8;}
   #wl-print tr.wl-p-sec td{background:#f0f3f8 !important;color:#0b6fa4;font-weight:700;font-size:8.5px;text-transform:uppercase;text-align:left;padding:3px 2px;border-bottom:0.5px solid #8a96a8;}
@@ -770,6 +770,7 @@ select option{background:var(--bg2);}
       <span style="color:#8090a0;">–</span>
       <input type="number" id="wl-price-max" class="wl-price-in" min="0.1" max="1000" step="0.01" placeholder="max" oninput="_wlPriceInput()" onkeydown="if(event.key==='Enter')_wlPriceInput(true)"/>
       <button class="fbtn wl-price-btn" id="wl-price-penny" onclick="setWlPriceRange(0.4, 3)" title="Penny stocks: $0.40 – $3.00">Penny</button>
+      <button class="fbtn wl-price-btn" id="wl-score-btn" onclick="toggleWlScoreSort()" title="One list, highest Breakout Score first (click again to go back to By Sector)">Score ↓</button>
       <button class="fbtn wl-price-btn" id="wl-price-clear" onclick="setWlPriceRange(null, null)" title="Clear price range" style="display:none;">✕</button>
     </span>
     <span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
@@ -796,6 +797,7 @@ select option{background:var(--bg2);}
     <span class="rsi-c rsi-c4" title="RSI(14) on weekly closes">RSI 1W</span>
     <span style="text-align:center;font-size:10.5px;letter-spacing:0.2px;overflow:hidden;" title="Listed options + Omen options-flow history. Yes: has options and flow on 3+ of the last 30 days · Low: has options, less flow · No: no listed options · —: unknown">OPTIONS</span>
     <span style="text-align:center;font-size:10.5px;letter-spacing:0.2px;" title="Last breakout date · number of breakouts in the last 12 months. Breakout = day's high +30% or more over the prior close on 2× or more the 20-day average volume. Click a row for 1/2/3-year details.">BREAKOUT</span>
+    <span style="text-align:center;font-size:10.5px;letter-spacing:0.2px;" title="Breakout Score 0–100 (as of last close): breakouts in 12 months 35 · recency of last breakout 20 · 1D/1W/1M momentum 25 · 5-day hold after breakouts 10 · daily $ volume 10. Under $100K/day $ volume = score ×0.6. A ranking of past behavior, not a probability.">SCORE</span>
     <span style="text-align:right;">AvgBull</span>
     <span style="text-align:right;">AvgBear</span>
     <span></span>
@@ -1709,7 +1711,7 @@ let _wlView = 'sector';   // 'sector' | 'combined'
 let _wlCombinedSort = 'rsi1d_hi';
 try{
   const _v=localStorage.getItem('sp_wl_view'); if(_v==='sector'||_v==='combined')_wlView=_v;
-  const _cs=localStorage.getItem('sp_wl_combined_sort'); if(_cs&&/^rsi(1h|4h|1d|1w)_(hi|lo)$/.test(_cs))_wlCombinedSort=_cs;
+  const _cs=localStorage.getItem('sp_wl_combined_sort'); if(_cs&&(/^rsi(1h|4h|1d|1w)_(hi|lo)$/.test(_cs)||_cs==='score_hi'))_wlCombinedSort=_cs;
 }catch(e){}
 let _omenTickerCache = null;
 // Step 36: Promise that resolves when Supabase SDK has loaded.
@@ -3360,7 +3362,7 @@ function _wlCsvNum(text) {
   return isFinite(parseFloat(cleaned)) ? cleaned : '';
 }
 const _WL_CSV_HEADER = ['Sector', 'Symbol', 'Company', 'RSI Badge', 'Price', 'Net $', '5m%', '1h%', '1D%', '1W%', '1M%', '6M%', '1Y%',
-  'RSI 1H', 'RSI 4H', 'RSI 1D', 'RSI 1W', 'Options', 'Flow days 30d', 'Last flow date', 'Last breakout', 'Breakouts 1Y', 'Breakouts 2Y', 'Breakouts 3Y', 'AvgBull', 'AvgBear', 'RSI as of (ET)'];
+  'RSI 1H', 'RSI 4H', 'RSI 1D', 'RSI 1W', 'Options', 'Flow days 30d', 'Last flow date', 'Last breakout', 'Breakouts 1Y', 'Breakouts 2Y', 'Breakouts 3Y', 'Score', 'AvgBull', 'AvgBear', 'RSI as of (ET)'];
 function _wlBuildCsv() {
   const lines = [_WL_CSV_HEADER.map(_wlCsvField).join(',')];
   for (const el of _wlVisibleRowEls()) {
@@ -3378,7 +3380,8 @@ function _wlBuildCsv() {
       snap && snap.flow_days_30d != null ? snap.flow_days_30d : '', snap?.last_flow_date || '',
       _breakoutBySym[sym]?.last_breakout || '', _breakoutBySym[sym]?.n_1y ?? (_breakoutLoaded ? 0 : ''),
       _breakoutBySym[sym]?.n_2y ?? (_breakoutLoaded ? 0 : ''), _breakoutBySym[sym]?.n_3y ?? (_breakoutLoaded ? 0 : ''),
-      _wlCsvNum(c[17].textContent), _wlCsvNum(c[18].textContent), asOf,
+      _breakoutBySym[sym]?.score ?? '',
+      _wlCsvNum(c[18].textContent), _wlCsvNum(c[19].textContent), asOf,
     ].map(_wlCsvField).join(','));
   }
   return lines.join('\r\n') + '\r\n';
@@ -3395,8 +3398,8 @@ function exportWatchlistCsv() {
 }
 
 const _WL_PRINT_HEADERS = ['Symbol', 'Company', 'Price', 'Net $', '5m%', '1h%', '1D%', '1W%', '1M%', '6M%', '1Y%',
-  'RSI 1H', 'RSI 4H', 'RSI 1D', 'RSI 1W', 'Options', 'Breakout', 'AvgBull', 'AvgBear', 'Flags'];
-const _WL_PRINT_WIDTHS = [8, 12, 5.5, 4.5, 4.5, 4.5, 5, 5, 5, 5, 5, 4.5, 4.5, 4.5, 4.5, 4.5, 5.5, 4, 4, 2.5];
+  'RSI 1H', 'RSI 4H', 'RSI 1D', 'RSI 1W', 'Options', 'Breakout', 'Score', 'AvgBull', 'AvgBear', 'Flags'];
+const _WL_PRINT_WIDTHS = [7.5, 11.5, 5.5, 4.5, 4.5, 4.5, 5, 4.5, 4.5, 4.5, 5, 4.5, 4.5, 4.5, 4.5, 4.5, 5.5, 3.5, 4, 4, 2.5];
 // Builds the print-only table from the same rendered rows; printWatchlist() prints it, tests can call this directly.
 function _wlPreparePrint() {
   const els = _wlVisibleRowEls();
@@ -3417,13 +3420,13 @@ function _wlPreparePrint() {
   for (const el of els) {
     const sector = el.dataset.sector; const sym = el.dataset.sym; const c = el.children;
     if (!combined && sector !== lastSector) {
-      body += `<tr class="wl-p-sec"><td colspan="20">${_wlEsc(sector)} · ${sectorCounts[sector]} stocks</td></tr>`;
+      body += `<tr class="wl-p-sec"><td colspan="21">${_wlEsc(sector)} · ${sectorCounts[sector]} stocks</td></tr>`;
       lastSector = sector;
     }
     const name = COMPANY_NAMES[sym] || '';
     const nameCell = combined ? `${_wlEsc(name)}<span class="wl-sec-muted">${name ? ' · ' : ''}${_wlEsc(sector)}</span>` : _wlEsc(name || sector);
     const cells = [c[0].outerHTML, nameCell];
-    for (let i = 2; i < 20; i++) cells.push(c[i].outerHTML);
+    for (let i = 2; i < 21; i++) cells.push(c[i].outerHTML);
     body += '<tr>' + cells.map(html => `<td>${html}</td>`).join('') + '</tr>';
   }
   let host = document.getElementById('wl-print');
@@ -3542,14 +3545,15 @@ const _WL_RSI_SORTS = [
   ['rsi4h_hi', 'RSI 4H High→Low', 'rsi_4h', -1], ['rsi4h_lo', 'RSI 4H Low→High', 'rsi_4h', 1],
   ['rsi1d_hi', 'RSI 1D High→Low', 'rsi_1d', -1], ['rsi1d_lo', 'RSI 1D Low→High', 'rsi_1d', 1],
   ['rsi1w_hi', 'RSI 1W High→Low', 'rsi_1w', -1], ['rsi1w_lo', 'RSI 1W Low→High', 'rsi_1w', 1],
+  ['score_hi', 'Breakout Score High→Low', 'score', -1, 'bo'],
 ];
 // Missing RSI always sorts last, whichever direction is chosen.
 function _wlRsiSortCmp(sort) {
   const spec = _WL_RSI_SORTS.find(x => x[0] === sort);
   if (!spec) return null;
-  const field = spec[2], dir = spec[3];
+  const field = spec[2], dir = spec[3], src = spec[4] === 'bo' ? _breakoutBySym : _rsiBySym;
   return (a, b) => {
-    const va = _rsiBySym[a]?.[field], vb = _rsiBySym[b]?.[field];
+    const va = src[a]?.[field], vb = src[b]?.[field];
     if (va == null && vb == null) return a.localeCompare(b);
     if (va == null) return 1;
     if (vb == null) return -1;
@@ -3688,6 +3692,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
       ${_wlRsiCell(rsi?.rsi_1w, 4)}
       ${_wlOptionsCell(rsi)}
       ${_wlBreakoutCell(sym)}
+      ${_wlScoreCell(sym)}
       ${_wlBbCell(bullPct)}
       ${_wlBbCell(bearPct)}
       <div class="wl-dot-wrap">${dots.join('')}</div>
@@ -3778,6 +3783,7 @@ function _wlSyncViewButtons() {
   document.getElementById('wl-view-combined')?.classList.toggle('active', _wlView === 'combined');
   document.querySelectorAll('.wl-opt-btn').forEach(b => b.classList.toggle('active', b.dataset.opt === _wlOptFilter));
   document.getElementById('wl-price-penny')?.classList.toggle('active', _wlPriceMin === WL_PENNY_MIN && _wlPriceMax === WL_PENNY_MAX);
+  document.getElementById('wl-score-btn')?.classList.toggle('active', _wlView === 'combined' && _wlCombinedSort === 'score_hi');
   const _pc = document.getElementById('wl-price-clear');
   if (_pc) _pc.style.display = _wlPriceActive() ? '' : 'none';
   const _pmin = document.getElementById('wl-price-min'), _pmax = document.getElementById('wl-price-max');
@@ -3791,6 +3797,12 @@ function _wlClearSearch(event) {
   input.value = '';
   renderWatchlist();                    // also hides the ✕
   input.focus();
+}
+function toggleWlScoreSort() {
+  if (_wlView === 'combined' && _wlCombinedSort === 'score_hi') { setWlView('sector'); return; }
+  _wlCombinedSort = 'score_hi';
+  try { localStorage.setItem('sp_wl_combined_sort', 'score_hi'); } catch (e) {}
+  setWlView('combined');
 }
 function setWlView(view) {
   _wlView = view === 'combined' ? 'combined' : 'sector';
@@ -7302,7 +7314,7 @@ async function loadBreakoutStats() {
     let from = 0;
     while (true) {
       const { data, error } = await supa.from('breakout_stats')
-        .select('symbol, last_breakout, last_pct, n_1y, n_2y, n_3y, avg_pct_1y, max_pct_3y, avg_gap_days_1y, history_from, recent, computed_at')
+        .select('symbol, last_breakout, last_pct, n_1y, n_2y, n_3y, avg_pct_1y, max_pct_3y, avg_gap_days_1y, history_from, recent, computed_at, score, score_parts, ret_1d, ret_1w, ret_1m, dollar_vol30, hold_5d_1y, last_date')
         .order('symbol').range(from, from + PAGE - 1);
       if (error) throw error;
       if (!data || !data.length) break;
@@ -7326,7 +7338,7 @@ function _boDaysAgo(iso) {
 }
 function _wlBreakoutCell(sym) {
   const r = _breakoutBySym[sym];
-  if (!r) {
+  if (!r || !r.last_breakout) {
     const tip = _breakoutLoaded ? 'No breakouts in the last 3 years' : 'Breakout data not loaded yet';
     return `<span class="bo-cell pct-na" style="text-align:center;" title="${tip}">${_breakoutLoaded ? '0' : '—'}</span>`;
   }
@@ -7337,6 +7349,34 @@ function _wlBreakoutCell(sym) {
   return `<span class="bo-cell" style="text-align:center;white-space:nowrap;font-size:11px;" title="${tip}">` +
     `<span style="color:#c0c8d4;">${_boDate(r.last_breakout, old)}</span> · <b style="color:${clr};">${n}</b></span>`;
 }
+function _wlScoreCell(sym) {
+  const r = _breakoutBySym[sym];
+  if (!r || r.score == null) return `<span class="pct-na" style="text-align:center;" title="${_breakoutLoaded ? 'No score (no recent price data)' : 'Score not loaded yet'}">—</span>`;
+  const v = r.score;
+  const clr = v >= 70 ? 'var(--green)' : v >= 50 ? 'var(--amber)' : '#8090a0';
+  const p = r.score_parts || {};
+  const tip = `Breakout Score ${v}/100 — breakouts ${p.freq ?? 0}/35 · recency ${p.recency ?? 0}/20 · momentum ${p.momentum ?? 0}/25 · hold ${p.hold ?? 0}/10 · $ volume ${p.liquidity ?? 0}/10${p.thin ? ' · thin trading ×0.6' : ''}`;
+  return `<span style="text-align:center;font-weight:700;color:${clr};" title="${tip}">${v}</span>`;
+}
+function _boScoreBlock(r) {
+  if (!r || r.score == null) return '';
+  const p = r.score_parts || {};
+  const part = (lbl, v, max) => `<div style="display:flex;align-items:center;gap:6px;font-size:10px;line-height:15px;margin:2px 0;color:#c0c8d4;">
+      <span style="width:130px;flex-shrink:0;white-space:nowrap;">${lbl}</span>
+      <span style="flex:1;height:5px;background:var(--bg2);border-radius:3px;overflow:hidden;"><span style="display:block;height:100%;width:${Math.max(0, Math.min(100, (Number(v) || 0) / max * 100))}%;background:var(--cyan);"></span></span>
+      <span style="width:46px;text-align:right;">${Number(v) || 0}/${max}</span></div>`;
+  const clr = r.score >= 70 ? 'var(--green)' : r.score >= 50 ? 'var(--amber)' : '#8090a0';
+  const fmt = v => v == null ? '—' : `<span class="${v >= 0 ? 'pct-pos' : 'pct-neg'}">${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%</span>`;
+  const dv = r.dollar_vol30 == null ? '—' : '$' + (r.dollar_vol30 >= 1e6 ? (r.dollar_vol30 / 1e6).toFixed(1) + 'M' : Math.round(r.dollar_vol30 / 1e3) + 'K');
+  return `<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+      <span style="font-size:11px;color:#8090a0;">Breakout Score</span>
+      <span style="font-size:22px;font-weight:700;color:${clr};">${r.score}</span><span style="color:#8090a0;font-size:11px;">/ 100</span>
+      ${p.thin ? '<span style="font-size:10px;color:var(--amber);">thin trading ×0.6</span>' : ''}</div>
+    ${part('Breakouts (12 mo)', p.freq, 35)}${part('Recency', p.recency, 20)}${part('Momentum 1D/1W/1M', p.momentum, 25)}${part('5-day hold', p.hold, 10)}${part('$ volume', p.liquidity, 10)}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:#8090a0;margin:6px 0 8px;">
+      <span>1D ${fmt(r.ret_1d)}</span><span>1W ${fmt(r.ret_1w)}</span><span>1M ${fmt(r.ret_1m)}</span><span>$ vol/day ${dv}</span>
+      <span>as of close ${_boDate(r.last_date, true)}</span></div>`;
+}
 function buildBreakoutPanel(sym) {
   const r = _breakoutBySym[sym];
   const box = inner => `<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:10px 12px;margin-bottom:10px;font-size:12px;">
@@ -7344,6 +7384,7 @@ function buildBreakoutPanel(sym) {
     <div style="font-size:10px;color:#8090a0;margin-top:6px;">Breakout = day's high +30% or more over the prior close on 2× or more the 20-day average volume.</div></div>`;
   if (!_breakoutLoaded) return box('<div style="color:#8090a0;">Breakout data not loaded yet.</div>');
   if (!r) return box('<div style="color:#8090a0;">No breakouts in the last 3 years.</div>');
+  if (!r.last_breakout) return box(_boScoreBlock(r) + '<div style="color:#8090a0;">No breakouts in the last 3 years.</div>');
   const ago = _boDaysAgo(r.last_breakout);
   const since = r.history_from ? String(r.history_from).slice(0, 10) : null;
   const yrs = [['1 year', r.n_1y, 365], ['2 years', r.n_2y, 730], ['3 years', r.n_3y, 1095]].map(([lbl, n, days]) => {
@@ -7358,7 +7399,7 @@ function buildBreakoutPanel(sym) {
       <td style="padding:2px 6px;">${_boDate(x.d, true)}</td><td style="padding:2px 6px;text-align:right;">${pct(x.hi)}</td>
       <td style="padding:2px 6px;text-align:right;">${pct(x.cl)}</td><td style="padding:2px 6px;text-align:right;">${x.vx == null ? '—' : x.vx + '×'}</td>
       <td style="padding:2px 6px;text-align:right;">${pct(x.d5)}</td></tr>`).join('');
-  return box(`
+  return box(`${_boScoreBlock(r)}
     <div style="margin-bottom:8px;">Last breakout: <b style="color:var(--text);">${_boDate(r.last_breakout, true)}</b>
       <span style="color:#8090a0;">(${ago === 0 ? 'today' : ago + ' day' + (ago === 1 ? '' : 's') + ' ago'})</span> · high ${pct(r.last_pct)}</div>
     <div style="display:flex;gap:6px;">${yrs}</div>${partialNote}
