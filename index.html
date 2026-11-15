@@ -470,6 +470,7 @@ select option{background:var(--bg2);}
 
 /* FILTER ROW */
 .filter-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.wl-price-in{width:62px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 6px;border-radius:3px;font-family:var(--font);font-size:12px;}
 .fbtn{padding:5px 10px;border-radius:3px;border:1px solid var(--border);background:transparent;color:#e0e0e0;font-family:var(--font);font-size:12px;cursor:pointer;transition:all 0.1s;}
 .fbtn.active{background:var(--bg3);color:var(--text);border-color:var(--border2);}
 
@@ -762,6 +763,14 @@ select option{background:var(--bg2);}
       <button class="fbtn wl-opt-btn" data-opt="yes" onclick="setWlOptFilter('yes')">Yes</button>
       <button class="fbtn wl-opt-btn" data-opt="low" onclick="setWlOptFilter('low')">Low</button>
       <button class="fbtn wl-opt-btn" data-opt="no" onclick="setWlOptFilter('no')">No</button>
+    </span>
+    <span style="display:flex;align-items:center;gap:4px;margin-left:10px;" title="Show only rows whose price is in this range ($0.10 – $1,000). Leave a box empty for no limit on that side.">
+      <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;margin-right:2px;">Price $:</span>
+      <input type="number" id="wl-price-min" class="wl-price-in" min="0.1" max="1000" step="0.01" placeholder="min" oninput="_wlPriceInput()" onkeydown="if(event.key==='Enter')_wlPriceInput(true)"/>
+      <span style="color:#8090a0;">–</span>
+      <input type="number" id="wl-price-max" class="wl-price-in" min="0.1" max="1000" step="0.01" placeholder="max" oninput="_wlPriceInput()" onkeydown="if(event.key==='Enter')_wlPriceInput(true)"/>
+      <button class="fbtn wl-price-btn" id="wl-price-penny" onclick="setWlPriceRange(0.4, 3)" title="Penny stocks: $0.40 – $3.00">Penny</button>
+      <button class="fbtn wl-price-btn" id="wl-price-clear" onclick="setWlPriceRange(null, null)" title="Clear price range" style="display:none;">✕</button>
     </span>
     <span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
       <button class="fbtn wl-exp-btn" onclick="exportWatchlistCsv()" title="Download the rows currently shown as CSV">⬇ CSV</button>
@@ -3141,7 +3150,7 @@ _syncStickyOffset();
 window.addEventListener('resize',_syncStickyOffset);
 window.addEventListener('load',_syncStickyOffset);
 try{ if(window.ResizeObserver){ const _h=document.querySelector('.header'); if(_h)new ResizeObserver(_syncStickyOffset).observe(_h); } }catch(e){}
-function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn:not(.wl-view-btn):not(.wl-opt-btn)').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
+function setWlFilter(f,btn){currentWlFilter=f;document.querySelectorAll('#page-watchlist .fbtn:not(.wl-view-btn):not(.wl-opt-btn):not(.wl-price-btn)').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');renderWatchlist();}
 
 // ============================================================
 // WATCHLIST ANALYTICS HELPERS
@@ -3392,6 +3401,7 @@ function _wlPreparePrint() {
   const filters = [];
   if (currentWlFilter !== 'all') filters.push('Sector: ' + currentWlFilter);
   if (_wlOptFilter !== 'all') filters.push('Options: ' + _wlOptFilter[0].toUpperCase() + _wlOptFilter.slice(1));
+  if (_wlPriceActive()) filters.push(`Price: ${_wlPriceMin === null ? 'any' : '$' + _wlPriceMin} – ${_wlPriceMax === null ? 'any' : '$' + _wlPriceMax}`);
   const search = (document.getElementById('wl-search')?.value || '').trim();
   if (search) filters.push(`Search: "${search}"`);
   const asOf = document.getElementById('wl-rsi-asof')?.textContent || '—';
@@ -3454,6 +3464,59 @@ function setWlOptFilter(value) {
   _wlOptFilter = ['yes', 'low', 'no'].includes(value) ? value : 'all';
   try { localStorage.setItem('sp_wl_opt', _wlOptFilter); } catch (e) {}
   renderWatchlist();
+}
+
+// Price range filter ($0.10 – $1,000). null = no limit on that side. "Penny" preset = $0.40 – $3.00.
+const WL_PRICE_FLOOR = 0.1, WL_PRICE_CEIL = 1000, WL_PENNY_MIN = 0.4, WL_PENNY_MAX = 3;
+let _wlPriceMin = null, _wlPriceMax = null;
+function _wlClampPrice(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!isFinite(n)) return null;
+  return Math.min(WL_PRICE_CEIL, Math.max(WL_PRICE_FLOOR, n));
+}
+try {
+  const _pr = JSON.parse(localStorage.getItem('sp_wl_price') || 'null');
+  if (_pr) { _wlPriceMin = _wlClampPrice(_pr.min); _wlPriceMax = _wlClampPrice(_pr.max); }
+} catch (e) {}
+// Same price the row shows: price_live -> Finnhub quote -> RSI-scan price -> latest stored close.
+// A source reporting 0 (getQ's placeholder before a quote arrives) counts as "no price" and falls through.
+function _wlRowPrice(sym) {
+  const ok = v => v !== null && v !== undefined && isFinite(Number(v)) && Number(v) > 0;
+  const live = _wlPriceLiveInfo(sym);
+  if (live && ok(live.price)) return live.price;
+  const q = getQ(sym);
+  if (q && ok(q.p)) return Number(q.p);
+  const rp = _rsiBySym[sym]?.price;
+  if (ok(rp)) return Number(rp);
+  const lc = histBaselines[sym]?.latestClose;
+  if (ok(lc)) return Number(lc);
+  return null;
+}
+function _wlPriceActive() { return _wlPriceMin !== null || _wlPriceMax !== null; }
+function _wlPricePass(sym) {
+  if (!_wlPriceActive()) return true;
+  const p = _wlRowPrice(sym);
+  if (p === null) return false;          // no price known -> hidden while a range is set
+  if (_wlPriceMin !== null && p < _wlPriceMin) return false;
+  if (_wlPriceMax !== null && p > _wlPriceMax) return false;
+  return true;
+}
+function setWlPriceRange(min, max) {
+  let lo = _wlClampPrice(min), hi = _wlClampPrice(max);
+  if (lo !== null && hi !== null && lo > hi) [lo, hi] = [hi, lo];
+  _wlPriceMin = lo; _wlPriceMax = hi;
+  try { localStorage.setItem('sp_wl_price', JSON.stringify({ min: lo, max: hi })); } catch (e) {}
+  const minEl = document.getElementById('wl-price-min'), maxEl = document.getElementById('wl-price-max');
+  if (minEl && document.activeElement !== minEl) minEl.value = lo === null ? '' : lo;
+  if (maxEl && document.activeElement !== maxEl) maxEl.value = hi === null ? '' : hi;
+  renderWatchlist();
+}
+let _wlPriceTimer = null;
+function _wlPriceInput(now) {
+  clearTimeout(_wlPriceTimer);
+  const apply = () => setWlPriceRange(document.getElementById('wl-price-min')?.value, document.getElementById('wl-price-max')?.value);
+  if (now) apply(); else _wlPriceTimer = setTimeout(apply, 400);
 }
 
 function _wlRsiBadge(val) {
@@ -3630,6 +3693,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
 function _wlBuildGroup(sector, tickers, search, customTickers) {
   const matched = tickers.filter(s => {
     if (!_wlOptPass(s)) return false;
+    if (!_wlPricePass(s)) return false;
     if (!search) return true;
     return s.includes(search) || (COMPANY_NAMES[s] || '').toUpperCase().includes(search);
   });
@@ -3709,6 +3773,12 @@ function _wlSyncViewButtons() {
   document.getElementById('wl-view-sector')?.classList.toggle('active', _wlView === 'sector');
   document.getElementById('wl-view-combined')?.classList.toggle('active', _wlView === 'combined');
   document.querySelectorAll('.wl-opt-btn').forEach(b => b.classList.toggle('active', b.dataset.opt === _wlOptFilter));
+  document.getElementById('wl-price-penny')?.classList.toggle('active', _wlPriceMin === WL_PENNY_MIN && _wlPriceMax === WL_PENNY_MAX);
+  const _pc = document.getElementById('wl-price-clear');
+  if (_pc) _pc.style.display = _wlPriceActive() ? '' : 'none';
+  const _pmin = document.getElementById('wl-price-min'), _pmax = document.getElementById('wl-price-max');
+  if (_pmin && document.activeElement !== _pmin) _pmin.value = _wlPriceMin === null ? '' : _wlPriceMin;
+  if (_pmax && document.activeElement !== _pmax) _pmax.value = _wlPriceMax === null ? '' : _wlPriceMax;
 }
 function _wlClearSearch(event) {
   const input = document.getElementById('wl-search');
@@ -3737,6 +3807,7 @@ function _wlBuildCombined(sectorsToRender, search, customTickers) {
     if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
     tickers.forEach(sym => {
       if (!_wlOptPass(sym)) return;
+      if (!_wlPricePass(sym)) return;
       if (search && !(sym.includes(search) || (COMPANY_NAMES[sym] || '').toUpperCase().includes(search))) return;
       rows.push({ sym, sector });
     });
