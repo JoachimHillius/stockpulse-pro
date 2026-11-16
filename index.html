@@ -16643,13 +16643,57 @@ let _spDown = 0;                 // minimum down days among the 5 before the sig
 let _spRsiMin = null, _spRsiMax = null;
 try {
   const st = JSON.parse(localStorage.getItem('sp_single_pattern') || 'null');
-  if (st) { _spTier = st.tier === 'large' ? 'large' : 'penny'; _spDown = [0,3,4,5].includes(st.down) ? st.down : 0;
+  if (st) { _spTier = ['large', 'compare'].includes(st.tier) ? st.tier : 'penny'; _spDown = [0,3,4,5].includes(st.down) ? st.down : 0;
             _spRsiMin = st.rmin ?? null; _spRsiMax = st.rmax ?? null; }
 } catch (e) {}
 function _spSave() { try { localStorage.setItem('sp_single_pattern', JSON.stringify({ tier: _spTier, down: _spDown, rmin: _spRsiMin, rmax: _spRsiMax })); } catch (e) {} }
 
+// MAG 7 + compare list (public.sp_compare, measured live by the sp_compare_rows() RPC).
+let _spCmp = null, _spCmpLoading = false, _spCmpMsg = '';
+async function _spLoadCompare() {
+  if (_spCmpLoading) return;
+  _spCmpLoading = true;
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) throw new Error('no Supabase client');
+    const { data, error } = await supa.rpc('sp_compare_rows');
+    if (error) throw error;
+    _spCmp = Array.isArray(data) ? data : [];
+  } catch (e) { console.warn('[sp_compare] load failed:', e); _spCmp = _spCmp || []; }
+  _spCmpLoading = false;
+  _spRender();
+}
+async function spAddCompare() {
+  const el = document.getElementById('sp-cmp-input');
+  const sym = String(el?.value || '').trim().toUpperCase().replace(/^\$/, '');
+  if (!/^[A-Z][A-Z.\-]{0,6}$/.test(sym)) { _spCmpMsg = 'Enter a ticker like TSLA'; _spRender(); return; }
+  if ((_spCmp || []).some(r => r.symbol === sym)) { _spCmpMsg = `${sym} is already in the list`; _spTier = 'compare'; _spSave(); _spRender(); return; }
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) throw new Error('no Supabase client');
+    const { error } = await supa.from('sp_compare').insert({ symbol: sym });
+    if (error) throw error;
+    _spCmpMsg = `${sym} added — if it has no price history yet, its numbers fill in within a few minutes`;
+  } catch (e) { _spCmpMsg = `Could not add ${sym}: ${e.message || e}`; }
+  _spTier = 'compare'; _spSave();
+  await _spLoadCompare();
+}
+async function spRemoveCompare(sym, ev) {
+  if (ev) ev.stopPropagation();
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) throw new Error('no Supabase client');
+    const { error } = await supa.from('sp_compare').delete().eq('symbol', sym);
+    if (error) throw error;
+    _spCmp = (_spCmp || []).filter(r => r.symbol !== sym);
+    _spCmpMsg = `${sym} removed`;
+  } catch (e) { _spCmpMsg = `Could not remove ${sym}: ${e.message || e}`; }
+  _spRender();
+}
+
 async function initSinglePattern() {
   _spRender();
+  _spLoadCompare();
   if (_spLoading) return;
   _spLoading = true;
   try {
@@ -16711,10 +16755,53 @@ function _spStatus(r) {
   const [c, t] = map[r.status] || ['#8090a0', r.status || '—'];
   return `<span style="color:${c};font-weight:600;">${t}</span>`;
 }
+function _spTabBar(tabs) {
+  return `<div style="display:flex;gap:0;align-items:center;border-bottom:2px solid var(--border2);background:var(--bg2);">
+      ${tabs.map(([k, l]) => { const a = _spTier === k; return `<button onclick="spSetTier('${k}')" style="padding:9px 18px;font-size:11px;font-weight:${a ? 700 : 400};color:${a ? '#00d4ff' : '#6080a0'};background:${a ? 'rgba(0,212,255,0.08)' : 'transparent'};border:none;border-bottom:2px solid ${a ? '#00d4ff' : 'transparent'};margin-bottom:-2px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;white-space:nowrap;">${l}</button>`; }).join('')}
+      <span style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:0 12px;">
+        <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;">Compare ticker:</span>
+        <input id="sp-cmp-input" class="wl-price-in" style="width:80px;text-transform:uppercase;" placeholder="e.g. TSLA" onkeydown="if(event.key==='Enter')spAddCompare()"/>
+        <button class="fbtn" onclick="spAddCompare()" title="Add to the MAG 7 + list">+ Add</button>
+      </span>
+    </div>
+    ${_spCmpMsg ? `<div style="padding:6px 16px;font-size:11px;color:var(--amber);">${_spCmpMsg}</div>` : ''}`;
+}
+function _spRenderCompare(page, tabs) {
+  const rows = _spCmp || [];
+  const th = (t, extra) => `<th style="padding:6px 6px;text-align:${extra || 'right'};font-size:10px;letter-spacing:0.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
+  const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
+  const sig = r => r.today_signal ? '<b style="color:#00d4ff;">✓ Today</b>'
+    : r.signal_date ? `${_spDate(r.signal_date, true)}<div style="font-size:9.5px;">${_spStatus(r)}</div>` : '<span style="color:#8090a0;">—</span>';
+  const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
+      ${td(`<span style="display:flex;align-items:center;gap:8px;"><button onclick="spRemoveCompare('${r.symbol}',event)" title="Remove ${r.symbol}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;">✕</button><span><b style="color:var(--text);">${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
+      ${td(r.close == null ? '<span style="color:#8090a0;">no data yet</span>' : _spMoney(r.close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
+      ${td(_spPct(r.day_chg_pct))}${td(_spPct(r.prior3d_pct))}${td(_spPct(r.dip_pct))}
+      ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
+      ${td(r.close_pos == null ? '—' : r.close_pos + '%', 'center')}
+      ${td(sig(r), 'left')}
+      ${td(r.signal_date ? _spMoney(r.entry) : '—')}${td(r.signal_date ? _spMoney(r.stop) : '—')}${td(r.signal_date ? _spMoney(r.target) : '—')}${td(r.signal_date ? _spPct(r.since_pct) : '—')}
+      ${td(`<span style="font-size:13px;letter-spacing:1px;">${_spArrows(r.updown)}</span>`, 'center')}
+      ${td(r.down5 == null ? '—' : `${r.down5}/5`, 'center')}
+      ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
+      ${td(`<span style="font-size:10.5px;">${_spRsi10({ rsi10: r.rsi10, signal_date: r.signal_date || '' })}</span>`, 'left')}
+    </tr>`).join('');
+  page.innerHTML = `${_spTabBar(tabs)}
+    <div style="padding:12px 16px;">
+      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Your comparison list, measured on the latest trading day: today's move, the 3 days before, the intraday dip, volume vs the 50-day average, and where it closed in the day's range (100% = at the high). SIGNAL shows a Single Pattern signal from the last 10 trading days (rules by price: $10+ uses the Large rules). Arrows: 5 days before | latest day. ✕ removes a stock; add one with "Compare ticker".</div>
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr>
+          ${th('STOCK', 'left')}${th('LATEST')}${th('DAY')}${th('PRIOR 3D')}${th('DIP')}${th('VOL')}${th('CLOSE IN RANGE', 'center')}${th('SIGNAL (10D)', 'left')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('SINCE')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+        </tr></thead>
+        <tbody>${body || `<tr><td colspan="16" style="padding:24px;text-align:center;color:#8090a0;">${_spCmpLoading ? 'Loading…' : 'No stocks in the list — add one with "Compare ticker"'}</td></tr>`}</tbody>
+      </table></div>
+    </div>`;
+}
 function _spRender() {
   const page = document.getElementById('page-singlepattern');
   if (!page) return;
-  const tabs = [['penny', 'PENNY STOCKS ($0.40 – $10)'], ['large', 'LARGE STOCKS ($10+)']];
+  const tabs = [['penny', 'PENNY STOCKS ($0.40 – $10)'], ['large', 'LARGE STOCKS ($10+)'], ['compare', 'MAG 7 +']];
+  if (_spTier === 'compare') return _spRenderCompare(page, tabs);
   const btn = (on, label, click, title) => `<button class="fbtn${on ? ' active' : ''}" onclick="${click}"${title ? ` title="${title}"` : ''}>${label}</button>`;
   const all = _spRows ? _spFiltered(_spTier) : [];
   const rows = all.slice(0, SP_MAX_ROWS);
@@ -16741,9 +16828,7 @@ function _spRender() {
       ${td(`<span style="font-size:10.5px;">${_spRsi10(r)}</span>`, 'left')}
     </tr>`).join('');
   page.innerHTML = `
-    <div style="display:flex;gap:0;border-bottom:2px solid var(--border2);background:var(--bg2);">
-      ${tabs.map(([k, l]) => { const a = _spTier === k; return `<button onclick="spSetTier('${k}')" style="padding:9px 18px;font-size:11px;font-weight:${a ? 700 : 400};color:${a ? '#00d4ff' : '#6080a0'};background:${a ? 'rgba(0,212,255,0.08)' : 'transparent'};border:none;border-bottom:2px solid ${a ? '#00d4ff' : 'transparent'};margin-bottom:-2px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;white-space:nowrap;">${l}</button>`; }).join('')}
-    </div>
+    ${_spTabBar(tabs)}
     <div style="padding:12px 16px;">
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;">
         <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;">Down days (of 5 before):</span>
