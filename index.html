@@ -717,6 +717,7 @@ select option{background:var(--bg2);}
       <button class="fbtn" onclick="setWlFilter('Healthcare',this)">Health</button>
       <button class="fbtn" onclick="setWlFilter('Crypto / Digital Assets',this)">Crypto</button>
       <button class="fbtn" onclick="setWlFilter('Materials',this)">Matls</button>
+      <button class="fbtn" onclick="setWlFilter('Custom',this)" title="Stocks you added that still have the sector 'Custom' — pick a sector from the dropdown on each row">Custom</button>
     </div>
     <span style="margin-left:auto;font-size:10px;color:#8090a0;">RSI as of <span id="wl-rsi-asof">—</span> · Updated <span data-refresh-label="watchlist">never</span></span>
     <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',async()=>{await fetchLiveAll(true,'watchlist');await loadRsiSnapshot();})">↻ Refresh</button>
@@ -3846,7 +3847,18 @@ function _wlBuildCombined(sectorsToRender, search, customTickers) {
   return `<div id="wl-combined">${hdr}${syms.map(sym => _wlBuildRow(sym, secBySym[sym], customTickers, maxDate, true)).join('')}</div>`;
 }
 
+let _wlRenderPending = false;
+function _wlSectorSelectOpen() {
+  const a = document.activeElement;
+  return !!(a && a.classList && a.classList.contains('wl-sec-sel') && document.getElementById('watchlist-body')?.contains(a));
+}
+document.addEventListener('focusout', e => {
+  if (e.target?.classList?.contains('wl-sec-sel') && _wlRenderPending) setTimeout(() => { if (!_wlSectorSelectOpen() && _wlRenderPending) renderWatchlist(); }, 0);
+});
 function renderWatchlist() {
+  // Live quotes re-render every ~15s; rebuilding the rows would close a sector dropdown the user has open.
+  if (_wlSectorSelectOpen()) { _wlRenderPending = true; return; }
+  _wlRenderPending = false;
   const search = (document.getElementById('wl-search')?.value || '').toUpperCase();
   const body = document.getElementById('watchlist-body');
   if (!body) return;
@@ -7146,9 +7158,16 @@ async function loadUserWatchlist(){
   const supa=await getSupabaseAsync();
   if(!supa)return[];
   try{
-    const{data,error}=await supa.from('user_watchlist').select('*').order('added_at',{ascending:true});
-    if(error)throw error;
-    _userWatchlist=data||[];
+    // Paged: PostgREST returns at most 1,000 rows per request.
+    const PAGE=1000, rows=[];
+    for(let from=0; from<200000; from+=PAGE){
+      const{data,error}=await supa.from('user_watchlist').select('*').order('added_at',{ascending:true}).order('symbol',{ascending:true}).range(from,from+PAGE-1);
+      if(error)throw error;
+      if(!data||!data.length)break;
+      rows.push(...data);
+      if(data.length<PAGE)break;
+    }
+    _userWatchlist=rows;
     return _userWatchlist;
   }catch(e){console.warn('[user_watchlist] load failed:',e);return[];}
 }
@@ -7209,7 +7228,7 @@ function _wlRowSectorSelect(sym, sector, needsSector) {
   const options = names.map(n => `<option value="${esc(n)}"${n === sector ? ' selected' : ''}>${esc(n)}</option>`).join('')
     + '<option value="__other__">Other…</option>'
     + (overridden ? '<option value="__reset__">Reset to default</option>' : '');
-  return `<select class="wl-sec-sel" onclick="event.stopPropagation()" onchange="setSectorOverrideFromRow('${sym}',this);this.blur();" title="${esc(sector)}${overridden ? ' (manual override)' : ''}"
+  return `<select class="wl-sec-sel" onclick="event.stopPropagation()" onchange="const v=this;v.blur();setSectorOverrideFromRow('${sym}',v);" title="${esc(sector)}${overridden ? ' (manual override)' : ''}"
     style="background:var(--bg3);border:1px solid ${needsSector ? 'var(--amber)' : 'var(--border2)'};border-radius:3px;color:${needsSector ? 'var(--amber)' : '#8090a0'};padding:1px 2px;font-size:9px;font-family:var(--font);cursor:pointer;">${options}</select>`;
 }
 
