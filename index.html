@@ -542,6 +542,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
     <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
     <button class="nav-btn" onclick="goPage('rangescan',this)">Range Scan</button>
+    <button class="nav-btn" onclick="goPage('singlepattern',this)">Single Pattern</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -1546,6 +1547,7 @@ select option{background:var(--bg2);}
 
 <!-- ============ PAGE: TOS CSV ============ -->
 <div id="page-rangescan" class="page" style="padding:0;"></div>
+<div id="page-singlepattern" class="page" style="padding:0;"></div>
 <div id="page-toscsv" class="page">
   <div style="max-width:1200px;">
 
@@ -5886,6 +5888,9 @@ function goPage(name,btn){
   }
   if(name==='rangescan'){
     setTimeout(initRangeScan,50);
+  }
+  if(name==='singlepattern'){
+    setTimeout(initSinglePattern,50);
   }
   if(name==='toscsv'){
     _tosApplySections();
@@ -16625,6 +16630,141 @@ async function tosDeleteSnapshot(ticker, snapshotDate, strikeCount, expCount) {
 
 // Load snapshot list on startup so the panel is populated immediately
 _tosLoadSnapshots();
+
+// ══ SINGLE PATTERN ════════════════════════════════════════════════════════
+// Reads public.single_pattern (rebuilt after the close by refresh_single_pattern()): signals from the last
+// 10 trading days, best-guess rules pending Matt Monaco's confirmed ones.
+//   PENNY ($0.40–$10): 3 straight down days · candle closes in top 25% of range with a long lower wick · volume > 50-day avg
+//   LARGE ($10+):      down ≥1% over 3 days · intraday dip ≥1% below prior close, closed flat/up · same candle + volume rules
+// Plan: entry = signal close · target = close + 2×ATR(14) · stop = a close below the signal-day low.
+const SP_MAX_ROWS = 50;
+let _spRows = null, _spLoading = false, _spTier = 'penny';
+let _spDown = 0;                 // minimum down days among the 5 before the signal (0 = all)
+let _spRsiMin = null, _spRsiMax = null;
+try {
+  const st = JSON.parse(localStorage.getItem('sp_single_pattern') || 'null');
+  if (st) { _spTier = st.tier === 'large' ? 'large' : 'penny'; _spDown = [0,3,4,5].includes(st.down) ? st.down : 0;
+            _spRsiMin = st.rmin ?? null; _spRsiMax = st.rmax ?? null; }
+} catch (e) {}
+function _spSave() { try { localStorage.setItem('sp_single_pattern', JSON.stringify({ tier: _spTier, down: _spDown, rmin: _spRsiMin, rmax: _spRsiMax })); } catch (e) {} }
+
+async function initSinglePattern() {
+  _spRender();
+  if (_spLoading) return;
+  _spLoading = true;
+  try {
+    const supa = await getSupabaseAsync();
+    if (!supa) throw new Error('no Supabase client');
+    const { data, error } = await supa.from('single_pattern').select('*').order('signal_date', { ascending: false }).order('vol_x', { ascending: false }).limit(1000);
+    if (error) throw error;
+    _spRows = data || [];
+  } catch (e) { console.warn('[single_pattern] load failed:', e); _spRows = _spRows || []; }
+  _spLoading = false;
+  _spRender();
+}
+function spSetTier(t) { _spTier = t; _spSave(); _spRender(); }
+function spSetDown(n) { _spDown = n; _spSave(); _spRender(); }
+function spSetRsi(min, max) {
+  const clean = v => (v === '' || v === null || v === undefined || !isFinite(Number(v))) ? null : Math.max(0, Math.min(100, Number(v)));
+  _spRsiMin = clean(min); _spRsiMax = clean(max); _spSave(); _spRender();
+}
+let _spRsiTimer = null;
+function _spRsiInput() {
+  clearTimeout(_spRsiTimer);
+  _spRsiTimer = setTimeout(() => spSetRsi(document.getElementById('sp-rsi-min')?.value, document.getElementById('sp-rsi-max')?.value), 400);
+}
+function _spFiltered(tier) {
+  return (_spRows || []).filter(r => r.tier === tier)
+    .filter(r => !_spDown || (r.down5 ?? 0) >= _spDown)
+    .filter(r => {
+      if (_spRsiMin === null && _spRsiMax === null) return true;
+      const v = r.rsi_signal == null ? null : Number(r.rsi_signal);
+      if (v === null) return false;
+      return (_spRsiMin === null || v >= _spRsiMin) && (_spRsiMax === null || v <= _spRsiMax);
+    });
+}
+function _spDate(iso, withDay) {
+  if (!iso) return '—';
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (withDay ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getUTCDay()] + ' ' : '') + `${m}/${d}`;
+}
+function _spMoney(v) { if (v == null) return '—'; const n = Number(v); return '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2)); }
+function _spPct(v) { if (v == null) return '—'; const n = Number(v); return `<span class="${n >= 0 ? 'pct-pos' : 'pct-neg'}">${n >= 0 ? '+' : ''}${n.toFixed(1)}%</span>`; }
+function _spArrows(s) {
+  if (!s) return '—';
+  const a = ch => ch === 'U' ? '<span style="color:var(--green);">↑</span>' : ch === 'D' ? '<span style="color:var(--red);">↓</span>' : '<span style="color:#8090a0;">→</span>';
+  return [...s.slice(0, -1)].map(a).join('') + ' <span style="color:#506070;">|</span> <b>' + a(s.slice(-1)) + '</b>';
+}
+function _spRsiClr(v) { return v == null ? '#8090a0' : v <= 30 ? 'var(--red)' : v >= 70 ? 'var(--green)' : 'var(--text)'; }
+function _spRsi10(r) {
+  const arr = Array.isArray(r.rsi10) ? r.rsi10 : [];
+  const sig = String(r.signal_date).slice(0, 10);
+  return arr.map(x => {
+    const v = x.v == null ? null : Math.round(Number(x.v));
+    const t = `<span style="color:${_spRsiClr(v)};" title="${_spDate(x.d)} RSI ${x.v ?? '—'}">${v ?? '–'}</span>`;
+    return String(x.d).slice(0, 10) === sig ? `<b style="text-decoration:underline;">${t}</b>` : t;
+  }).join(' ');
+}
+function _spStatus(r) {
+  const map = { 'working': ['var(--green)', 'Working'], 'open': ['#c0c8d4', 'Open'], 'stop hit': ['var(--red)', 'Stop hit'], 'target hit': ['#00d4ff', 'Target hit'] };
+  const [c, t] = map[r.status] || ['#8090a0', r.status || '—'];
+  return `<span style="color:${c};font-weight:600;">${t}</span>`;
+}
+function _spRender() {
+  const page = document.getElementById('page-singlepattern');
+  if (!page) return;
+  const tabs = [['penny', 'PENNY STOCKS ($0.40 – $10)'], ['large', 'LARGE STOCKS ($10+)']];
+  const btn = (on, label, click, title) => `<button class="fbtn${on ? ' active' : ''}" onclick="${click}"${title ? ` title="${title}"` : ''}>${label}</button>`;
+  const all = _spRows ? _spFiltered(_spTier) : [];
+  const rows = all.slice(0, SP_MAX_ROWS);
+  const total = (_spRows || []).filter(r => r.tier === _spTier).length;
+  const updated = (_spRows || []).reduce((m, r) => (r.computed_at && r.computed_at > m ? r.computed_at : m), '');
+  const rules = _spTier === 'large'
+    ? 'Down ≥1% over the 3 days before · dipped ≥1% below the prior close intraday and closed flat or up · close in the top 25% of the day\'s range with a long lower wick · volume above the 50-day average · ≥$5M traded'
+    : '3 straight down days before · close in the top 25% of the day\'s range with a long lower wick · volume above the 50-day average · ≥$1M traded';
+  const th = (t, extra) => `<th style="padding:6px 6px;text-align:${extra || 'right'};font-size:10px;letter-spacing:0.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
+  const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
+  const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
+      ${td(`<b style="color:var(--text);">${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div>`, 'left')}
+      ${td(_spDate(r.signal_date, true), 'left')}
+      ${td(_spPct(r.prior3d_pct))}
+      ${_spTier === 'large' ? td(_spPct(r.dip_pct)) + td(_spPct(r.day_chg_pct)) : ''}
+      ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
+      ${td(_spMoney(r.close))}${td(_spMoney(r.stop))}${td(_spMoney(r.target))}
+      ${td(_spMoney(r.last_close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
+      ${td(_spPct(r.since_pct))}
+      ${td(_spStatus(r), 'left')}
+      ${td(`<span style="font-size:13px;letter-spacing:1px;">${_spArrows(r.updown)}</span>`, 'center')}
+      ${td(`${r.down5 ?? '—'}/5`, 'center')}
+      ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
+      ${td(`<span style="font-size:10.5px;">${_spRsi10(r)}</span>`, 'left')}
+    </tr>`).join('');
+  page.innerHTML = `
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border2);background:var(--bg2);">
+      ${tabs.map(([k, l]) => { const a = _spTier === k; return `<button onclick="spSetTier('${k}')" style="padding:9px 18px;font-size:11px;font-weight:${a ? 700 : 400};color:${a ? '#00d4ff' : '#6080a0'};background:${a ? 'rgba(0,212,255,0.08)' : 'transparent'};border:none;border-bottom:2px solid ${a ? '#00d4ff' : 'transparent'};margin-bottom:-2px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;white-space:nowrap;">${l}</button>`; }).join('')}
+    </div>
+    <div style="padding:12px 16px;">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;">Down days (of 5 before):</span>
+        ${btn(_spDown === 0, 'All', 'spSetDown(0)')}${btn(_spDown === 3, '3+', 'spSetDown(3)')}${btn(_spDown === 4, '4+', 'spSetDown(4)')}${btn(_spDown === 5, '5', 'spSetDown(5)')}
+        <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:14px;">RSI on signal day:</span>
+        <input type="number" id="sp-rsi-min" class="wl-price-in" min="0" max="100" step="1" placeholder="min" value="${_spRsiMin ?? ''}" oninput="_spRsiInput()"/>
+        <span style="color:#8090a0;">–</span>
+        <input type="number" id="sp-rsi-max" class="wl-price-in" min="0" max="100" step="1" placeholder="max" value="${_spRsiMax ?? ''}" oninput="_spRsiInput()"/>
+        ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
+        <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${all.length > SP_MAX_ROWS ? ` · showing top ${SP_MAX_ROWS}` : ''} · last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
+      </div>
+      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules (best guess, not yet confirmed): ${rules}. Entry = signal close · Stop = a close below the signal-day low · Target = close + 2× ATR(14). Arrows: 5 days before | signal day (oldest → newest).</div>
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr>
+          ${th('STOCK', 'left')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+        </tr></thead>
+        <tbody>${body || `<tr><td colspan="16" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
+      </table></div>
+    </div>`;
+}
 
 // ══ RANGE SCAN ═══════════════════════════════════════════════════════════
 
