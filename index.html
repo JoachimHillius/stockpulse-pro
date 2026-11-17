@@ -16662,52 +16662,80 @@ async function _spLoadCompare() {
   } catch (e) { console.warn('[sp_compare] load failed:', e); _spCmp = _spCmp || []; }
   _spCmpLoading = false;
   _spRender();
+  _spLoadNews();
 }
-// NEWS column: public.sp_news, filled every 15 min by the news-check edge function (Yahoo news, last 5 days,
-// keyword-tagged). Verdict: none = No news · good = only good headlines · bad = only bad · check = mixed / unclear.
-let _spNews = {}, _spNewsOpen = '';
+// NEWS / DILUTION column + 3-day volume.
+//  News: public.sp_news (news-check, Yahoo, last 5 days): green = good, red = bad, yellow = check (mixed), gray = no news.
+//  Dilution: public.sp_dilution (dilution-check, SEC EDGAR, 12 months): red = risk (offering, ATM, shelf, 8-K 3.01/3.02),
+//            green = buyback, gray = none found / not in the SEC database.
+//  Volume: sp_volumes() → last 3 daily bars per stock. Lists sort by the biggest single day of the 3.
+let _spNews = {}, _spDil = {}, _spVol = {}, _spNewsOpen = '';
 async function _spLoadNews() {
   try {
     const supa = await getSupabaseAsync();
     if (!supa) throw new Error('no Supabase client');
-    const { data, error } = await supa.from('sp_news').select('symbol,verdict,n_articles,n_good,n_bad,items,checked_at').limit(2000);
-    if (error) throw error;
-    _spNews = {}; (data || []).forEach(r => { _spNews[r.symbol] = r; });
-  } catch (e) { console.warn('[sp_news] load failed:', e); }
+    const [n, d, v] = await Promise.all([
+      supa.from('sp_news').select('symbol,verdict,n_articles,n_good,n_bad,items,checked_at').limit(2000),
+      supa.from('sp_dilution').select('symbol,verdict,level,n_filings,items,checked_at').limit(2000),
+      supa.rpc('sp_volumes')]);
+    if (!n.error) { _spNews = {}; (n.data || []).forEach(r => { _spNews[r.symbol] = r; }); } else console.warn('[sp_news]', n.error);
+    if (!d.error) { _spDil = {}; (d.data || []).forEach(r => { _spDil[r.symbol] = r; }); } else console.warn('[sp_dilution]', d.error);
+    if (!v.error) { _spVol = {}; (Array.isArray(v.data) ? v.data : []).forEach(r => { _spVol[r.symbol] = r.v || []; }); } else console.warn('[sp_volumes]', v.error);
+  } catch (e) { console.warn('[sp news/dilution/volume] load failed:', e); }
   _spRender();
 }
 const _spEsc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const _spMaxVol = sym => Math.max(-1, ...(_spVol[sym] || []).map(x => Number(x.v) || 0));
+function _spFmtVol(v) { const n = Number(v); return n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(Math.round(n)); }
+function _spVolCell(sym, i) {
+  const x = (_spVol[sym] || [])[i];
+  if (!x || x.v == null) return '<span style="color:#506070;">—</span>';
+  const n = Number(x.v), c = n >= 1e6 ? 'var(--green)' : n >= 5e5 ? 'var(--amber)' : '#8090a0';
+  return `<b style="color:${c};">${_spFmtVol(n)}</b><div style="font-size:9.5px;color:#8090a0;">${_spDate(x.d)}</div>`;
+}
+const _spWord = (t, c, tip, click, open) => `<span${click ? ` onclick="${click}"` : ''} title="${_spEsc(tip)}" style="font-weight:700;color:${c};${click ? 'cursor:pointer;border-bottom:1px dotted ' + c + ';' : ''}">${t}${open ? ' ▴' : ''}</span>`;
 function _spNewsBadge(sym, key) {
-  const n = _spNews[sym];
-  if (!n) return '<span style="color:#8090a0;" title="Not checked yet — fills in within 15 minutes">—</span>';
-  const map = { none: ['#8090a0', 'rgba(128,144,160,0.12)', 'No news'], good: ['var(--green)', 'rgba(0,200,120,0.12)', 'Good news'],
-                bad: ['var(--red)', 'rgba(255,80,80,0.12)', 'Bad news'], check: ['var(--amber)', 'rgba(255,180,0,0.12)', 'Check'] };
-  const [c, bg, t] = map[n.verdict] || map.check;
-  const tip = n.verdict === 'none' ? 'No articles about this stock in the last 5 days'
-    : `${n.n_articles} article${n.n_articles === 1 ? '' : 's'} in the last 5 days · ${n.n_good} good · ${n.n_bad} bad — click to read`;
-  const click = n.n_articles ? ` onclick="spToggleNews('${key}',event)"` : '';
-  return `<span${click} title="${tip}" style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:10.5px;font-weight:700;color:${c};background:${bg};border:1px solid ${c};${n.n_articles ? 'cursor:pointer;' : ''}">${t}${n.n_articles ? ` <span style="font-weight:400;">${n.n_articles} ${_spNewsOpen === key ? '▴' : '▾'}</span>` : ''}</span>`;
+  const n = _spNews[sym], d = _spDil[sym];
+  const nc = !n ? '#506070' : { good: 'var(--green)', bad: 'var(--red)', check: 'var(--amber)' }[n.verdict] || '#8090a0';
+  const ntip = !n ? 'News not checked yet — fills in within 15 minutes' : n.verdict === 'none' ? 'No news about this stock in the last 5 days'
+    : `${{ good: 'Good news', bad: 'Bad news', check: 'Check — mixed or unclear' }[n.verdict] || ''} · ${n.n_articles} article${n.n_articles === 1 ? '' : 's'} in 5 days (${n.n_good} good · ${n.n_bad} bad) — click to read`;
+  const dc = !d ? '#506070' : d.verdict === 'risk' ? 'var(--red)' : d.verdict === 'buyback' ? 'var(--green)' : '#8090a0';
+  const dtip = !d ? 'Dilution not checked yet — fills in within 30 minutes' : d.verdict === 'nodata' ? 'Not in the SEC database (foreign / OTC) — no dilution data'
+    : d.verdict === 'none' ? 'No dilution filings in the last 12 months'
+    : d.verdict === 'buyback' ? 'Buyback found (positive) — click for details'
+    : `Dilution risk: ${d.level === 'high' ? 'HIGH — offering / share sale / exchange notice in the last 90 days' : 'MEDIUM — shelf or older offering in the last 12 months'} — click for filings`;
+  const nOpen = _spNewsOpen === key + '|n', dOpen = _spNewsOpen === key + '|d';
+  return `<span style="font-size:11px;white-space:nowrap;">${_spWord('News', nc, ntip, n && n.n_articles ? `spToggleNews('${key}|n',event)` : '', nOpen)} <span style="color:#506070;">/</span> ${_spWord(d && d.verdict === 'risk' && d.level === 'high' ? 'Dilution!' : 'Dilution', dc, dtip, d && d.n_filings ? `spToggleNews('${key}|d',event)` : '', dOpen)}</span>`;
 }
 function spToggleNews(key, ev) { if (ev) ev.stopPropagation(); _spNewsOpen = _spNewsOpen === key ? '' : key; _spRender(); }
+const _spWhen = t => t ? new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+const _spLink = (url, text) => /^https?:\/\//.test(url || '') ? `<a href="${_spEsc(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--text);text-decoration:none;">${_spEsc(text)} ↗</a>` : _spEsc(text);
 function _spNewsRow(sym, key, cols) {
-  if (_spNewsOpen !== key) return '';
-  const n = _spNews[sym]; if (!n) return '';
-  const clr = { good: 'var(--green)', bad: 'var(--red)', neutral: '#8090a0' };
-  const lbl = { good: 'GOOD', bad: 'BAD', neutral: 'NEUTRAL' };
-  const items = (Array.isArray(n.items) ? n.items : []).map(i => {
-    const url = /^https?:\/\//.test(i.url || '') ? i.url : '';
-    const when = i.t ? new Date(i.t).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-    const head = url ? `<a href="${_spEsc(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--text);text-decoration:none;">${_spEsc(i.h)} ↗</a>` : _spEsc(i.h);
-    return `<div style="display:flex;gap:10px;align-items:baseline;padding:3px 0;white-space:normal;">
-        <span style="min-width:58px;font-size:9.5px;font-weight:700;color:${clr[i.tag] || '#8090a0'};">${lbl[i.tag] || ''}</span>
+  const mode = _spNewsOpen === key + '|n' ? 'n' : _spNewsOpen === key + '|d' ? 'd' : '';
+  if (!mode) return '';
+  const line = (tag, c, when, body) => `<div style="display:flex;gap:10px;align-items:baseline;padding:3px 0;white-space:normal;">
+        <span style="min-width:62px;font-size:9.5px;font-weight:700;color:${c};">${tag}</span>
         <span style="min-width:92px;font-size:10px;color:#8090a0;">${when}</span>
-        <span style="flex:1;font-size:11.5px;">${head}${i.src ? ` <span style="color:#8090a0;font-size:10px;">· ${_spEsc(i.src)}</span>` : ''}</span></div>`;
-  }).join('');
-  const checked = n.checked_at ? new Date(n.checked_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '';
+        <span style="flex:1;font-size:11.5px;">${body}</span></div>`;
+  let title, items, foot, checked;
+  if (mode === 'n') {
+    const n = _spNews[sym]; if (!n) return '';
+    const clr = { good: 'var(--green)', bad: 'var(--red)', neutral: '#8090a0' }, lbl = { good: 'GOOD', bad: 'BAD', neutral: 'NEUTRAL' };
+    title = `${sym} NEWS · LAST 5 DAYS`; checked = n.checked_at;
+    items = (Array.isArray(n.items) ? n.items : []).map(i => line(lbl[i.tag] || '', clr[i.tag] || '#8090a0', _spWhen(i.t),
+      _spLink(i.url, i.h) + (i.src ? ` <span style="color:#8090a0;font-size:10px;">· ${_spEsc(i.src)}</span>` : ''))).join('');
+    foot = 'GOOD / BAD tags come from keywords in the headline — read the story before acting.';
+  } else {
+    const d = _spDil[sym]; if (!d) return '';
+    title = `${sym} DILUTION · SEC FILINGS, LAST 12 MONTHS${d.verdict === 'risk' ? ` · RISK ${String(d.level || '').toUpperCase()}` : ''}`; checked = d.checked_at;
+    items = (Array.isArray(d.items) ? d.items : []).map(i => line(i.kind === 'buyback' ? 'BUYBACK' : i.kind === 'shelf' ? 'SHELF' : 'DILUTION',
+      i.kind === 'buyback' ? 'var(--green)' : i.kind === 'shelf' ? 'var(--amber)' : 'var(--red)', i.d ? _spDate(i.d) + '/' + String(i.d).slice(2, 4) : '', _spLink(i.url, i.label))).join('');
+    foot = 'From free SEC EDGAR filings. High = offering, ATM, share sale or exchange notice in 90 days · Medium = shelf or older offering. Open the filing for share counts.';
+  }
   return `<tr onclick="event.stopPropagation()"><td colspan="${cols}" style="padding:8px 14px 10px 28px;background:var(--bg2);border-bottom:1px solid var(--border2);">
-      <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#00d4ff;margin-bottom:4px;">${sym} NEWS · LAST 5 DAYS</div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#00d4ff;margin-bottom:4px;">${title}</div>
       ${items}
-      <div style="font-size:9.5px;color:#8090a0;margin-top:5px;">Checked ${checked} · GOOD / BAD tags come from keywords in the headline — read the story before acting.</div>
+      <div style="font-size:9.5px;color:#8090a0;margin-top:5px;">Checked ${_spWhen(checked)} ET · ${foot}</div>
     </td></tr>`;
 }
 // Each sub-tab has its own added list: penny / large / mag7.
@@ -16834,10 +16862,12 @@ function _spCompareTable(rows, list) {
   const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
   const sig = r => r.today_signal ? '<b style="color:#00d4ff;">✓ Today</b>'
     : r.signal_date ? `${_spDate(r.signal_date, true)}<div style="font-size:9.5px;">${_spStatus(r)}</div>` : '<span style="color:#8090a0;">—</span>';
+  rows = rows.slice().sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
   const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
       ${td(`<span style="display:flex;align-items:center;gap:8px;"><button onclick="spRemoveCompare('${r.symbol}','${list}',event)" title="Remove ${r.symbol}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;">✕</button><span><b style="color:var(--text);">${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
       ${td(_spSector(r), 'left')}
       ${td(_spNewsBadge(r.symbol, list + ':' + r.symbol), 'left')}
+      ${td(_spVolCell(r.symbol, 0))}${td(_spVolCell(r.symbol, 1))}${td(_spVolCell(r.symbol, 2))}
       ${td(r.close == null ? '<span style="color:#8090a0;">no data yet</span>' : _spMoney(r.close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
       ${td(_spPct(r.day_chg_pct))}${td(_spPct(r.prior3d_pct))}${td(_spPct(r.dip_pct))}
       ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
@@ -16848,13 +16878,13 @@ function _spCompareTable(rows, list) {
       ${td(r.down5 == null ? '—' : `${r.down5}/5`, 'center')}
       ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
       ${td(`<span style="font-size:10.5px;">${_spRsi10({ rsi10: r.rsi10, signal_date: r.signal_date || '' })}</span>`, 'left')}
-    </tr>${_spNewsRow(r.symbol, list + ':' + r.symbol, 18)}`).join('');
+    </tr>${_spNewsRow(r.symbol, list + ':' + r.symbol, 21)}`).join('');
   return `<div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS', 'left')}${th('LATEST')}${th('DAY')}${th('PRIOR 3D')}${th('DIP')}${th('VOL')}${th('CLOSE IN RANGE', 'center')}${th('SIGNAL (10D)', 'left')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('SINCE')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('LATEST')}${th('DAY')}${th('PRIOR 3D')}${th('DIP')}${th('VOL ×AVG')}${th('CLOSE IN RANGE', 'center')}${th('SIGNAL (10D)', 'left')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('SINCE')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="18" style="padding:24px;text-align:center;color:#8090a0;">${_spCmpLoading ? 'Loading…' : 'No stocks in the list — add one with "Compare ticker"'}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="21" style="padding:24px;text-align:center;color:#8090a0;">${_spCmpLoading ? 'Loading…' : 'No stocks in the list — add one with "Compare ticker"'}</td></tr>`}</tbody>
       </table></div>`;
 }
 function _spRender() {
@@ -16864,7 +16894,19 @@ function _spRender() {
   if (_spTier === 'compare') return _spRenderCompare(page, tabs);
   const btn = (on, label, click, title) => `<button class="fbtn${on ? ' active' : ''}" onclick="${click}"${title ? ` title="${title}"` : ''}>${label}</button>`;
   const all = _spRows ? _spFiltered(_spTier) : [];
-  const rows = all.slice(0, SP_MAX_ROWS);
+  // Your added stocks for this tab join the same list (★) and are always shown; everything sorts by the
+  // biggest single-day volume of the last 3 days, top SP_MAX_ROWS.
+  const mine = (_spCmp || []).filter(r => r.list === _spTier);
+  const mineSet = new Set(mine.map(r => r.symbol));
+  const merged = all.map(r => mineSet.has(r.symbol) ? Object.assign({}, r, { _added: _spTier }) : r);
+  const scanSet = new Set(all.map(r => r.symbol));
+  mine.filter(r => !scanSet.has(r.symbol)).forEach(r => merged.push({
+    symbol: r.symbol, name: r.name, sector: r.sector, signal_date: r.signal_date, prior3d_pct: r.prior3d_pct, dip_pct: r.dip_pct,
+    day_chg_pct: r.day_chg_pct, vol_x: r.vol_x, close: r.signal_date ? r.entry : null, stop: r.signal_date ? r.stop : null,
+    target: r.signal_date ? r.target : null, last_close: r.close, last_date: r.last_date, since_pct: r.signal_date ? r.since_pct : null,
+    status: r.signal_date ? r.status : null, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier }));
+  merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
+  const rows = merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
   const updated = (_spRows || []).reduce((m, r) => (r.computed_at && r.computed_at > m ? r.computed_at : m), '');
   const rules = _spTier === 'large'
@@ -16873,10 +16915,11 @@ function _spRender() {
   const th = (t, extra) => `<th style="padding:6px 6px;text-align:${extra || 'right'};font-size:10px;letter-spacing:0.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
   const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
   const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
-      ${td(`<b style="color:var(--text);">${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div>`, 'left')}
+      ${td(`<span style="display:flex;align-items:center;gap:6px;">${r._added ? `<button onclick="spRemoveCompare('${r.symbol}','${r._added}',event)" title="Remove ${r.symbol} from your added stocks" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;padding:0;">✕</button>` : ''}<span><b style="color:var(--text);">${r._added ? '<span style="color:var(--amber);" title="Your added stock">★</span> ' : ''}${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
       ${td(_spSector(r), 'left')}
       ${td(_spNewsBadge(r.symbol, 'scan:' + r.symbol), 'left')}
-      ${td(_spDate(r.signal_date, true), 'left')}
+      ${td(_spVolCell(r.symbol, 0))}${td(_spVolCell(r.symbol, 1))}${td(_spVolCell(r.symbol, 2))}
+      ${td(r.signal_date ? _spDate(r.signal_date, true) : '<span style="color:#8090a0;">no signal</span>', 'left')}
       ${td(_spPct(r.prior3d_pct))}
       ${_spTier === 'large' ? td(_spPct(r.dip_pct)) + td(_spPct(r.day_chg_pct)) : ''}
       ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
@@ -16888,7 +16931,7 @@ function _spRender() {
       ${td(`${r.down5 ?? '—'}/5`, 'center')}
       ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
       ${td(`<span style="font-size:10.5px;">${_spRsi10(r)}</span>`, 'left')}
-    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 18 : 16)}`).join('');
+    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 21 : 19)}`).join('');
   page.innerHTML = `
     ${_spTabBar(tabs)}
     <div style="padding:12px 16px;">
@@ -16900,23 +16943,17 @@ function _spRender() {
         <span style="color:#8090a0;">–</span>
         <input type="number" id="sp-rsi-max" class="wl-price-in" min="0" max="100" step="1" placeholder="max" value="${_spRsiMax ?? ''}" oninput="_spRsiInput()"/>
         ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
-        <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${all.length > SP_MAX_ROWS ? ` · showing top ${SP_MAX_ROWS}` : ''} · last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
+        <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS} by biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
       <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules (best guess, not yet confirmed): ${rules}. Entry = signal close · Stop = a close below the signal-day low · Target = close + 2× ATR(14). Arrows: 5 days before | signal day (oldest → newest).</div>
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS', 'left')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL ×AVG')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="19" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="21" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
       </table></div>
-      ${(() => {
-        const mine = (_spCmp || []).filter(r => r.list === _spTier);
-        if (!mine.length) return `<div style="margin-top:14px;font-size:11px;color:#8090a0;">Your added stocks: none yet — type a ticker in "Compare ticker" (top right) to add one to ${_spTier === 'large' ? 'Large Stocks' : 'Penny Stocks'}.</div>`;
-        return `<div style="margin-top:18px;font-size:11px;font-weight:700;letter-spacing:1px;color:#00d4ff;">YOUR ADDED STOCKS (${mine.length})</div>
-          <div style="font-size:10.5px;color:#8090a0;margin:4px 0 6px;">Measured on the latest trading day, same rules as above. SIGNAL shows a signal from the last 10 trading days. ✕ removes a stock from this list.</div>
-          ${_spCompareTable(mine, _spTier)}`;
-      })()}
+      <div style="margin-top:10px;font-size:10.5px;color:#8090a0;">★ = your added stock (always shown, ✕ removes it) — add one with "Compare ticker". Volume: <span style="color:var(--green);">green ≥ 1M</span> · <span style="color:var(--amber);">yellow ≥ 500K</span> · gray below. NEWS: green good · red bad · yellow check · gray none. DILUTION: red risk (SEC offering/shelf filings) · green buyback · gray none.</div>
     </div>`;
 }
 
