@@ -16736,6 +16736,10 @@ function _spDate(iso, withDay) {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return (withDay ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getUTCDay()] + ' ' : '') + `${m}/${d}`;
 }
+function _spSector(r) {
+  const sec = (typeof _sectorOverride !== 'undefined' && _sectorOverride[r.symbol]) || r.sector || '';
+  return sec ? `<span style="font-size:10.5px;color:#c0c8d4;">${String(sec).replace(/</g, '&lt;')}</span>` : '<span style="color:#8090a0;">—</span>';
+}
 function _spMoney(v) { if (v == null) return '—'; const n = Number(v); return '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2)); }
 function _spPct(v) { if (v == null) return '—'; const n = Number(v); return `<span class="${n >= 0 ? 'pct-pos' : 'pct-neg'}">${n >= 0 ? '+' : ''}${n.toFixed(1)}%</span>`; }
 function _spArrows(s) {
@@ -16784,6 +16788,7 @@ function _spCompareTable(rows, list) {
     : r.signal_date ? `${_spDate(r.signal_date, true)}<div style="font-size:9.5px;">${_spStatus(r)}</div>` : '<span style="color:#8090a0;">—</span>';
   const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
       ${td(`<span style="display:flex;align-items:center;gap:8px;"><button onclick="spRemoveCompare('${r.symbol}','${list}',event)" title="Remove ${r.symbol}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;">✕</button><span><b style="color:var(--text);">${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
+      ${td(_spSector(r), 'left')}
       ${td(r.close == null ? '<span style="color:#8090a0;">no data yet</span>' : _spMoney(r.close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
       ${td(_spPct(r.day_chg_pct))}${td(_spPct(r.prior3d_pct))}${td(_spPct(r.dip_pct))}
       ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
@@ -16798,9 +16803,9 @@ function _spCompareTable(rows, list) {
   return `<div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('LATEST')}${th('DAY')}${th('PRIOR 3D')}${th('DIP')}${th('VOL')}${th('CLOSE IN RANGE', 'center')}${th('SIGNAL (10D)', 'left')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('SINCE')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('LATEST')}${th('DAY')}${th('PRIOR 3D')}${th('DIP')}${th('VOL')}${th('CLOSE IN RANGE', 'center')}${th('SIGNAL (10D)', 'left')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('SINCE')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="16" style="padding:24px;text-align:center;color:#8090a0;">${_spCmpLoading ? 'Loading…' : 'No stocks in the list — add one with "Compare ticker"'}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="17" style="padding:24px;text-align:center;color:#8090a0;">${_spCmpLoading ? 'Loading…' : 'No stocks in the list — add one with "Compare ticker"'}</td></tr>`}</tbody>
       </table></div>`;
 }
 function _spRender() {
@@ -16820,6 +16825,7 @@ function _spRender() {
   const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
   const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
       ${td(`<b style="color:var(--text);">${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div>`, 'left')}
+      ${td(_spSector(r), 'left')}
       ${td(_spDate(r.signal_date, true), 'left')}
       ${td(_spPct(r.prior3d_pct))}
       ${_spTier === 'large' ? td(_spPct(r.dip_pct)) + td(_spPct(r.day_chg_pct)) : ''}
@@ -16850,9 +16856,9 @@ function _spRender() {
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="16" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="17" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
       </table></div>
       ${(() => {
         const mine = (_spCmp || []).filter(r => r.list === _spTier);
