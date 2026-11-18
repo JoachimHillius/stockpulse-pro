@@ -7,7 +7,11 @@
 //  mode "live":    2:30–4:00 PM ET. Stocks whose prior days already fit (sp_live_candidates(): Large 5+ down days, Penny 3+)
 //                  get today's candle checked from a fresh Yahoo quote. First time it qualifies → "⏳ FORMING" alert;
 //                  when it changes (doji ↔ NEAR ↔ no longer qualifies, or volume crosses its average) → "🔄 UPDATE".
-//  Large alerts show the candle body % (rule ≤ 10%); NEAR = every Large rule met except the doji (body 10–50%).
+//  Large alerts show the candle body % (rule ≤ 10%); NEAR = every Large rule met except the doji: body up to 30% on a red
+//  candle, 20% on a green one, and not up 3%+ on the day. Stocks with a signal the day before are follow-throughs, not setups.
+//  Every alert shows Options flow (last date in your Options Flow uploads + contracts that day, or none).
+//  More than 5 alerts in one run: the first 5 go out as messages, then one "📎 +N more" message and a PDF with ALL
+//  alerts of that run (Telegram sendDocument, TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secrets).
 //  mode "test":    body.symbol (+ body.tier) — send one alert for an existing signal, marked TEST.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -39,14 +43,24 @@ const mdy = (iso: string) => { const [y, m, d] = String(iso).slice(0, 10).split(
 const head = (tier: string) => tier === 'large' ? '🟣 SINGLE PATTERN LARGE' : '🟠 SINGLE PATTERN PENNY';
 const arrows = (s: string) => s ? [...s.slice(0, -1)].map(c => c === 'U' ? '↑' : c === 'D' ? '↓' : '→').join('') + ' | ' + (s.slice(-1) === 'U' ? '↑' : s.slice(-1) === 'D' ? '↓' : '→') : '';
 
-async function ctx(supa: any, syms: string[]) {
-  const [n, d] = await Promise.all([
+async function ctx(supa: any, syms: string[]): Promise<((s: string) => string) & { raw: Record<string, { n: string; d: string; o?: string }> }> {
+  const [n, d, of] = await Promise.all([
     supa.from('sp_news').select('symbol,verdict').in('symbol', syms),
-    supa.from('sp_dilution').select('symbol,verdict,level').in('symbol', syms)]);
+    supa.from('sp_dilution').select('symbol,verdict,level').in('symbol', syms),
+    supa.rpc('sp_options_flow', { p_syms: syms })]);
+  const flow: Record<string, any> = of?.data || {};
   const news: Record<string, string> = {}, dil: Record<string, string> = {};
   for (const r of n.data || []) news[r.symbol] = ({ good: 'Good 🟢', bad: 'Bad 🔴', check: 'Check 🟡', none: 'No news' } as any)[r.verdict] || '—';
   for (const r of d.data || []) dil[r.symbol] = r.verdict === 'risk' ? `RISK ${String(r.level || '').toUpperCase()} 🔴` : r.verdict === 'buyback' ? 'Buyback 🟢' : 'None';
-  return (s: string) => `News: ${news[s] || 'not checked'} · Dilution: ${dil[s] || 'not checked'}`;
+  const raw: Record<string, { n: string; d: string; o?: string }> = {};
+  for (const r of n.data || []) (raw[r.symbol] ||= { n: '', d: '' }).n = ({ good: 'Good', bad: 'Bad', check: 'Check', none: 'No news' } as any)[r.verdict] || '';
+  for (const r of d.data || []) (raw[r.symbol] ||= { n: '', d: '' }).d = r.verdict === 'risk' ? `Risk ${r.level || ''}`.trim() : r.verdict === 'buyback' ? 'Buyback' : r.verdict === 'nodata' ? 'n/a' : 'None';
+  // Options flow = your Options Flow uploads (omen_flow): last date with flow + contracts that day
+  for (const s of syms) { const f = flow[s]; (raw[s] ||= { n: '', d: '' }).o = f ? `${Number(String(f.d).slice(5, 7))}/${Number(String(f.d).slice(8, 10))} ${fvol(f.contracts || 0)}` : 'No'; }
+  const flowLine = (s: string) => { const f = flow[s]; if (!f) return 'Options flow: none on file';
+    const parts = [f.calls ? `${fvol(f.calls)} calls` : '', f.puts ? `${fvol(f.puts)} puts` : ''].filter(Boolean).join(' / ');
+    return `Options flow: last ${mdy(f.d)} · ${fvol(f.contracts || 0)} contracts${parts ? ` (${parts})` : ''}`; };
+  return Object.assign((s: string) => `News: ${news[s] || 'not checked'} · Dilution: ${dil[s] || 'not checked'}\n${flowLine(s)}`, { raw });
 }
 
 function statusLine(r: any) {
@@ -71,6 +85,124 @@ function signalText(r: any, note: string, nd: (s: string) => string) {
     nd(r.symbol)].filter(Boolean).join('\n');
 }
 
+// Minimal dependency-free PDF (Helvetica, Letter). PDF base fonts are Latin-1 only, so emojis / arrows become words.
+function pdfSafe(t: string): string {
+  const map: Record<string, string> = { '↑': 'up', '↓': 'dn', '→': '>', '≤': '<=', '≥': '>=', '×': 'x', '—': '-', '–': '-', '’': "'", '▲': 'UP', '▼': 'DOWN',
+    '✅': '[OK]', '❌': '[X]', '⚠️': '[!]', '⚠': '[!]', '⏳': '[...]', '🔄': '', '🔥': '[HOT]', '🟢': '(green)', '🔴': '(red)', '🟡': '(yellow)',
+    '🟣': '', '🟠': '', '🌅': '', '🌙': '', '🧪': '', '📎': '' };
+  let o = '';
+  for (const ch of t) { if (map[ch] !== undefined) o += map[ch]; else { const c = ch.codePointAt(0)!; if (c >= 32 && c <= 126) o += ch; else if (c === 183) o += '-'; else if (c === 0xFE0F) o += ''; } }
+  return o.replace(/\s+$/, '');
+}
+// Landscape table PDF: one section per tier (PENNY, then LARGE), one row per alert.
+const COLS_STD: [string, number, string][] = [   // header, width, key
+  ['Ticker', 44, 'sym'], ['Alert', 82, 'status'], ['Price', 46, 'price'], ['Chg', 38, 'chg'], ['High', 46, 'high'], ['Low', 46, 'low'],
+  ['Volume', 44, 'vol'], ['Vol x Avg', 46, 'volX'], ['Down', 30, 'down'], ['Body', 32, 'body'], ['Target', 46, 'target'], ['Stop', 46, 'stop'],
+  ['News', 42, 'news'], ['Dilution', 52, 'dil'], ['Options', 52, 'opt']];
+// running (live) list: Hits + Now up front, a shorter Alert column
+const COLS_LIVE: [string, number, string][] = [
+  ['Ticker', 40, 'sym'], ['Hits', 32, 'hits'], ['Now', 38, 'now'], ['Candle', 70, 'status'], ['Price', 44, 'price'], ['Chg', 32, 'chg'], ['High', 40, 'high'], ['Low', 40, 'low'],
+  ['Volume', 38, 'vol'], ['Vol x Avg', 46, 'volX'], ['Down', 26, 'down'], ['Target', 40, 'target'], ['Stop', 40, 'stop'], ['News', 38, 'news'], ['Dilution', 46, 'dil'], ['Options', 50, 'opt'], ['Last', 32, 'at']];
+function cellText(r: any, k: string): string {
+  const m = (v: any) => v == null || !isFinite(Number(v)) ? '-' : '$' + (Number(v) < 1 ? Number(v).toFixed(4) : Number(v).toFixed(2));
+  switch (k) {
+    case 'price': case 'high': case 'low': case 'target': case 'stop': return m(r[k]);
+    case 'chg': return r.chg == null ? '-' : `${r.chg >= 0 ? '+' : ''}${Number(r.chg).toFixed(1)}%`;
+    case 'vol': return r.vol == null ? '-' : fvol(r.vol);
+    case 'volX': { const x = r.volX ?? (r.volPct == null ? null : r.volPct / 100); return x == null ? '-' : `${Number(x).toFixed(1)}x ${r.avgDays ? r.avgDays + 'd' : ''}`.trim(); }
+    case 'hits': return r.hits == null ? '-' : `${r.hits} of ${r.runs}`;
+    case 'down': return r.down == null ? '-' : String(r.down);
+    case 'body': return r.body == null ? '-' : `${Number(r.body).toFixed(r.body < 10 ? 1 : 0)}%`;
+    default: return pdfSafe(String(r[k] ?? '-')) || '-';
+  }
+}
+function cellColor(r: any, k: string): string | null {
+  const G = '0 0.5 0.2', R = '0.8 0.1 0.1', Y = '0.7 0.45 0';
+  if (k === 'news') return r.news === 'Good' ? G : r.news === 'Bad' ? R : r.news === 'Check' ? Y : null;
+  if (k === 'dil') return /^Risk/.test(r.dil || '') ? R : r.dil === 'Buyback' ? G : null;
+  if (k === 'volX') return (r.volX ?? (r.volPct == null ? 0 : r.volPct / 100)) >= 1 ? G : null;
+  if (k === 'opt') return r.opt && r.opt !== 'No' ? G : null;
+  if (k === 'now') return r.now === 'YES' ? G : r.now === 'NEAR' ? Y : R;
+  if (k === 'hits') return r.hits >= 3 ? G : null;
+  if (k === 'chg') return r.chg == null ? null : r.chg >= 0 ? G : R;
+  if (k === 'status') return /no longer|\[X\]/i.test(r.status || '') ? R : /NEAR/.test(r.status || '') ? Y : null;
+  return null;
+}
+function makePdf(title: string, rows: any[], live = false): Uint8Array {
+  const COLS = live ? COLS_LIVE : COLS_STD;
+  const W = 792, H = 612, M = 40, RH = 14;
+  const esc = (t: string) => t.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const fit = (t: string, w: number) => { const max = Math.floor(w / 3.9); return t.length > max ? t.slice(0, max - 1) + '.' : t; };
+  const pagesOps: string[] = []; let ops = ''; let y = 0; let page = 0;
+  const newPage = () => { if (ops) pagesOps.push(ops); page++; ops = ''; y = H - M;
+    ops += `BT /F2 12 Tf ${M} ${y} Td (${esc(pdfSafe(title))}) Tj ET\n`; y -= 22; };
+  const header = () => {
+    ops += `0.88 0.9 0.94 rg ${M} ${y - 4} ${COLS.reduce((a, c) => a + c[1], 0)} ${RH} re f 0 0 0 rg\n`;
+    let x = M; for (const [h, w] of COLS) { ops += `BT /F2 8 Tf ${x + 2} ${y} Td (${esc(h)}) Tj ET\n`; x += w; } y -= RH; };
+  newPage();
+  for (const [tier, label] of [['penny', 'PENNY STOCKS'], ['large', 'LARGE STOCKS']] as const) {
+    const list = rows.filter(r => r.tier === tier);
+    if (!list.length) continue;
+    if (y < M + RH * 4) newPage();
+    ops += `BT /F2 11 Tf ${M} ${y} Td (${esc(`${label} (${list.length})`)}) Tj ET\n`; y -= 16;
+    header();
+    list.forEach((r, i) => {
+      if (y < M + RH) { newPage(); ops += `BT /F2 11 Tf ${M} ${y} Td (${esc(label + ' (continued)')}) Tj ET\n`; y -= 16; header(); }
+      if (i % 2) ops += `0.96 0.97 0.98 rg ${M} ${y - 4} ${COLS.reduce((a, c) => a + c[1], 0)} ${RH} re f 0 0 0 rg\n`;
+      let x = M;
+      for (const [, w, k] of COLS) {
+        const c = cellColor(r, k);
+        ops += `${c ? c + ' rg ' : ''}BT /${k === 'sym' ? 'F2' : 'F1'} 8 Tf ${x + 2} ${y} Td (${esc(fit(cellText(r, k), w))}) Tj ET${c ? ' 0 0 0 rg' : ''}\n`;
+        x += w;
+      }
+      y -= RH;
+    });
+    y -= 10;
+  }
+  ops += `BT /F1 7 Tf ${M} ${M - 18} Td (${esc(live
+    ? 'Hits = how many of today\'s checks (2:30, 2:45, 3:00, 3:15, 3:30, 3:45, 3:55) the stock qualified in. Now = qualifies at this check. Vol x Avg = volume so far today / normal daily volume (20-day Large, 50-day Penny); needs > 1.0x by the close.'
+    : 'Vol x Avg = that day\'s volume / the average daily volume (20-day Large, 50-day Penny), e.g. 2.9x = almost 3 times a normal day. Body = candle body as % of the day\'s range (Large rule <= 10%). Down = straight down days before the signal day.')}) Tj ET\n`;
+  pagesOps.push(ops);
+  const objs: string[] = [];
+  objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  const kids: string[] = [];
+  pagesOps.forEach((st, pi) => {
+    st += `BT /F1 8 Tf ${W - M - 50} ${H - M + 14} Td (page ${pi + 1} of ${pagesOps.length}) Tj ET\n`;
+    const pObj = objs.length < 5 ? 5 : objs.length, cObj = pObj + 1;
+    objs[pObj] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${cObj} 0 R >>`;
+    objs[cObj] = `<< /Length ${st.length} >>\nstream\n${st}endstream`;
+    kids.push(`${pObj} 0 R`);
+  });
+  objs[2] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`;
+  let out = '%PDF-1.4\n'; const offs: number[] = [];
+  for (let i = 1; i < objs.length; i++) { offs[i] = out.length; out += `${i} 0 obj\n${objs[i]}\nendobj\n`; }
+  const xref = out.length;
+  out += `xref\n0 ${objs.length}\n0000000000 65535 f \n` + offs.slice(1).map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+  out += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new Uint8Array([...out].map(c => c.charCodeAt(0) & 0xff));
+}
+async function sendPdf(name: string, caption: string, pdf: Uint8Array): Promise<string | null> {
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN'), chat = Deno.env.get('TELEGRAM_CHAT_ID');
+  if (!token || !chat) return 'missing Telegram secrets';
+  const fd = new FormData();
+  fd.append('chat_id', chat); fd.append('caption', caption.slice(0, 1000));
+  fd.append('document', new Blob([pdf], { type: 'application/pdf' }), name);
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: fd, signal: AbortSignal.timeout(30_000) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok && j?.ok ? null : `telegram ${r.status}`;
+  } catch (e) { return String(e); }
+}
+
+function rowFromSignal(r: any, status: string, nd: any) {
+  const x = nd.raw[r.symbol] || { n: '', d: '' };
+  return { tier: r.tier, sym: r.symbol, status, price: r.close, chg: r.day_chg_pct == null ? null : Number(r.day_chg_pct), high: r.high, low: r.low,
+    vol: r.close ? Number(r.dollar_vol) / Number(r.close) : null, volPct: r.vol_x == null ? null : Number(r.vol_x) * 100, avgDays: r.tier === 'large' ? 20 : 50,
+    down: r.down5, body: r.tier === 'large' ? (r.body_pct == null ? null : Number(r.body_pct)) : null, target: r.target, stop: r.stop, news: x.n, dil: x.d, opt: x.o };
+}
+
 async function flush(supa: any) {
   const url = Deno.env.get('SUPABASE_URL')! + '/functions/v1/telegram-outbox';
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -83,7 +215,8 @@ Deno.serve(async (req: Request) => {
     const mode = String(body.mode || 'ext');
     const supa = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const et = etParts();
-    const out: string[] = [], logKeys: string[] = [];
+    const out: string[] = [], logKeys: string[] = [], rows: any[] = [];
+    let livePdf: { rows: any[]; runNo: number; clock: string; more: number } | null = null;
 
     if (mode === 'test') {
       const q = supa.from('single_pattern').select('*').eq('symbol', String(body.symbol || '').toUpperCase());
@@ -91,7 +224,17 @@ Deno.serve(async (req: Request) => {
       const r = (data || [])[0];
       if (!r) return Response.json({ error: 'no signal for that symbol' }, { status: 404 });
       const nd = await ctx(supa, [r.symbol]);
-      out.push('🧪 TEST ALERT\n' + signalText(r, 'confirmed at close', nd));
+      out.push('🧪 TEST ALERT\n' + signalText(r, 'confirmed at close', nd)); rows.push(rowFromSignal(r, (r.near ? 'NEAR ' : '') + 'Signal ' + mdy(r.signal_date), nd));
+    }
+
+    if (mode === 'pdftest') {
+      const { data } = await supa.from('single_pattern').select('*').order('vol_x', { ascending: false }).limit(60);
+      const R = (data || []).filter((r: any) => !r.near).concat((data || []).filter((r: any) => r.near).slice(0, 10));
+      const nd = await ctx(supa, R.map((r: any) => r.symbol));
+      const tr = R.map((r: any) => rowFromSignal(r, (r.near ? 'NEAR ' : '') + 'Signal ' + mdy(r.signal_date) + ' - ' + r.status, nd));
+      const err = await sendPdf(`single-pattern-sample-${et.date}.pdf`, `🧪 Sample PDF · current Single Pattern signals · Penny ${tr.filter(r => r.tier === 'penny').length} · Large ${tr.filter(r => r.tier === 'large').length}`,
+        makePdf(`Single Pattern - current signals (sample) - ${et.date}`, tr));
+      return Response.json({ mode, rows: tr.length, pdf: err || 'sent' });
     }
 
     if (mode === 'signals') {
@@ -108,8 +251,10 @@ Deno.serve(async (req: Request) => {
         const k = `sig:${r.tier}:${r.symbol}:${r.signal_date}`, kc = `sigc:${r.tier}:${r.symbol}:${r.signal_date}`;
         if (!have.has(k)) {
           out.push(signalText(r, closed ? 'confirmed at close ✅' : 'forming today ⏳ candle not final — last-hour entry', nd));
+          rows.push(rowFromSignal(r, (r.near ? 'NEAR ' : '') + (closed ? 'Confirmed at close' : 'Forming'), nd));
           logKeys.push(k); if (closed) logKeys.push(kc);
         } else if (closed && !have.has(kc)) {
+          rows.push(rowFromSignal(r, (r.near ? 'NEAR ' : '') + 'Confirmed at close', nd));
           out.push(`${head(r.tier)}${r.near ? ' · NEAR' : ''}\n$${r.symbol} ✅ confirmed at close ${mdy(r.signal_date)} · entry ${money(r.close)} · target ${money(r.target)} · stop: close below ${money(r.stop)}`);
           logKeys.push(kc);
         }
@@ -117,6 +262,8 @@ Deno.serve(async (req: Request) => {
     }
 
     if (mode === 'live') {
+      // 7 checks a day: 2:30, 2:45, 3:00, 3:15, 3:30, 3:45, 3:55 PM ET. Each check: up to 5 messages (new stocks / real
+      // changes only) + ONE running PDF of every stock that qualified today, with Hits = checks it qualified in.
       const open = et.wd !== 'Sat' && et.wd !== 'Sun' && et.mins >= 9 * 60 + 30 && et.mins < 16 * 60;
       if (!open && !body.force) return Response.json({ skipped: 'market closed' });
       const { data: cand, error } = await supa.rpc('sp_live_candidates');
@@ -135,24 +282,26 @@ Deno.serve(async (req: Request) => {
           for (const q of j?.quoteResponse?.result || []) quotes[q.symbol] = q;
         } catch (_) { /**/ }
       }
-      const keys = C.map(c => `live:${et.date}:${c.tier}:${c.symbol}`);
+      const prefix = `live:${et.date}:`;
       const prevState: Record<string, any> = {};
-      for (let i = 0; i < keys.length; i += 200) {
-        const { data } = await supa.from('sp_live_state').select('key,state,body,vol_ok').in('key', keys.slice(i, i + 200));
-        for (const r of data || []) prevState[r.key] = r;
-      }
+      { const { data } = await supa.from('sp_live_state').select('key,state,body,vol_ok,hits,snap,first_at').like('key', prefix + '%').limit(2000);
+        for (const r of data || []) prevState[r.key] = r; }
+      const runKey = `run:${et.date}`;
+      const { data: runRow } = await supa.from('sp_live_state').select('hits').eq('key', runKey).maybeSingle();
+      const runNo = (runRow?.hits || 0) + 1;
       const hh = Math.floor(et.mins / 60), mm = et.mins % 60;
       const clock = `${hh > 12 ? hh - 12 : hh}:${String(mm).padStart(2, '0')} PM`;
-      const upserts: any[] = [];
-      const msgs: { text: string; sym: string; row: any; pri: number }[] = [];
+      const evald: any[] = [];
       for (const c of C) {
         const q = quotes[c.symbol]; if (!q) continue;
         const o = Number(q.regularMarketOpen), h = Number(q.regularMarketDayHigh), l = Number(q.regularMarketDayLow), px = Number(q.regularMarketPrice), v = Number(q.regularMarketVolume) || 0;
         if (![o, h, l, px].every(isFinite) || !(h > l) || o <= 0) continue;
         const bodyPct = Math.abs(px - o) / (h - l) * 100;
         let state = 'none';
+        const dayChg = c.prev_close ? (px / Number(c.prev_close) - 1) * 100 : 0;
         if (c.tier === 'large') {
-          if (px >= 10) state = bodyPct <= 10 ? 'signal' : bodyPct <= 50 ? 'near' : 'none';
+          // doji = body <= 10%. NEAR = body up to 30% on a red candle / 20% on a green one, and not already up 3%+ (too late)
+          if (px >= 10) state = bodyPct <= 10 ? 'signal' : (dayChg < 3 && bodyPct <= (px < o ? 30 : 20)) ? 'near' : 'none';
         } else {
           const pos = (px - l) / (h - l), lower = Math.min(o, px) - l;
           if (px >= 0.40 && px < 10 && pos >= 0.75 && lower >= 2 * Math.max(Math.abs(px - o), (h - l) * 0.05)) state = 'signal';
@@ -160,34 +309,57 @@ Deno.serve(async (req: Request) => {
         const avg = c.tier === 'large' ? Number(c.av20) : Number(c.av50);
         const minDollar = c.tier === 'large' ? 5e6 : 1e6;
         const volOk = avg > 0 && v > avg && px * v >= minDollar;
-        if (state === 'near' && !volOk) state = 'none';   // NEAR candles alert only once volume is above average
-        const key = `live:${et.date}:${c.tier}:${c.symbol}`;
+        if (state === 'near' && !volOk) state = 'none';   // NEAR candles count only once volume is above average
+        const key = prefix + `${c.tier}:${c.symbol}`;
         const prev = prevState[key];
         const was = prev?.state || 'none';
         let kind: string | null = null;
-        if (state !== 'none' && was === 'none') kind = prev ? 'back' : 'new';
+        if (state !== 'none' && was === 'none') kind = prev && prev.hits ? 'back' : 'new';
         else if (state !== was) kind = 'change';
         else if (state !== 'none' && volOk && prev && !prev.vol_ok) kind = 'vol';
-        const row = { key, state, body: Math.round(bodyPct * 10) / 10, vol_ok: volOk, updated_at: new Date().toISOString() };
-        if (!kind) { if (prev) upserts.push(row); continue; }
+        if (state === 'none' && !prev) continue;
+        evald.push({ c, o, h, l, px, v, bodyPct, state, avg, volOk, key, prev, kind });
+      }
+      const nd = await ctx(supa, evald.map(e => e.c.symbol));
+      const upserts: any[] = [];
+      const msgs: { text: string; sym: string; pri: number }[] = [];
+      for (const e of evald) {
+        const { c, o, h, l, px, v, bodyPct, state, avg, volOk, key, prev, kind } = e;
+        const x = nd.raw[c.symbol] || { n: '', d: '' };
+        const what = state === 'signal' ? (c.tier === 'large' ? `doji (body ${bodyPct.toFixed(1)}%)` : 'candle OK') : state === 'near' ? `NEAR (body ${Math.round(bodyPct)}%)` : '';
+        const snap = state !== 'none' ? { tier: c.tier, sym: c.symbol, status: what, price: px, chg: c.prev_close ? (px / Number(c.prev_close) - 1) * 100 : null, high: h, low: l, vol: v,
+            volX: avg > 0 ? v / avg : null, avgVol: avg, avgDays: c.tier === 'large' ? 20 : 50, down: c.streak, body: c.tier === 'large' ? bodyPct : null,
+            target: px + 2 * Number(c.atr10), stop: l, news: x.n, dil: x.d, opt: x.o, at: clock }
+          : prev?.snap ? { ...prev.snap, news: x.n || prev.snap.news, dil: x.d || prev.snap.dil, opt: x.o || prev.snap.opt } : null;
+        upserts.push({ key, state, body: Math.round(bodyPct * 10) / 10, vol_ok: volOk, updated_at: new Date().toISOString(),
+          hits: (prev?.hits || 0) + (state !== 'none' ? 1 : 0), snap, first_at: prev?.first_at || (state !== 'none' ? new Date().toISOString() : null) });
+        if (!kind) continue;
         const label = state === 'signal' ? (c.tier === 'large' ? `✅ doji forming — body ${bodyPct.toFixed(1)}% of range (rule ≤ 10%)` : '✅ candle forming — closing near the high with a long lower wick')
           : state === 'near' ? `⚠️ NEAR — body ${Math.round(bodyPct)}% of range (rule ≤ 10%)` : `❌ no longer qualifies — body ${Math.round(bodyPct)}% of range${c.tier === 'penny' ? ' / not near the high' : ''}`;
-        const title = kind === 'new' ? '⏳ FORMING' : '🔄 UPDATE';
-        const lines = [`${head(c.tier)} · ${title} ${clock}`,
+        const lines = [`${head(c.tier)} · ${kind === 'new' ? '⏳ FORMING' : '🔄 UPDATE'} ${clock}`,
           `$${c.symbol}${c.name ? ' · ' + String(c.name).split(' - ')[0].slice(0, 40) : ''}`,
           kind === 'vol' ? `Volume now above the ${c.tier === 'large' ? '20' : '50'}-day average ✅` : label,
           `Price ${money(px)} · O ${money(o)} H ${money(h)} L ${money(l)}`,
-          `Volume so far ${fvol(v)} = ${avg > 0 ? Math.round(v / avg * 100) : '—'}% of the ${c.tier === 'large' ? '20' : '50'}-day avg ${volOk ? '✅' : '(needs > 100% by the close) ⏳'}`,
+          `Volume so far ${fvol(v)} = ${avg > 0 ? (v / avg).toFixed(1) + '×' : '—'} the ${c.tier === 'large' ? '20' : '50'}-day avg (${fvol(avg)}) ${volOk ? '✅' : '(needs > 1.0× by the close) ⏳'}`,
           `${c.streak} down days before today ✅`];
         if (state !== 'none') lines.push(`If it closes here: entry ${money(px)} · target ${money(px + 2 * Number(c.atr10))} (2× ATR10) · stop: close below ${money(l)}`);
-        msgs.push({ text: lines.join('\n'), sym: c.symbol, row, pri: state === 'signal' ? 0 : kind === 'change' && state === 'none' ? 1 : 2 });
+        lines.push(nd(c.symbol));
+        msgs.push({ text: lines.join('\n'), sym: c.symbol, pri: state === 'signal' ? 0 : kind === 'change' && state === 'none' ? 1 : 2 });
+      }
+      if (!body.dry) {   // dry = build the example PDF only: nothing saved, nothing counted
+        for (let i = 0; i < upserts.length; i += 200) await supa.from('sp_live_state').upsert(upserts.slice(i, i + 200), { onConflict: 'key' });
+        await supa.from('sp_live_state').upsert({ key: runKey, state: 'run', hits: runNo, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       }
       msgs.sort((a, b) => a.pri - b.pri);
-      const send = msgs.slice(0, 25);            // the rest are not marked as seen, so the next run sends them
-      for (const m of send) upserts.push(m.row);
-      for (let i = 0; i < upserts.length; i += 200) await supa.from('sp_live_state').upsert(upserts.slice(i, i + 200), { onConflict: 'key' });
-      const nd = await ctx(supa, send.map(m => m.sym));
-      for (const m of send) out.push(m.text + '\n' + nd(m.sym));
+      if (!body.dry) for (const m of msgs.slice(0, 5)) out.push(m.text);
+      // running PDF: everything that qualified today (saved state + this check)
+      const merged: Record<string, any> = { ...prevState };
+      for (const u of upserts) merged[u.key] = u;
+      const all = Object.values(merged).filter((r: any) => r.hits > 0);
+      const R = all.filter((r: any) => r.snap).map((r: any) => ({ ...r.snap, hits: r.hits, runs: runNo,
+          now: r.state === 'signal' ? 'YES' : r.state === 'near' ? 'NEAR' : 'dropped' }))
+        .sort((a: any, b: any) => (b.hits - a.hits) || ((b.now !== 'dropped' ? 1 : 0) - (a.now !== 'dropped' ? 1 : 0)) || ((b.volX || 0) - (a.volX || 0)));
+      livePdf = R.length ? { rows: R, runNo, clock, more: Math.max(0, msgs.length - 5) } : null;
     }
 
     if (mode === 'ext') {
@@ -248,6 +420,10 @@ Deno.serve(async (req: Request) => {
           : `Setting up: ${u.streak} down days in a row (${u.tier === 'large' ? '5' : '3'} needed, then the candle)`;
         const volLine = xv == null ? `${sess === 'pre' ? 'Pre-market' : 'After-hours'} volume: n/a`
           : `${sess === 'pre' ? 'Pre-market' : 'After-hours'} volume ${fvol(xv)}${u.av20 ? ` = ${Math.round(xv / u.av20 * 100)}% of a normal day (${fvol(u.av20)} avg)` : ''}${u.av20 && xv >= 0.1 * u.av20 ? ' 🔥' : ''}`;
+        { const x = nd.raw[u.symbol] || { n: '', d: '' };
+          rows.push({ tier: u.tier, sym: u.symbol, status: `${sess === 'pre' ? 'Pre-mkt' : 'After-hrs'} ${h.pct > 0 ? 'UP' : 'DOWN'} - ${u.kind === 'signal' ? 'signal ' + mdy(u.signal_date) : u.kind === 'near' ? 'NEAR ' + mdy(u.signal_date) : u.kind === 'added' ? 'your stock' : 'setting up'}`,
+            price: h.px, chg: h.pct, high: null, low: null, vol: xv, volPct: xv != null && u.av20 ? xv / u.av20 * 100 : null, avgDays: 20,
+            down: u.streak, body: null, target: u.target, stop: u.stop, news: x.n, dil: x.d, opt: x.o }); }
         out.push([`${head(u.tier)} · ${sess === 'pre' ? '🌅 PRE-MARKET' : '🌙 AFTER-HOURS'}`,
           `$${u.symbol} ${h.pct > 0 ? '▲' : '▼'} ${h.pct > 0 ? '+' : ''}${h.pct.toFixed(1)}% at ${money(h.px)} (${sess === 'pre' ? 'prev close' : 'today\'s close'} ${money(h.ref)})`,
           volLine, status, nd(u.symbol)].join('\n'));
@@ -255,13 +431,35 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    let pdfErr: string | null = null, pdfB64: string | null = null;
+    if (livePdf) {   // last-hour running file: messages (max 5) then one PDF of the whole day so far
+      if (out.length && !body.dry) { await supa.from('telegram_outbox').insert(out.map(text => ({ text }))); await flush(supa); }
+      const P = livePdf.rows, np = P.filter((r: any) => r.tier === 'penny').length, nl = P.filter((r: any) => r.tier === 'large').length;
+      const title = `Single Pattern - TODAY, forming now (live) - ${et.date} ${livePdf.clock} ET - check ${livePdf.runNo} of 7`;
+      const pdf = makePdf(title, P, true);
+      if (body.return_pdf) pdfB64 = btoa(String.fromCharCode(...pdf));
+      if (!body.no_send) pdfErr = await sendPdf(`single-pattern-today-${et.date}-${String(Math.floor(et.mins / 60)).padStart(2, '0')}${String(et.mins % 60).padStart(2, '0')}.pdf`,
+        `📎 Single Pattern · TODAY running list · ${livePdf.clock} ET (check ${livePdf.runNo} of 7) · Penny ${np} · Large ${nl}${livePdf.more ? ` · ${livePdf.more} more changes only in the PDF` : ''}`, pdf);
+      return Response.json({ mode, sent: out.length, rows: P.length, pdf: pdfErr || 'sent', pdf_b64: pdfB64 });
+    }
     if (out.length) {
-      const { error } = await supa.from('telegram_outbox').insert(out.map(text => ({ text })));
+      const many = out.length > 5;
+      const label = mode === 'live' ? 'last hour' : mode === 'ext' ? (et.mins < 12 * 60 ? 'pre-market' : 'after-hours') : mode === 'signals' ? 'signals' : mode;
+      const hh = Math.floor(et.mins / 60), mm = et.mins % 60;
+      const clock = `${hh > 12 ? hh - 12 : hh || 12}:${String(mm).padStart(2, '0')} ${hh >= 12 ? 'PM' : 'AM'} ET`;
+      const syms = [...new Set(out.map(t => (t.match(/\$([A-Z][A-Z.\-]{0,6})/) || [])[1]).filter(Boolean))];
+      const texts = many ? [...out.slice(0, 5), `📎 SINGLE PATTERN · ${out.length - 5} more alerts (${label}, ${clock}) — all ${out.length} are in the PDF below:\n${syms.slice(5).join(', ')}`] : out;
+      const { error } = await supa.from('telegram_outbox').insert(texts.map(text => ({ text })));
       if (error) throw new Error('outbox: ' + error.message);
       if (logKeys.length) await supa.from('sp_alert_log').upsert(logKeys.map(key => ({ key })), { onConflict: 'key', ignoreDuplicates: true });
       await flush(supa);
+      if (many) {
+        const title = `Single Pattern alerts - ${label} - ${et.date} ${clock} - ${out.length} alerts`;
+        pdfErr = await sendPdf(`single-pattern-${label.replace(/\s+/g, '-')}-${et.date}-${String(hh).padStart(2, '0')}${String(mm).padStart(2, '0')}.pdf`,
+          `📎 Single Pattern · ${out.length} alerts (${label}, ${clock}) · Penny ${rows.filter(r => r.tier === 'penny').length} · Large ${rows.filter(r => r.tier === 'large').length}`, makePdf(title, rows));
+      }
     }
-    return Response.json({ mode, sent: out.length, preview: out.slice(0, 2) });
+    return Response.json({ mode, sent: out.length, pdf: out.length > 5 ? (pdfErr || 'sent') : null, preview: out.slice(0, 2) });
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });
   }
