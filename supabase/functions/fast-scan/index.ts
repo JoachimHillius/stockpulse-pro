@@ -2,7 +2,12 @@
 //  The 5-minute scans keep running. 2 minutes after each one, fast_promote() puts every stock that moved > 5¢ (under $10)
 //  or >= 1% ($10+) since the previous scan on public.fast_watch; a stock leaves after 30 minutes without such a move.
 //  This function runs every minute (4:00 AM – 8:00 PM ET, weekdays), prices the list from Yahoo and sends a Telegram
-//  message ONLY when something happens: +5% in 1 minute or +10% in 5 minutes (extended-hours price before / after the bell).
+//  message ONLY when something happens (extended-hours price before / after the bell):
+//   🚀 up:   under $10 +3% in 1 min or +6% in 5 min · $10+ +5% in 1 min or +10% in 5 min
+//   🔻 down: −5% in 1 min or −10% in 5 min (any price)
+//   📈/📉 new session high / low (pre-market, regular, after-hours) once the stock is >= 10% (under $10) / 5% ($10+) away from
+//        the reference (previous close before / during the session, today's close after hours); re-sent only when the
+//        high / low extends at least another 2%.
 //  Junk filter: price >= $0.10 and >= $250K traded today. A stock is not re-sent within 5 minutes unless it is higher.
 //  Telegram commands (from your chat only): STOP XYZ → no more alerts for XYZ (here and the 👀 / ⚡ spike alerts) until
 //  START XYZ. Several tickers work too: STOP INHD, AKAN. The bot confirms each command.
@@ -11,7 +16,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
-const JUMP_1M = 0.05, JUMP_5M = 0.10, MIN_PRICE = 0.10, MIN_DOLLARS = 250_000;
+const MIN_PRICE = 0.10, MIN_DOLLARS = 250_000;
+const UP = (px: number) => px < 10 ? [0.03, 0.06] : [0.05, 0.10];   // [1 min, 5 min]
+const DOWN = [0.05, 0.10], BIG = (px: number) => px < 10 ? 10 : 5, EXTEND = 0.02;
 
 function etParts(d = new Date()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -103,7 +110,7 @@ Deno.serve(async (req: Request) => {
     if (!ys) throw new Error('Yahoo session failed');
     const fields = 'symbol,regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,marketState,preMarketPrice,preMarketChangePercent,postMarketPrice,postMarketChangePercent';
     const now = new Date(), nowIso = now.toISOString();
-    const q: Record<string, { px: number; pct: number | null; vol: number; sess: string }> = {};
+    const q: Record<string, { px: number; pct: number | null; vol: number; sess: string; sk: string }> = {};
     await Promise.all(Array.from({ length: Math.ceil(syms.length / 100) }, async (_, i) => {
       try {
         const r = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(syms.slice(i * 100, i * 100 + 100).join(','))}&fields=${fields}&crumb=${encodeURIComponent(ys.crumb)}`,
@@ -115,39 +122,68 @@ Deno.serve(async (req: Request) => {
           const px = Number(pre ? x.preMarketPrice : post ? x.postMarketPrice : x.regularMarketPrice);
           if (!isFinite(px) || px <= 0) continue;
           q[x.symbol] = { px, pct: Number(pre ? x.preMarketChangePercent : post ? x.postMarketChangePercent : x.regularMarketChangePercent), vol: Number(x.regularMarketVolume) || 0,
-            sess: pre ? ' pre-market' : post ? ' after-hours' : '' };
+            sess: pre ? ' pre-market' : post ? ' after-hours' : '', sk: pre ? 'pre' : post ? 'post' : (st === 'REGULAR' ? 'reg' : '') };
         }
       } catch (_) { /**/ }
     }));
 
     const got = Object.keys(q);
     const since = new Date(now.getTime() - 7 * 60_000).toISOString();
-    const [{ data: ticks }, { data: recent }] = await Promise.all([
+    const [{ data: ticks }, { data: recent }, { data: sessRows }] = await Promise.all([
       supa.from('fast_ticks').select('symbol,at,px').in('symbol', got).gte('at', since).limit(10000),
-      supa.from('fast_alerts').select('symbol,at,px').in('symbol', got).gte('at', new Date(now.getTime() - 5 * 60_000).toISOString())]);
+      supa.from('fast_alerts').select('symbol,at,px,kind').in('symbol', got).gte('at', new Date(now.getTime() - 5 * 60_000).toISOString()),
+      supa.from('fast_session').select('*').in('symbol', got).eq('d', et.date)]);
+    const sessMap: Record<string, any> = {};
+    for (const r of sessRows || []) sessMap[`${r.symbol}:${r.sess}`] = r;
     const hist: Record<string, { t: number; px: number }[]> = {};
     for (const t of ticks || []) (hist[t.symbol] ||= []).push({ t: Date.parse(t.at), px: Number(t.px) });
-    const lastAlert: Record<string, number> = {};
-    for (const a of recent || []) lastAlert[a.symbol] = Math.max(lastAlert[a.symbol] || 0, Number(a.px));
+    const lastUp: Record<string, number> = {}, lastDn: Record<string, number> = {};
+    for (const a of recent || []) {
+      if (String(a.kind).startsWith('dn')) lastDn[a.symbol] = Math.min(lastDn[a.symbol] ?? Infinity, Number(a.px));
+      else if (!String(a.kind).startsWith('hi') && !String(a.kind).startsWith('lo')) lastUp[a.symbol] = Math.max(lastUp[a.symbol] || 0, Number(a.px));
+    }
     const at = (s: string, agoMin: number) => {   // the tick closest to agoMin minutes ago (within ±40 s)
       const target = now.getTime() - agoMin * 60_000;
       const c = (hist[s] || []).filter(h => Math.abs(h.t - target) <= 40_000).sort((a, b) => Math.abs(a.t - target) - Math.abs(b.t - target))[0];
       return c ? c.px : null;
     };
 
-    const msgs: string[] = [], alerts: any[] = [], keep: string[] = [];
+    const msgs: string[] = [], alerts: any[] = [], keep: string[] = [], sessUp: any[] = [];
     for (const s of got) {
-      const { px, pct, vol, sess } = q[s];
+      const { px, pct, vol, sess, sk } = q[s];
       const p1 = at(s, 1), p5 = at(s, 5);
       if (p5 && ((px < 10 && Math.abs(px - p5) > 0.05) || (px >= 10 && Math.abs(px / p5 - 1) >= 0.01))) keep.push(s);   // still moving → stays on the list
+      // session high / low (kept even when the junk filter skips the alert)
+      const key = `${s}:${sk}`, ss = sk ? (sessMap[key] || { symbol: s, d: et.date, sess: sk, hi: px, lo: px, hi_sent: null, lo_sent: null }) : null;
+      const newHi = ss && px > Number(ss.hi), newLo = ss && px < Number(ss.lo);
+      if (ss) { ss.hi = Math.max(Number(ss.hi), px); ss.lo = Math.min(Number(ss.lo), px); ss.updated_at = nowIso; sessUp.push(ss); }
       if (px < MIN_PRICE || px * vol < MIN_DOLLARS) continue;
-      const j1 = p1 ? px / p1 - 1 : 0, j5 = p5 ? px / p5 - 1 : 0;
-      if (!(j1 >= JUMP_1M || j5 >= JUMP_5M)) continue;
-      if (lastAlert[s] && px <= lastAlert[s]) continue;   // already sent in the last 5 minutes and not higher since
-      const in1 = j1 >= JUMP_1M, mv = in1 ? j1 : j5, from = in1 ? p1! : p5!;
-      msgs.push(`🚀 ${s} +${Math.round(mv * 100)}% in ${in1 ? '1 min' : '5 min'} · ${money(px)} (from ${money(from)})${pct != null && isFinite(pct) ? ` · ${pct >= 0 ? '+' : ''}${Math.round(pct)}% today` : ''}${sess}\nSTOP ${s} to mute`);
-      alerts.push({ symbol: s, px, kind: in1 ? '1m' : '5m', move_pct: Math.round(mv * 1000) / 10 });
+      const tail = `${pct != null && isFinite(pct) ? ` · ${pct >= 0 ? '+' : ''}${Math.round(pct)}% ${sk === 'post' ? 'vs close' : 'today'}` : ''}${sess}\nSTOP ${s} to mute`;
+      const j1 = p1 ? px / p1 - 1 : 0, j5 = p5 ? px / p5 - 1 : 0, [u1, u5] = UP(px);
+      let sent = false;
+      if ((j1 >= u1 || j5 >= u5) && !(lastUp[s] && px <= lastUp[s])) {   // up: not re-sent within 5 min unless higher
+        const in1 = j1 >= u1, mv = in1 ? j1 : j5, from = in1 ? p1! : p5!;
+        msgs.push(`🚀 ${s} +${Math.round(mv * 100)}% in ${in1 ? '1 min' : '5 min'} · ${money(px)} (from ${money(from)})${tail}`);
+        alerts.push({ symbol: s, px, kind: in1 ? '1m' : '5m', move_pct: Math.round(mv * 1000) / 10 }); sent = true;
+      }
+      if ((j1 <= -DOWN[0] || j5 <= -DOWN[1]) && !(lastDn[s] && px >= lastDn[s])) {   // down: not re-sent within 5 min unless lower
+        const in1 = j1 <= -DOWN[0], mv = in1 ? j1 : j5, from = in1 ? p1! : p5!;
+        msgs.push(`🔻 ${s} ${Math.round(mv * 100)}% in ${in1 ? '1 min' : '5 min'} · ${money(px)} (from ${money(from)})${tail}`);
+        alerts.push({ symbol: s, px, kind: in1 ? 'dn1m' : 'dn5m', move_pct: Math.round(mv * 1000) / 10 }); sent = true;
+      }
+      // new session high / low once the stock is far enough from its reference (pct = Yahoo's change for this session)
+      if (ss && !sent && pct != null && isFinite(pct) && Math.abs(pct) >= BIG(px)) {
+        const label = sk === 'pre' ? 'pre-market' : sk === 'post' ? 'after-hours' : 'intraday';
+        if (newHi && pct > 0 && (!ss.hi_sent || px >= Number(ss.hi_sent) * (1 + EXTEND))) {
+          msgs.push(`📈 ${s} new ${label} high ${money(px)} · +${Math.round(pct)}% ${sk === 'post' ? 'vs close' : 'today'}\nSTOP ${s} to mute`);
+          alerts.push({ symbol: s, px, kind: 'hi', move_pct: Math.round(pct * 10) / 10 }); ss.hi_sent = px;
+        } else if (newLo && pct < 0 && (!ss.lo_sent || px <= Number(ss.lo_sent) * (1 - EXTEND))) {
+          msgs.push(`📉 ${s} new ${label} low ${money(px)} · ${Math.round(pct)}% ${sk === 'post' ? 'vs close' : 'today'}\nSTOP ${s} to mute`);
+          alerts.push({ symbol: s, px, kind: 'lo', move_pct: Math.round(pct * 10) / 10 }); ss.lo_sent = px;
+        }
+      }
     }
+    if (sessUp.length) for (let i = 0; i < sessUp.length; i += 500) await supa.from('fast_session').upsert(sessUp.slice(i, i + 500), { onConflict: 'symbol,d,sess' });
 
     await supa.from('fast_ticks').insert(got.map(s => ({ symbol: s, at: nowIso, px: q[s].px, pct: isFinite(Number(q[s].pct)) ? q[s].pct : null })));
     await supa.from('fast_ticks').delete().lt('at', new Date(now.getTime() - 20 * 60_000).toISOString());
