@@ -3709,9 +3709,10 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
 }
 
 function _wlBuildGroup(sector, tickers, search, customTickers) {
+  // A search always finds the stock: the price range, Penny preset and options filter only apply when the search box is empty.
   const matched = tickers.filter(s => {
-    if (!_wlOptPass(s)) return false;
-    if (!_wlPricePass(s)) return false;
+    if (!search && !_wlOptPass(s)) return false;
+    if (!search && !_wlPricePass(s)) return false;
     if (!search) return true;
     return s.includes(search) || (COMPANY_NAMES[s] || '').toUpperCase().includes(search);
   });
@@ -3720,7 +3721,7 @@ function _wlBuildGroup(sector, tickers, search, customTickers) {
   if (!_wlCtl[secId]) _wlCtl[secId] = { sort: 'default' };
   const ctl = _wlCtl[secId];
   const sorted = _wlSortTickers(secId, matched);
-  const isCollapsed = collapsedSectors.has(sector);
+  const isCollapsed = !search && collapsedSectors.has(sector);
 
   const sortOpts = [
     ['default', 'Sort: Default'],
@@ -3829,10 +3830,10 @@ function _wlSetCombinedSort(val) {
 function _wlBuildCombined(sectorsToRender, search, customTickers) {
   const rows = [];
   Object.entries(sectorsToRender).forEach(([sector, tickers]) => {
-    if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
+    if (!search && currentWlFilter !== 'all' && sector !== currentWlFilter) return;
     tickers.forEach(sym => {
-      if (!_wlOptPass(sym)) return;
-      if (!_wlPricePass(sym)) return;
+      if (!search && !_wlOptPass(sym)) return;
+      if (!search && !_wlPricePass(sym)) return;
       if (search && !(sym.includes(search) || (COMPANY_NAMES[sym] || '').toUpperCase().includes(search))) return;
       rows.push({ sym, sector });
     });
@@ -3886,7 +3887,7 @@ function renderWatchlist() {
   // The catch-all 'Scanner' group always goes last.
   sectorEntries = [...sectorEntries.filter(([sec]) => sec !== 'Scanner'), ...sectorEntries.filter(([sec]) => sec === 'Scanner')];
   sectorEntries.forEach(([sector, tickers]) => {
-    if (currentWlFilter !== 'all' && sector !== currentWlFilter) return;
+    if (!search && currentWlFilter !== 'all' && sector !== currentWlFilter) return;
     const secId = sector.replace(/[^a-z0-9]/gi, '_');
     _wlSectorsCache[secId] = { sector, tickers };
     html += _wlBuildGroup(sector, tickers, search, customTickers);
@@ -7454,7 +7455,12 @@ async function addUserTicker(symbol,sector){
   try{
     const{error}=await supa.from('user_watchlist').insert({symbol:sym,sector:sec});
     if(error){
-      if(String(error.message).includes('duplicate')){alert(sym+' is already in your watchlist');}
+      if(String(error.message).includes('duplicate')){
+        // Already there: show it instead of just saying so (a search ignores the active filters).
+        const s=document.getElementById('wl-search');
+        if(s){s.value=sym;renderWatchlist();setTimeout(()=>document.querySelector('#watchlist-body [data-sym="'+sym+'"]')?.scrollIntoView({block:'center'}),50);}
+        alert(sym+' is already in your watchlist — it is shown now (search: '+sym+')');
+      }
       else{alert('Add failed: '+error.message);}
       return false;
     }
@@ -16859,18 +16865,42 @@ function _spTabBar(tabs) {
   return `<div style="display:flex;gap:0;align-items:center;border-bottom:2px solid var(--border2);background:var(--bg2);">
       ${tabs.map(([k, l]) => { const a = _spTier === k; return `<button onclick="spSetTier('${k}')" style="padding:9px 18px;font-size:11px;font-weight:${a ? 700 : 400};color:${a ? '#00d4ff' : '#6080a0'};background:${a ? 'rgba(0,212,255,0.08)' : 'transparent'};border:none;border-bottom:2px solid ${a ? '#00d4ff' : 'transparent'};margin-bottom:-2px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;white-space:nowrap;">${l}</button>`; }).join('')}
       <span style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:0 12px;">
-        <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;">Compare ticker:</span>
+        <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;">Find:</span>
+        <input id="sp-find" class="wl-price-in" style="width:80px;text-transform:uppercase;" placeholder="ticker" value="${_spEsc(_spFind)}" oninput="spSetFind(this.value)" onkeydown="if(event.key==='Escape'){this.value='';spSetFind('')}"/>
+        <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:10px;">Compare ticker:</span>
         <input id="sp-cmp-input" class="wl-price-in" style="width:80px;text-transform:uppercase;" placeholder="e.g. TSLA" onkeydown="if(event.key==='Enter')spAddCompare()"/>
         <button class="fbtn" onclick="spAddCompare()" title="Add to the list of the tab you are on">+ Add</button>
       </span>
     </div>
     ${_spCmpMsg ? `<div style="padding:6px 16px;font-size:11px;color:var(--amber);">${_spCmpMsg}</div>` : ''}`;
 }
+// Find box: narrows the current tab to tickers / names containing the text; if the exact ticker isn't on this tab,
+// says where it is (other tab) and offers to add it here.
+let _spFind = '';
+function spSetFind(v) {
+  _spFind = String(v || '').trim().toUpperCase().replace(/^\$/, '');
+  _spRender();
+  const el = document.getElementById('sp-find');
+  if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
+}
+const _spFindPass = r => !_spFind || String(r.symbol).includes(_spFind) || String(r.name || '').toUpperCase().includes(_spFind);
+function _spFindNote(shownSyms) {
+  if (!_spFind || !/^[A-Z][A-Z.\-]{0,6}$/.test(_spFind) || shownSyms.includes(_spFind)) return '';
+  const where = [];
+  (_spRows || []).filter(r => r.symbol === _spFind).forEach(r => where.push(r.tier === 'large' ? 'Single Pattern Large (scan)' : 'Single Pattern Penny (scan)'));
+  (_spCmp || []).filter(r => r.symbol === _spFind).forEach(r => where.push(r.list === 'mag7' ? 'MAG 7 + (your list)' : r.list === 'large' ? 'Large (your list)' : 'Penny (your list)'));
+  const listName = _spTier === 'compare' ? 'MAG 7 +' : _spTier === 'large' ? 'Large Stocks' : 'Penny Stocks';
+  return `<div style="margin:6px 0 8px;padding:8px 12px;border:1px solid var(--border2);border-radius:4px;font-size:11.5px;color:#c0c8d4;">
+      <b>${_spFind}</b> is not on this tab${where.length ? ` — it is on: ${[...new Set(where)].join(' · ')}` : ' (no Single Pattern signal and not in your lists)'}.
+      <button class="fbtn" style="margin-left:8px;" onclick="document.getElementById('sp-cmp-input').value='${_spFind}';spAddCompare()">+ Add ${_spFind} to ${listName}</button>
+    </div>`;
+}
 function _spRenderCompare(page, tabs) {
-  const rows = (_spCmp || []).filter(r => (r.list || 'mag7') === 'mag7');
+  const rows = (_spCmp || []).filter(r => (r.list || 'mag7') === 'mag7').filter(_spFindPass);
   page.innerHTML = `${_spTabBar(tabs)}
     <div style="padding:12px 16px;">
       <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Your comparison list, measured on the latest trading day: today's move, the 3 days before, the intraday dip, volume vs the 20-day average, and where it closed in the day's range (100% = at the high). SIGNAL shows a Single Pattern signal from the last 10 trading days (Large rules: 5 straight down days · doji · volume above the 20-day average). Arrows: 5 days before | latest day. ✕ removes a stock; add one with "Compare ticker".</div>
+      ${_spFindNote(rows.map(r => r.symbol))}
       ${_spCompareTable(rows, 'mag7')}
     </div>`;
 }
@@ -16924,7 +16954,7 @@ function _spRender() {
     target: r.signal_date ? r.target : null, last_close: r.close, last_date: r.last_date, since_pct: r.signal_date ? r.since_pct : null,
     status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier }));
   merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
-  const rows = merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
+  const rows = _spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
   const updated = (_spRows || []).reduce((m, r) => (r.computed_at && r.computed_at > m ? r.computed_at : m), '');
   const rules = _spTier === 'large'
@@ -16964,6 +16994,7 @@ function _spRender() {
         <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS} by biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
       <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules: ${rules}.${_spTier === 'large' ? ' NEAR = every rule met except the doji (body 10–50% of the range).' : ''} Entry = signal close (last hour) · Stop = a close below the signal-day low · Target = close + 2× ATR(10 trading days). Arrows: 5 days before | signal day (oldest → newest).</div>
+      ${_spFindNote(rows.map(r => r.symbol))}
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
