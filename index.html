@@ -542,7 +542,8 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
     <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
     <button class="nav-btn" onclick="goPage('rangescan',this)">Range Scan</button>
-    <button class="nav-btn" onclick="goPage('singlepattern',this)">Single Pattern</button>
+    <button class="nav-btn" onclick="spOpenGroup('penny',this)">Single Pattern Penny</button>
+    <button class="nav-btn" onclick="spOpenGroup('large',this)">Single Pattern Large</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -16632,11 +16633,12 @@ async function tosDeleteSnapshot(ticker, snapshotDate, strikeCount, expCount) {
 _tosLoadSnapshots();
 
 // ══ SINGLE PATTERN ════════════════════════════════════════════════════════
-// Reads public.single_pattern (rebuilt after the close by refresh_single_pattern()): signals from the last
-// 10 trading days, best-guess rules pending Matt Monaco's confirmed ones.
+// Two nav tabs on one page: "Single Pattern Penny" (penny list) and "Single Pattern Large" (Large Stocks + MAG 7 +).
+// Reads public.single_pattern (refresh_single_pattern(): 3:15 PM ET and after the close), signals from the last 10 trading days.
 //   PENNY ($0.40–$10): 3 straight down days · candle closes in top 25% of range with a long lower wick · volume > 50-day avg
-//   LARGE ($10+):      down ≥1% over 3 days · intraday dip ≥1% below prior close, closed flat/up · same candle + volume rules
-// Plan: entry = signal close · target = close + 2×ATR(14) · stop = a close below the signal-day low.
+//   LARGE ($10+, has options): 5 straight down days · doji (body ≤ 10% of the day's range, bull or bear) · volume > 20-day avg
+// Plan: entry = signal close (last hour) · target = close + 2×ATR(10 trading days) · stop = a close below the signal-day low.
+// Telegram (sp-alerts): "SINGLE PATTERN PENNY" / "SINGLE PATTERN LARGE" signals + pre-market / after-hours movers.
 const SP_MAX_ROWS = 50;
 let _spRows = null, _spLoading = false, _spTier = 'penny';
 let _spDown = 0;                 // minimum down days among the 5 before the signal (0 = all)
@@ -16786,6 +16788,11 @@ async function initSinglePattern() {
   _spRender();
 }
 function spSetTier(t) { _spTier = t; _spSave(); _spRender(); }
+function spOpenGroup(g, btn) {
+  if (g === 'penny') _spTier = 'penny';
+  else if (_spTier === 'penny') _spTier = 'large';
+  _spSave(); goPage('singlepattern', btn);
+}
 function spSetDown(n) { _spDown = n; _spSave(); _spRender(); }
 function spSetRsi(min, max) {
   const clean = v => (v === '' || v === null || v === undefined || !isFinite(Number(v))) ? null : Math.max(0, Math.min(100, Number(v)));
@@ -16853,7 +16860,7 @@ function _spRenderCompare(page, tabs) {
   const rows = (_spCmp || []).filter(r => (r.list || 'mag7') === 'mag7');
   page.innerHTML = `${_spTabBar(tabs)}
     <div style="padding:12px 16px;">
-      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Your comparison list, measured on the latest trading day: today's move, the 3 days before, the intraday dip, volume vs the 50-day average, and where it closed in the day's range (100% = at the high). SIGNAL shows a Single Pattern signal from the last 10 trading days (rules by price: $10+ uses the Large rules). Arrows: 5 days before | latest day. ✕ removes a stock; add one with "Compare ticker".</div>
+      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Your comparison list, measured on the latest trading day: today's move, the 3 days before, the intraday dip, volume vs the 20-day average, and where it closed in the day's range (100% = at the high). SIGNAL shows a Single Pattern signal from the last 10 trading days (Large rules: 5 straight down days · doji · volume above the 20-day average). Arrows: 5 days before | latest day. ✕ removes a stock; add one with "Compare ticker".</div>
       ${_spCompareTable(rows, 'mag7')}
     </div>`;
 }
@@ -16890,7 +16897,8 @@ function _spCompareTable(rows, list) {
 function _spRender() {
   const page = document.getElementById('page-singlepattern');
   if (!page) return;
-  const tabs = [['penny', 'PENNY STOCKS ($0.40 – $10)'], ['large', 'LARGE STOCKS ($10+)'], ['compare', 'MAG 7 +']];
+  const tabs = _spTier === 'penny' ? [['penny', 'SINGLE PATTERN PENNY · $0.40 – $10']]
+    : [['large', 'LARGE STOCKS · $10+ with options'], ['compare', 'MAG 7 +']];
   if (_spTier === 'compare') return _spRenderCompare(page, tabs);
   const btn = (on, label, click, title) => `<button class="fbtn${on ? ' active' : ''}" onclick="${click}"${title ? ` title="${title}"` : ''}>${label}</button>`;
   const all = _spRows ? _spFiltered(_spTier) : [];
@@ -16910,7 +16918,7 @@ function _spRender() {
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
   const updated = (_spRows || []).reduce((m, r) => (r.computed_at && r.computed_at > m ? r.computed_at : m), '');
   const rules = _spTier === 'large'
-    ? 'Down ≥1% over the 3 days before · dipped ≥1% below the prior close intraday and closed flat or up · close in the top 25% of the day\'s range with a long lower wick · volume above the 50-day average · ≥$5M traded'
+    ? '5 straight down days before · doji candle: body ≤ 10% of the day\'s range (bull or bear) · volume above the 20-day average · ≥$5M traded · stock has listed options'
     : '3 straight down days before · close in the top 25% of the day\'s range with a long lower wick · volume above the 50-day average · ≥$1M traded';
   const th = (t, extra) => `<th style="padding:6px 6px;text-align:${extra || 'right'};font-size:10px;letter-spacing:0.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
   const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
@@ -16945,7 +16953,7 @@ function _spRender() {
         ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
         <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS} by biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
-      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules (best guess, not yet confirmed): ${rules}. Entry = signal close · Stop = a close below the signal-day low · Target = close + 2× ATR(14). Arrows: 5 days before | signal day (oldest → newest).</div>
+      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules: ${rules}. Entry = signal close (last hour) · Stop = a close below the signal-day low · Target = close + 2× ATR(10 trading days). Arrows: 5 days before | signal day (oldest → newest).</div>
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
