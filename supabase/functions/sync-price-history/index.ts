@@ -133,8 +133,20 @@ async function fetchLiveQuote(symbol: string): Promise<{row: any, error?: string
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; StockPulseSync/1.0)' } });
     if (!r.ok) return { row: null, error: `HTTP ${r.status}` };
     const data = await r.json();
-    const meta = data?.chart?.result?.[0]?.meta;
+    const res0 = data?.chart?.result?.[0];
+    const meta = res0?.meta;
     if (!meta) return { row: null, error: 'no_meta' };
+    // The 1m chart meta has no regularMarketOpen, so take today's open / high / low from the regular-session 1m bars
+    // (otherwise open = current price and every intraday candle looks like a doji).
+    const regP = meta.currentTradingPeriod?.regular;
+    const ts1: number[] = res0?.timestamp || []; const q1 = res0?.indicators?.quote?.[0] || {};
+    let barOpen: number | null = null, barHigh = -Infinity, barLow = Infinity;
+    if (regP) for (let i = 0; i < ts1.length; i++) {
+      if (ts1[i] < regP.start || ts1[i] >= regP.end) continue;
+      if (barOpen == null && q1.open?.[i] != null) barOpen = Number(q1.open[i]);
+      if (q1.high?.[i] != null) barHigh = Math.max(barHigh, Number(q1.high[i]));
+      if (q1.low?.[i] != null) barLow = Math.min(barLow, Number(q1.low[i]));
+    }
     const pre = meta.preMarketPrice;
     const reg = meta.regularMarketPrice;
     const prev = meta.previousClose ?? meta.chartPreviousClose;
@@ -145,9 +157,9 @@ async function fetchLiveQuote(symbol: string): Promise<{row: any, error?: string
     if (price == null || !isFinite(price)) return { row: null, error: 'no_price_in_meta' };
     const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
     const trading_date = etNow.toISOString().slice(0, 10);
-    const dayOpen = meta.regularMarketOpen != null ? Number(meta.regularMarketOpen) : price;
-    const dayHigh = meta.regularMarketDayHigh != null ? Number(meta.regularMarketDayHigh) : price;
-    const dayLow  = meta.regularMarketDayLow  != null ? Number(meta.regularMarketDayLow)  : price;
+    const dayOpen = meta.regularMarketOpen != null ? Number(meta.regularMarketOpen) : (barOpen ?? price);
+    const dayHigh = meta.regularMarketDayHigh != null ? Math.max(Number(meta.regularMarketDayHigh), isFinite(barHigh) ? barHigh : -Infinity) : (isFinite(barHigh) ? barHigh : price);
+    const dayLow  = meta.regularMarketDayLow  != null ? Math.min(Number(meta.regularMarketDayLow), isFinite(barLow) ? barLow : Infinity) : (isFinite(barLow) ? barLow : price);
     const dayVol  = meta.regularMarketVolume  != null ? Number(meta.regularMarketVolume)  : null;
     return {
       row: {
