@@ -16774,7 +16774,7 @@ async function spDownloadPdf() {
     const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
     const txt = h => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.replace(/\s+/g, ' ').trim(); };
     const tier = _spTier === 'large' ? 'LARGE' : 'PENNY';
-    const filt = [_spDown ? `down ${_spDown}+` : '', _spCandle ? `candle <= ${_spCandle}%` : '', (_spRsiMin != null || _spRsiMax != null) ? `RSI ${_spRsiMin ?? ''}-${_spRsiMax ?? ''}` : '', _spFind ? `find "${_spFind}"` : ''].filter(Boolean).join(' · ');
+    const filt = [_spDown ? `down ${_spDown}+` : '', _spCandle ? `candle ${_spCandle === 10 ? '0' : SP_CANDLE_BINS[SP_CANDLE_BINS.indexOf(_spCandle) - 1]}-${_spCandle}%` : '', (_spRsiMin != null || _spRsiMax != null) ? `RSI ${_spRsiMin ?? ''}-${_spRsiMax ?? ''}` : '', _spFind ? `find "${_spFind}"` : ''].filter(Boolean).join(' · ');
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     doc.setFontSize(13); doc.text(`Single Pattern ${tier} — ${now} ET${filt ? ' · ' + filt : ''} · ${_spShown.length} stocks`, 30, 30);
     const head = [['Ticker', 'Signal', 'Candle', 'Chg', 'Volume', '10D avg', 'Vol x10D', 'Entry', 'Stop', 'Target', 'Latest', 'Since', 'Status', 'Down', 'RSI', 'News', 'Dilution', 'Options', 'Spread']];
@@ -16911,6 +16911,14 @@ function spOpenGroup(g, btn) {
 }
 function spSetDown(n) { _spDown = n; _spSave(); _spRender(); }
 function spSetCandle(n) { _spCandle = n; _spSave(); _spRender(); }
+// Candle buttons are separate ranges, not "up to": Doji 0–10%, 10–15%, 15–20%, 20–30%, 30–50% of the day's range.
+const SP_CANDLE_BINS = [10, 15, 20, 30, 50];
+function _spCandlePass(r) {
+  if (!_spCandle) return true;
+  if (r.body_pct == null) return false;
+  const b = Number(r.body_pct), i = SP_CANDLE_BINS.indexOf(_spCandle), lo = i > 0 ? SP_CANDLE_BINS[i - 1] : -1;
+  return b > lo && b <= _spCandle;
+}
 function spSetRsi(min, max) {
   const clean = v => (v === '' || v === null || v === undefined || !isFinite(Number(v))) ? null : Math.max(0, Math.min(100, Number(v)));
   _spRsiMin = clean(min); _spRsiMax = clean(max); _spSave(); _spRender();
@@ -16923,7 +16931,7 @@ function _spRsiInput() {
 function _spFiltered(tier) {
   return (_spRows || []).filter(r => r.tier === tier)
     .filter(r => !_spDown || (r.down5 ?? 0) >= _spDown)
-    .filter(r => !_spCandle || (r.body_pct != null && Number(r.body_pct) <= _spCandle))
+    .filter(_spCandlePass)
     .filter(r => {
       if (_spRsiMin === null && _spRsiMax === null) return true;
       const v = r.rsi_signal == null ? null : Number(r.rsi_signal);
@@ -17087,9 +17095,9 @@ function _spRender() {
     day_chg_pct: r.day_chg_pct, vol_x: r.vol_x, close: r.signal_date ? r.entry : null, stop: r.signal_date ? r.stop : null,
     target: r.signal_date ? r.target : null, last_close: r.close, last_date: r.last_date, since_pct: r.signal_date ? r.since_pct : null,
     status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier,
-    lvl_date: r.lvl_date, lvl_entry: r.lvl_entry, lvl_stop: r.lvl_stop, lvl_target: r.lvl_target }));
+    lvl_date: r.lvl_date, lvl_entry: r.lvl_entry, lvl_stop: r.lvl_stop, lvl_target: r.lvl_target, body_pct: r.body_pct }));
   merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
-  const rows = _spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
+  const rows = (_spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added)).filter(_spCandlePass);
   rows.forEach(r => { _spPopRows[r.symbol] = r; });
   _spShown = rows;
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
@@ -17129,7 +17137,7 @@ function _spRender() {
         <input type="number" id="sp-rsi-max" class="wl-price-in" min="0" max="100" step="1" placeholder="max" value="${_spRsiMax ?? ''}" oninput="_spRsiInput()"/>
         ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
         <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:14px;">Candle:</span>
-        ${btn(_spCandle === 0, 'All', 'spSetCandle(0)')}${[10, 15, 20, 30, 50].map(n => btn(_spCandle === n, n === 10 ? 'Doji ≤10%' : '≤' + n + '%', `spSetCandle(${n})`, 'Candle body as % of the day\'s range')).join('')}
+        ${btn(_spCandle === 0, 'All', 'spSetCandle(0)')}${SP_CANDLE_BINS.map((n, i) => btn(_spCandle === n, n === 10 ? 'Doji ≤10%' : `${SP_CANDLE_BINS[i - 1]}–${n}%`, `spSetCandle(${n})`, 'Only candles with a body in this range (% of the day\'s range)')).join('')}
         <button class="fbtn" onclick="spDownloadPdf()" title="Download this list as a PDF (current tab and filters)" style="margin-left:14px;">⬇ PDF</button>
         <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS} by biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
