@@ -16840,10 +16840,20 @@ function _spRsi10(r) {
     return String(x.d).slice(0, 10) === sig ? `<b style="text-decoration:underline;">${t}</b>` : t;
   }).join(' ');
 }
+// Target hit / Stop hit carry the date; Working = signal today or the day before; Open shows the best move since the signal.
 function _spStatus(r) {
   const map = { 'working': ['var(--green)', 'Working'], 'open': ['#c0c8d4', 'Open'], 'stop hit': ['var(--red)', 'Stop hit'], 'target hit': ['#00d4ff', 'Target hit'] };
   const [c, t] = map[r.status] || ['#8090a0', r.status || '—'];
-  return `<span style="color:${c};font-weight:600;">${t}</span>`;
+  const when = r.status === 'target hit' && r.target_date ? ' ' + _spDate(r.target_date) : r.status === 'stop hit' && r.stop_date ? ' ' + _spDate(r.stop_date) : '';
+  const best = (r.status === 'open' || r.status === 'working') && r.best_pct != null && r.best_date
+    ? `<div style="font-size:9.5px;color:#8090a0;font-weight:400;">best ${Number(r.best_pct) >= 0 ? '+' : ''}${Number(r.best_pct).toFixed(1)}% on ${_spDate(r.best_date)}</div>` : '';
+  return `<span style="color:${c};font-weight:600;">${t}${when}</span>${best}`;
+}
+// Large: NEAR = every rule except the doji (body 10–50% of the range). Shows the candle body % for Large signals.
+function _spBody(r) {
+  if (r.body_pct == null || _spTier === 'penny') return '';
+  return r.near ? `<div style="font-size:9.5px;font-weight:700;color:var(--amber);" title="Every Large rule met except the doji (rule: body ≤ 10% of the day's range)">NEAR · body ${Math.round(r.body_pct)}%</div>`
+                : `<div style="font-size:9.5px;color:#8090a0;" title="Candle body as % of the day's range (rule ≤ 10%)">body ${Number(r.body_pct).toFixed(1)}%</div>`;
 }
 function _spTabBar(tabs) {
   return `<div style="display:flex;gap:0;align-items:center;border-bottom:2px solid var(--border2);background:var(--bg2);">
@@ -16912,7 +16922,7 @@ function _spRender() {
     symbol: r.symbol, name: r.name, sector: r.sector, signal_date: r.signal_date, prior3d_pct: r.prior3d_pct, dip_pct: r.dip_pct,
     day_chg_pct: r.day_chg_pct, vol_x: r.vol_x, close: r.signal_date ? r.entry : null, stop: r.signal_date ? r.stop : null,
     target: r.signal_date ? r.target : null, last_close: r.close, last_date: r.last_date, since_pct: r.signal_date ? r.since_pct : null,
-    status: r.signal_date ? r.status : null, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier }));
+    status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier }));
   merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
   const rows = merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
@@ -16927,7 +16937,7 @@ function _spRender() {
       ${td(_spSector(r), 'left')}
       ${td(_spNewsBadge(r.symbol, 'scan:' + r.symbol), 'left')}
       ${td(_spVolCell(r.symbol, 0))}${td(_spVolCell(r.symbol, 1))}${td(_spVolCell(r.symbol, 2))}
-      ${td(r.signal_date ? _spDate(r.signal_date, true) : '<span style="color:#8090a0;">no signal</span>', 'left')}
+      ${td(r.signal_date ? _spDate(r.signal_date, true) + _spBody(r) : '<span style="color:#8090a0;">no signal</span>', 'left')}
       ${td(_spPct(r.prior3d_pct))}
       ${_spTier === 'large' ? td(_spPct(r.dip_pct)) + td(_spPct(r.day_chg_pct)) : ''}
       ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
@@ -16953,7 +16963,7 @@ function _spRender() {
         ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
         <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS} by biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
-      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules: ${rules}. Entry = signal close (last hour) · Stop = a close below the signal-day low · Target = close + 2× ATR(10 trading days). Arrows: 5 days before | signal day (oldest → newest).</div>
+      <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules: ${rules}.${_spTier === 'large' ? ' NEAR = every rule met except the doji (body 10–50% of the range).' : ''} Entry = signal close (last hour) · Stop = a close below the signal-day low · Target = close + 2× ATR(10 trading days). Arrows: 5 days before | signal day (oldest → newest).</div>
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>

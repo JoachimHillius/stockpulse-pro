@@ -4,6 +4,7 @@
 //  mode "ext":     pre-market (4:00–9:30 AM ET) and after-hours (4:00–8:00 PM ET) movers among the Single Pattern stocks:
 //                  signals, your added lists, and stocks close to the setup (sp_watch_universe()). Alert when the move vs the
 //                  prior close reaches ±3% / 6% / 10% (Large) or ±10% / 20% / 40% (Penny), with extended-hours volume.
+//  Large alerts show the candle body % (rule ≤ 10%); NEAR = every Large rule met except the doji (body 10–50%).
 //  mode "test":    body.symbol (+ body.tier) — send one alert for an existing signal, marked TEST.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -45,14 +46,26 @@ async function ctx(supa: any, syms: string[]) {
   return (s: string) => `News: ${news[s] || 'not checked'} · Dilution: ${dil[s] || 'not checked'}`;
 }
 
+function statusLine(r: any) {
+  if (r.status === 'target hit') return `Status: Target hit ${r.target_date ? mdy(r.target_date) : ''} ✅`;
+  if (r.status === 'stop hit') return `Status: Stop hit ${r.stop_date ? mdy(r.stop_date) : ''} ❌`;
+  const now = r.since_pct == null ? '' : ` · now ${Number(r.since_pct) >= 0 ? '+' : ''}${r.since_pct}%`;
+  const best = r.best_pct == null ? '' : ` · best ${Number(r.best_pct) >= 0 ? '+' : ''}${r.best_pct}% on ${mdy(r.best_date)}`;
+  return `Status: ${r.status === 'working' ? 'Working (new signal)' : 'Open'}${now}${best}`;
+}
+function candleLine(r: any) {
+  if (r.tier !== 'large' || r.body_pct == null) return null;
+  return r.near ? `⚠️ NEAR — candle body ${Math.round(r.body_pct)}% of the day's range (rule ≤ 10%) · all other rules met`
+                : `Candle body ${Number(r.body_pct).toFixed(1)}% of the day's range (rule ≤ 10%) ✅`;
+}
 function signalText(r: any, note: string, nd: (s: string) => string) {
-  return [head(r.tier), `$${r.symbol}${r.name ? ' · ' + String(r.name).split(' - ')[0].slice(0, 40) : ''}`,
-    `Signal ${mdy(r.signal_date)} — ${note}`,
+  return [head(r.tier) + (r.near ? ' · NEAR' : ''), `$${r.symbol}${r.name ? ' · ' + String(r.name).split(' - ')[0].slice(0, 40) : ''}`,
+    `Signal ${mdy(r.signal_date)} — ${note}`, candleLine(r),
     `Entry (close) ${money(r.close)} · Target ${money(r.target)} (2× ATR10) · Stop: close below ${money(r.stop)}`,
     `Volume ${fvol(r.dollar_vol / r.close)} = ${Number(r.vol_x).toFixed(1)}× ${r.tier === 'large' ? '20' : '50'}-day avg`,
     `Days ${arrows(r.updown)} · RSI ${r.rsi_signal == null ? '—' : Math.round(r.rsi_signal)}`,
-    `Latest ${money(r.last_close)} (${mdy(r.last_date)}) · ${r.status}`,
-    nd(r.symbol)].join('\n');
+    `Latest ${money(r.last_close)} (${mdy(r.last_date)})`, statusLine(r),
+    nd(r.symbol)].filter(Boolean).join('\n');
 }
 
 async function flush(supa: any) {
@@ -81,7 +94,8 @@ Deno.serve(async (req: Request) => {
     if (mode === 'signals') {
       const { data: rows } = await supa.from('single_pattern').select('*').order('vol_x', { ascending: false });
       const latest = (rows || []).reduce((m: string, r: any) => r.last_date > m ? r.last_date : m, '');
-      const today = (rows || []).filter((r: any) => r.signal_date === latest);
+      const todayAll = (rows || []).filter((r: any) => r.signal_date === latest);
+      const today = [...todayAll.filter((r: any) => !r.near), ...todayAll.filter((r: any) => r.near).slice(0, 10)];
       const keys = today.flatMap((r: any) => [`sig:${r.tier}:${r.symbol}:${r.signal_date}`, `sigc:${r.tier}:${r.symbol}:${r.signal_date}`]);
       const { data: sent } = keys.length ? await supa.from('sp_alert_log').select('key').in('key', keys) : { data: [] };
       const have = new Set((sent || []).map((x: any) => x.key));
@@ -93,7 +107,7 @@ Deno.serve(async (req: Request) => {
           out.push(signalText(r, closed ? 'confirmed at close ✅' : 'forming today ⏳ candle not final — last-hour entry', nd));
           logKeys.push(k); if (closed) logKeys.push(kc);
         } else if (closed && !have.has(kc)) {
-          out.push(`${head(r.tier)}\n$${r.symbol} ✅ confirmed at close ${mdy(r.signal_date)} · entry ${money(r.close)} · target ${money(r.target)} · stop: close below ${money(r.stop)}`);
+          out.push(`${head(r.tier)}${r.near ? ' · NEAR' : ''}\n$${r.symbol} ✅ confirmed at close ${mdy(r.signal_date)} · entry ${money(r.close)} · target ${money(r.target)} · stop: close below ${money(r.stop)}`);
           logKeys.push(kc);
         }
       }
@@ -151,7 +165,8 @@ Deno.serve(async (req: Request) => {
           if (per) xv = ts.reduce((sum, t, i) => (t >= per.start && t < per.end ? sum + (vol[i] || 0) : sum), 0);
         } catch (_) { /**/ }
         const u = h.u;
-        const status = u.kind === 'signal' ? `Signal ${mdy(u.signal_date)} · entry ${money(u.entry)} · target ${money(u.target)} · stop: close below ${money(u.stop)}`
+        const status = u.kind === 'near' ? `NEAR signal ${mdy(u.signal_date)} (candle body over 10%) · entry ${money(u.entry)} · target ${money(u.target)} · stop: close below ${money(u.stop)}`
+          : u.kind === 'signal' ? `Signal ${mdy(u.signal_date)} · entry ${money(u.entry)} · target ${money(u.target)} · stop: close below ${money(u.stop)}`
           : u.kind === 'added' ? 'Your added stock'
           : `Setting up: ${u.streak} down days in a row (${u.tier === 'large' ? '5' : '3'} needed, then the candle)`;
         const volLine = xv == null ? `${sess === 'pre' ? 'Pre-market' : 'After-hours'} volume: n/a`
