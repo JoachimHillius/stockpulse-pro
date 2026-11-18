@@ -16826,9 +16826,26 @@ function _spDate(iso, withDay) {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return (withDay ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getUTCDay()] + ' ' : '') + `${m}/${d}`;
 }
+// SECTOR cell = a dropdown (same manual override as the Watchlist, public.sector_override): pick a sector, "Other…" to type
+// one, or "Reset to default" to drop the override. The change shows everywhere (Watchlist, both Single Pattern tabs, alerts).
 function _spSector(r) {
-  const sec = (typeof _sectorOverride !== 'undefined' && _sectorOverride[r.symbol]) || r.sector || '';
-  return sec ? `<span style="font-size:10.5px;color:#c0c8d4;">${String(sec).replace(/</g, '&lt;')}</span>` : '<span style="color:#8090a0;">—</span>';
+  const esc = t => String(t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const ov = typeof _sectorOverride !== 'undefined' ? _sectorOverride[r.symbol] : null;
+  const sec = ov || r.sector || '';
+  const base = typeof WATCHLIST !== 'undefined' ? Object.keys(WATCHLIST) : [];
+  const names = [...new Set([...base, ...(typeof _wlSectorNames !== 'undefined' ? _wlSectorNames : []), sec])]
+    .filter(n => n && n !== 'Custom' && n !== 'Scanner').sort();
+  const opts = (sec ? '' : '<option value="" selected>— pick —</option>')
+    + names.map(n => `<option value="${esc(n)}"${n === sec ? ' selected' : ''}>${esc(n)}</option>`).join('')
+    + '<option value="__other__">Other…</option>' + (ov ? '<option value="__reset__">Reset to default</option>' : '');
+  return `<select onclick="event.stopPropagation()" onchange="spSetSector('${r.symbol}',this)" title="${esc(sec || 'no sector')}${ov ? ' (manual override)' : ''} — click to change"
+    style="max-width:120px;background:var(--bg3);border:1px solid ${ov ? '#00d4ff' : 'var(--border2)'};border-radius:3px;color:#c0c8d4;padding:1px 3px;font-size:10px;font-family:var(--font);cursor:pointer;">${opts}</select>`;
+}
+async function spSetSector(sym, el) {
+  el.blur();
+  if (!el.value) return;
+  await setSectorOverrideFromRow(sym, el);
+  _spRender();
 }
 function _spMoney(v) { if (v == null) return '—'; const n = Number(v); return '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2)); }
 function _spPct(v) { if (v == null) return '—'; const n = Number(v); return `<span class="${n >= 0 ? 'pct-pos' : 'pct-neg'}">${n >= 0 ? '+' : ''}${n.toFixed(1)}%</span>`; }
