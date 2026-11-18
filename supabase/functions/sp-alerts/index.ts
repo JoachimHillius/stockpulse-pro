@@ -188,12 +188,12 @@ async function sendPdf(name: string, caption: string, pdf: Uint8Array): Promise<
   if (!token || !chat) return 'missing Telegram secrets';
   const fd = new FormData();
   fd.append('chat_id', chat); fd.append('caption', caption.slice(0, 1000));
-  fd.append('document', new Blob([pdf], { type: 'application/pdf' }), name);
+  fd.append('document', new Blob([pdf as unknown as BlobPart], { type: 'application/pdf' }), name);
   try {
     const r = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: fd, signal: AbortSignal.timeout(30_000) });
     const j = await r.json().catch(() => ({}));
     return r.ok && j?.ok ? null : `telegram ${r.status}`;
-  } catch (e) { return String(e); }
+  } catch (e) { return String(e).split(token).join('***'); }   // never let the bot token reach a response
 }
 
 function rowFromSignal(r: any, status: string, nd: any) {
@@ -232,7 +232,7 @@ Deno.serve(async (req: Request) => {
       const R = (data || []).filter((r: any) => !r.near).concat((data || []).filter((r: any) => r.near).slice(0, 10));
       const nd = await ctx(supa, R.map((r: any) => r.symbol));
       const tr = R.map((r: any) => rowFromSignal(r, (r.near ? 'NEAR ' : '') + 'Signal ' + mdy(r.signal_date) + ' - ' + r.status, nd));
-      const err = await sendPdf(`single-pattern-sample-${et.date}.pdf`, `🧪 Sample PDF · current Single Pattern signals · Penny ${tr.filter(r => r.tier === 'penny').length} · Large ${tr.filter(r => r.tier === 'large').length}`,
+      const err = await sendPdf(`single-pattern-sample-${et.date}.pdf`, `🧪 Sample PDF · current Single Pattern signals · Penny ${tr.filter((r: any) => r.tier === 'penny').length} · Large ${tr.filter((r: any) => r.tier === 'large').length}`,
         makePdf(`Single Pattern - current signals (sample) - ${et.date}`, tr));
       return Response.json({ mode, rows: tr.length, pdf: err || 'sent' });
     }
