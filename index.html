@@ -706,9 +706,10 @@ select option{background:var(--bg2);}
   <div class="wl-sticky" id="wl-sticky">
   <!-- Top controls row -->
   <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+    <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;">Find:</span>
     <span style="position:relative;display:inline-flex;align-items:center;">
-      <input type="text" id="wl-search" placeholder="Search symbol or name..." style="width:180px;padding-right:22px;" oninput="renderWatchlist()" onkeydown="if(event.key==='Escape')_wlClearSearch(event)"/>
-      <button id="wl-search-clear" type="button" onclick="_wlClearSearch(event)" title="Clear search (Esc)" style="display:none;position:absolute;right:3px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#8090a0;cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;">✕</button>
+      <input type="text" id="wl-search" placeholder="ticker or name" style="width:150px;padding-right:26px;text-transform:uppercase;" oninput="renderWatchlist()" onkeydown="if(event.key==='Escape')_wlClearSearch(event)"/>
+      <button id="wl-search-clear" type="button" onclick="_wlClearSearch(event)" title="Clear (Esc)" style="display:none;position:absolute;right:3px;top:50%;transform:translateY(-50%);background:rgba(255,80,80,0.15);border:1px solid var(--red);border-radius:3px;color:var(--red);cursor:pointer;font-size:12px;font-weight:700;line-height:1;padding:2px 5px;">✕</button>
     </span>
     <div class="filter-row" style="margin:0;">
       <button class="fbtn active" onclick="setWlFilter('all',this)">All</button>
@@ -16866,7 +16867,10 @@ function _spTabBar(tabs) {
       ${tabs.map(([k, l]) => { const a = _spTier === k; return `<button onclick="spSetTier('${k}')" style="padding:9px 18px;font-size:11px;font-weight:${a ? 700 : 400};color:${a ? '#00d4ff' : '#6080a0'};background:${a ? 'rgba(0,212,255,0.08)' : 'transparent'};border:none;border-bottom:2px solid ${a ? '#00d4ff' : 'transparent'};margin-bottom:-2px;cursor:pointer;font-family:var(--font);letter-spacing:0.5px;white-space:nowrap;">${l}</button>`; }).join('')}
       <span style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:0 12px;">
         <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;">Find:</span>
-        <input id="sp-find" class="wl-price-in" style="width:80px;text-transform:uppercase;" placeholder="ticker" value="${_spEsc(_spFind)}" oninput="spSetFind(this.value)" onkeydown="if(event.key==='Escape'){this.value='';spSetFind('')}"/>
+        <span style="position:relative;display:inline-flex;align-items:center;">
+          <input id="sp-find" class="wl-price-in" style="width:90px;padding-right:24px;text-transform:uppercase;" placeholder="ticker" value="${_spEsc(_spFind)}" oninput="spSetFind(this.value)" onkeydown="if(event.key==='Escape'){this.value='';spSetFind('')}"/>
+          ${_spFind ? `<button type="button" onclick="spSetFind('')" title="Clear (Esc)" style="position:absolute;right:3px;top:50%;transform:translateY(-50%);background:rgba(255,80,80,0.15);border:1px solid var(--red);border-radius:3px;color:var(--red);cursor:pointer;font-size:12px;font-weight:700;line-height:1;padding:1px 5px;">✕</button>` : ''}
+        </span>
         <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:10px;">Compare ticker:</span>
         <input id="sp-cmp-input" class="wl-price-in" style="width:80px;text-transform:uppercase;" placeholder="e.g. TSLA" onkeydown="if(event.key==='Enter')spAddCompare()"/>
         <button class="fbtn" onclick="spAddCompare()" title="Add to the list of the tab you are on">+ Add</button>
