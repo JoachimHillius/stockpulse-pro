@@ -6968,7 +6968,8 @@ function showHoverPopup(sym, triggerEl){
 
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
-  content.innerHTML = buildBreakoutPanel(sym) + html + buildLevelPanel(sym);
+  const spPanel = (typeof _spPopPanel === 'function') ? _spPopPanel(sym) : '';   // Single Pattern rows only
+  content.innerHTML = spPanel + buildBreakoutPanel(sym) + html + buildLevelPanel(sym);
   fetchAndRenderTrend(sym);
 
   // FIXED lower-right corner — never tracks the hovered row
@@ -16743,6 +16744,36 @@ function _spSprCell(sym) {
     ` · volume ${Number(x.vol || 0).toLocaleString()} · open interest ${Number(x.oi || 0).toLocaleString()} · checked ${_spWhen(x.checked_at)} ET · green ≤10%, yellow 10–20%, red >20%`;
   return `<b style="color:${c};" title="${_spEsc(tip)}">${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%</b><div style="font-size:9.5px;color:#8090a0;">$${Number(x.spread).toFixed(2)} · ${m}/${d} $${ks}C</div>`;
 }
+// Click a Single Pattern row → the stock pop-up opens with a SINGLE PATTERN box on top:
+// entry / stop / target (+ signal date and status) and the options spread. These are not columns on the sheet.
+const _spPopRows = {};
+let _spPopNext = null;
+function spPopup(sym, el) { _spPopNext = sym; showHoverPopup(sym, el); }
+function _spPopPanel(sym) {
+  const mine = _spPopNext === sym; _spPopNext = null;
+  if (!mine) return '';
+  const r = _spPopRows[sym] || {};
+  const box = (label, val, c, sub) => `<div style="flex:1;min-width:92px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:6px 8px;">
+      <div style="font-size:9px;letter-spacing:1px;color:#8090a0;">${label}</div><div style="font-size:14px;font-weight:700;color:${c || 'var(--text)'};">${val}</div>${sub ? `<div style="font-size:9.5px;color:#8090a0;">${sub}</div>` : ''}</div>`;
+  const trade = r.signal_date
+    ? `<div style="font-size:10.5px;color:#c0c8d4;margin-bottom:6px;">Signal ${_spDate(r.signal_date, true)} · ${_spStatus(r)}</div>
+       <div style="display:flex;gap:6px;flex-wrap:wrap;">${box('ENTRY', _spMoney(r.close), '', 'signal close')}${box('STOP', _spMoney(r.stop), 'var(--red)', 'close below')}${box('TARGET', _spMoney(r.target), 'var(--green)', '2× ATR(10)')}</div>`
+    : '<div style="font-size:11px;color:#8090a0;">No signal in the last 10 trading days — no entry / stop / target yet.</div>';
+  const x = _spSpr[sym];
+  let spr;
+  if (!x) spr = '<span style="color:#8090a0;">Spread not checked yet — fills in every 15 minutes during market hours.</span>';
+  else if (x.status === 'none') spr = '<span style="color:#8090a0;">No listed options.</span>';
+  else if (x.status !== 'ok') spr = `<span style="color:#8090a0;">No live bid/ask (checked ${_spWhen(x.checked_at)} ET).</span>`;
+  else {
+    const pct = Number(x.pct), c = pct <= 10 ? 'var(--green)' : pct <= 20 ? 'var(--amber)' : 'var(--red)';
+    const [, m, d] = String(x.expiry).slice(0, 10).split('-').map(Number), k = Number(x.strike);
+    spr = `<div style="display:flex;gap:6px;flex-wrap:wrap;">${box('SPREAD', `${pct.toFixed(1)}%`, c, pct <= 10 ? 'tight' : pct <= 20 ? 'OK' : 'too wide')}${box('BID / ASK', `${Number(x.bid).toFixed(2)} / ${Number(x.ask).toFixed(2)}`, '', `$${Number(x.spread).toFixed(2)} wide`)}${box('CONTRACT', `${m}/${d} $${Number.isInteger(k) ? k : k.toFixed(2)}C`, '', `vol ${Number(x.vol || 0).toLocaleString()} · OI ${Number(x.oi || 0).toLocaleString()}`)}</div>
+      <div style="font-size:9.5px;color:#8090a0;margin-top:4px;">At-the-money call, first expiry 5+ days out · checked ${_spWhen(x.checked_at)} ET · green ≤10%, yellow 10–20%, red >20%</div>`;
+  }
+  return `<div style="padding:10px 12px;border-bottom:1px solid var(--border2);">
+      <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin-bottom:6px;">SINGLE PATTERN · TRADE</div>${trade}
+      <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin:10px 0 6px;">OPTIONS SPREAD</div>${spr}</div>`;
+}
 function spToggleNews(key, ev) { if (ev) ev.stopPropagation(); _spNewsOpen = _spNewsOpen === key ? '' : key; _spRender(); }
 const _spWhen = t => t ? new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
 const _spLink = (url, text) => /^https?:\/\//.test(url || '') ? `<a href="${_spEsc(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--text);text-decoration:none;">${_spEsc(text)} ↗</a>` : _spEsc(text);
@@ -16958,30 +16989,30 @@ function _spCompareTable(rows, list) {
   const sig = r => r.today_signal ? '<b style="color:#00d4ff;">✓ Today</b>'
     : r.signal_date ? `${_spDate(r.signal_date, true)}<div style="font-size:9.5px;">${_spStatus(r)}</div>` : '<span style="color:#8090a0;">—</span>';
   rows = rows.slice().sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
-  const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
+  rows.forEach(r => { _spPopRows[r.symbol] = Object.assign({}, r, { close: r.signal_date ? r.entry : r.close }); });
+  const body = rows.map(r => `<tr onclick="spPopup('${r.symbol}',this)" style="cursor:pointer;">
       ${td(`<span style="display:flex;align-items:center;gap:8px;"><button onclick="spRemoveCompare('${r.symbol}','${list}',event)" title="Remove ${r.symbol}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;">✕</button><span><b style="color:var(--text);">${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
       ${td(_spSector(r), 'left')}
       ${td(_spNewsBadge(r.symbol, list + ':' + r.symbol), 'left')}
       ${td(_spOptCell(r.symbol), 'left')}
-      ${td(_spSprCell(r.symbol), 'left')}
       ${td(_spVolCell(r.symbol, 0))}${td(_spVolCell(r.symbol, 1))}${td(_spVolCell(r.symbol, 2))}
       ${td(r.close == null ? '<span style="color:#8090a0;">no data yet</span>' : _spMoney(r.close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
       ${td(_spPct(r.day_chg_pct))}${td(_spPct(r.prior3d_pct))}${td(_spPct(r.dip_pct))}
       ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
       ${td(r.close_pos == null ? '—' : r.close_pos + '%', 'center')}
       ${td(sig(r), 'left')}
-      ${td(r.signal_date ? _spMoney(r.entry) : '—')}${td(r.signal_date ? _spMoney(r.stop) : '—')}${td(r.signal_date ? _spMoney(r.target) : '—')}${td(r.signal_date ? _spPct(r.since_pct) : '—')}
+      ${td(r.signal_date ? _spPct(r.since_pct) : '—')}
       ${td(`<span style="font-size:13px;letter-spacing:1px;">${_spArrows(r.updown)}</span>`, 'center')}
       ${td(r.down5 == null ? '—' : `${r.down5}/5`, 'center')}
       ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
       ${td(`<span style="font-size:10.5px;">${_spRsi10({ rsi10: r.rsi10, signal_date: r.signal_date || '' })}</span>`, 'left')}
-    </tr>${_spNewsRow(r.symbol, list + ':' + r.symbol, 23)}`).join('');
+    </tr>${_spNewsRow(r.symbol, list + ':' + r.symbol, 18)}`).join('');
   return `<div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('SPREAD', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('LATEST')}${th('DAY')}${th('PRIOR 3D')}${th('DIP')}${th('VOL ×AVG')}${th('CLOSE IN RANGE', 'center')}${th('SIGNAL (10D)', 'left')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('SINCE')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('LATEST')}${th('DAY')}${th('PRIOR 3D')}${th('DIP')}${th('VOL ×AVG')}${th('CLOSE IN RANGE', 'center')}${th('SIGNAL (10D)', 'left')}${th('SINCE')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="23" style="padding:24px;text-align:center;color:#8090a0;">${_spCmpLoading ? 'Loading…' : 'No stocks in the list — add one with "Compare ticker"'}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="19" style="padding:24px;text-align:center;color:#8090a0;">${_spCmpLoading ? 'Loading…' : 'No stocks in the list — add one with "Compare ticker"'}</td></tr>`}</tbody>
       </table></div>`;
 }
 function _spRender() {
@@ -17005,6 +17036,7 @@ function _spRender() {
     status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier }));
   merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
   const rows = _spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
+  rows.forEach(r => { _spPopRows[r.symbol] = r; });
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
   const updated = (_spRows || []).reduce((m, r) => (r.computed_at && r.computed_at > m ? r.computed_at : m), '');
   const rules = _spTier === 'large'
@@ -17012,18 +17044,16 @@ function _spRender() {
     : '3 straight down days before · close in the top 25% of the day\'s range with a long lower wick · volume above the 50-day average · ≥$1M traded';
   const th = (t, extra) => `<th style="padding:6px 6px;text-align:${extra || 'right'};font-size:10px;letter-spacing:0.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
   const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
-  const body = rows.map(r => `<tr onclick="showHoverPopup('${r.symbol}',this)" style="cursor:pointer;">
+  const body = rows.map(r => `<tr onclick="spPopup('${r.symbol}',this)" style="cursor:pointer;">
       ${td(`<span style="display:flex;align-items:center;gap:6px;">${r._added ? `<button onclick="spRemoveCompare('${r.symbol}','${r._added}',event)" title="Remove ${r.symbol} from your added stocks" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;padding:0;">✕</button>` : ''}<span><b style="color:var(--text);">${r._added ? '<span style="color:var(--amber);" title="Your added stock">★</span> ' : ''}${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
       ${td(_spSector(r), 'left')}
       ${td(_spNewsBadge(r.symbol, 'scan:' + r.symbol), 'left')}
       ${td(_spOptCell(r.symbol), 'left')}
-      ${td(_spSprCell(r.symbol), 'left')}
       ${td(_spVolCell(r.symbol, 0))}${td(_spVolCell(r.symbol, 1))}${td(_spVolCell(r.symbol, 2))}
       ${td(r.signal_date ? _spDate(r.signal_date, true) + _spBody(r) : '<span style="color:#8090a0;">no signal</span>', 'left')}
       ${td(_spPct(r.prior3d_pct))}
       ${_spTier === 'large' ? td(_spPct(r.dip_pct)) + td(_spPct(r.day_chg_pct)) : ''}
       ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
-      ${td(_spMoney(r.close))}${td(_spMoney(r.stop))}${td(_spMoney(r.target))}
       ${td(_spMoney(r.last_close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
       ${td(_spPct(r.since_pct))}
       ${td(_spStatus(r), 'left')}
@@ -17031,7 +17061,7 @@ function _spRender() {
       ${td(`${r.down5 ?? '—'}/5`, 'center')}
       ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
       ${td(`<span style="font-size:10.5px;">${_spRsi10(r)}</span>`, 'left')}
-    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 23 : 21)}`).join('');
+    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 19 : 17)}`).join('');
   page.innerHTML = `
     ${_spTabBar(tabs)}
     <div style="padding:12px 16px;">
@@ -17050,9 +17080,9 @@ function _spRender() {
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('SPREAD', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL ×AVG')}${th('ENTRY')}${th('STOP')}${th('TARGET')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL ×AVG')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="23" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="19" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
       </table></div>
       <div style="margin-top:10px;font-size:10.5px;color:#8090a0;">★ = your added stock (always shown, ✕ removes it) — add one with "Compare ticker". Volume: <span style="color:var(--green);">green ≥ 1M</span> · <span style="color:var(--amber);">yellow ≥ 500K</span> · gray below. NEWS: green good · red bad · yellow check · gray none. DILUTION: red risk (SEC offering/shelf filings) · green buyback · gray none.</div>
     </div>`;
