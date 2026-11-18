@@ -6957,7 +6957,7 @@ function showHoverPopup(sym, triggerEl){
       const popup = document.getElementById('hover-popup');
       if(!popup || popup.style.display === 'none') return;
       if(popup.contains(ev.target)) return;
-      const opener = ev.target.closest('[onclick*="showHoverPopup"]');
+      const opener = ev.target.closest('[onclick*="showHoverPopup"],[onclick*="spPopup"]');   // Single Pattern rows open it via spPopup
       if(opener) return;
       hideHoverPopup();
     });
