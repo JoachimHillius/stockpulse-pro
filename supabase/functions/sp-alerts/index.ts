@@ -10,9 +10,13 @@
 //  Large alerts show the candle body % (rule ≤ 10%); NEAR = every Large rule met except the doji: body up to 30% on a red
 //  candle, 20% on a green one, and not up 3%+ on the day. Stocks with a signal the day before are follow-throughs, not setups.
 //  Every alert shows Options flow (last date in your Options Flow uploads + contracts that day, or none).
-//  More than 5 alerts in one run: the first 5 go out as messages, then one "📎 +N more" message and a PDF with ALL
-//  alerts of that run (Telegram sendDocument, TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secrets).
+//  Every run with alerts also sends a PDF with ALL alerts of that run. More than 5: only the first 5 go out as messages,
+//  then one "📎 +N more" message (Telegram sendDocument, TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secrets).
 //  mode "test":    body.symbol (+ body.tier) — send one alert for an existing signal, marked TEST.
+//  mode "spread":  options bid-ask spread → public.sp_opt_spread, every 15 min in market hours (body.symbols, or signals +
+//                  NEAR + your added stocks + today's live hits). Contract = ATM call (strike nearest the price), first
+//                  expiry 5+ days out. Spread = ask − bid, % of the mid: green ≤ 10%, yellow 10–20%, red > 20% (too wide).
+//                  No live bid/ask (outside market hours) → the last good value is kept. Live + signals runs refresh first.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -31,6 +35,56 @@ async function yahooSession(): Promise<{ cookie: string; crumb: string } | null>
   } catch (_) { return null; }
 }
 
+async function refreshSpreads(supa: any, symsIn: string[], ysIn: { cookie: string; crumb: string } | null = null): Promise<{ ok: number; other: number }> {
+  const syms = [...new Set(symsIn.filter(Boolean))];
+  const res = { ok: 0, other: 0 };
+  if (!syms.length) return res;
+  const ys = ysIn || await yahooSession();
+  if (!ys) return res;
+  const [{ data: optRows }, { data: prevRows }] = await Promise.all([
+    supa.from('optionable_symbols').select('symbol').in('symbol', syms),
+    supa.from('sp_opt_spread').select('symbol,status').in('symbol', syms)]);
+  const optable = new Set((optRows || []).map((r: any) => r.symbol));
+  const prevOk = new Set((prevRows || []).filter((r: any) => r.status === 'ok').map((r: any) => r.symbol));
+  const chain = async (s: string, q: string): Promise<any> => {
+    const r = await fetch(`https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(s.replace('.', '-'))}?${q}crumb=${encodeURIComponent(ys.crumb)}`,
+      { headers: { 'User-Agent': UA, Cookie: ys.cookie }, signal: AbortSignal.timeout(12_000) });
+    if (r.status === 404) { try { await r.body?.cancel(); } catch (_) { /**/ } return 'none'; }
+    if (!r.ok) { try { await r.body?.cancel(); } catch (_) { /**/ } return null; }
+    return (await r.json())?.optionChain?.result?.[0] ?? 'none';
+  };
+  const today = etParts().date.split('-').map(Number);
+  const minExp = Date.UTC(today[0], today[1] - 1, today[2]) / 1000 + 5 * 86400;   // expiries are stamped 00:00 UTC of the date
+  const rows: any[] = [];
+  const one = async (s: string) => {
+    const now = new Date().toISOString();
+    if (!optable.has(s)) { rows.push({ symbol: s, status: 'none', checked_at: now }); return; }
+    try {
+      let r = await chain(s, '');
+      if (r === 'none') { rows.push({ symbol: s, status: 'none', checked_at: now }); return; }
+      if (!r) throw new Error('fetch');
+      const exps: number[] = r.expirationDates || [];
+      const exp = exps.find(e => e >= minExp) ?? exps[exps.length - 1];
+      if (!exp) { rows.push({ symbol: s, status: 'none', checked_at: now }); return; }
+      if (r.options?.[0]?.expirationDate !== exp) { r = await chain(s, `date=${exp}&`); if (!r || r === 'none') throw new Error('fetch'); }
+      const px = Number(r.quote?.regularMarketPrice);
+      const calls: any[] = r.options?.[0]?.calls || [];
+      if (!calls.length || !isFinite(px)) throw new Error('empty');
+      const c = calls.reduce((a, b) => Math.abs(Number(b.strike) - px) < Math.abs(Number(a.strike) - px) ? b : a);
+      const bid = Number(c.bid) || 0, ask = Number(c.ask) || 0;
+      const base = { symbol: s, expiry: new Date(exp * 1000).toISOString().slice(0, 10), strike: Number(c.strike), bid, ask,
+        oi: Number(c.openInterest) || 0, vol: Number(c.volume) || 0, price: px, checked_at: now };
+      if (bid > 0 && ask >= bid) rows.push({ ...base, status: 'ok', spread: Math.round((ask - bid) * 100) / 100, pct: Math.round((ask - bid) / ((ask + bid) / 2) * 1000) / 10 });
+      else if (!prevOk.has(s)) rows.push({ ...base, status: 'nobid', spread: null, pct: null });   // keep the last good value
+    } catch (_) { if (!prevOk.has(s)) rows.push({ symbol: s, status: 'error', checked_at: now }); }
+  };
+  let i = 0;
+  await Promise.all(Array.from({ length: 6 }, async () => { while (i < syms.length) await one(syms[i++]); }));
+  for (let k = 0; k < rows.length; k += 200) await supa.from('sp_opt_spread').upsert(rows.slice(k, k + 200), { onConflict: 'symbol' });
+  for (const r of rows) r.status === 'ok' ? res.ok++ : res.other++;
+  return res;
+}
+
 function etParts(d = new Date()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short' }).formatToParts(d).map(x => [x.type, x.value]));
@@ -43,24 +97,38 @@ const mdy = (iso: string) => { const [y, m, d] = String(iso).slice(0, 10).split(
 const head = (tier: string) => tier === 'large' ? '🟣 SINGLE PATTERN LARGE' : '🟠 SINGLE PATTERN PENNY';
 const arrows = (s: string) => s ? [...s.slice(0, -1)].map(c => c === 'U' ? '↑' : c === 'D' ? '↓' : '→').join('') + ' | ' + (s.slice(-1) === 'U' ? '↑' : s.slice(-1) === 'D' ? '↓' : '→') : '';
 
-async function ctx(supa: any, syms: string[]): Promise<((s: string) => string) & { raw: Record<string, { n: string; d: string; o?: string }> }> {
-  const [n, d, of] = await Promise.all([
+type Raw = Record<string, { n: string; d: string; o?: string; s?: string; sp?: number | null }>;
+async function ctx(supa: any, syms: string[]): Promise<((s: string) => string) & { raw: Raw }> {
+  const [n, d, of, sp] = await Promise.all([
     supa.from('sp_news').select('symbol,verdict').in('symbol', syms),
     supa.from('sp_dilution').select('symbol,verdict,level').in('symbol', syms),
-    supa.rpc('sp_options_flow', { p_syms: syms })]);
+    supa.rpc('sp_options_flow', { p_syms: syms }),
+    supa.from('sp_opt_spread').select('*').in('symbol', syms)]);
+  const spr: Record<string, any> = {};
+  for (const r of sp?.data || []) spr[r.symbol] = r;
   const flow: Record<string, any> = of?.data || {};
   const news: Record<string, string> = {}, dil: Record<string, string> = {};
   for (const r of n.data || []) news[r.symbol] = ({ good: 'Good 🟢', bad: 'Bad 🔴', check: 'Check 🟡', none: 'No news' } as any)[r.verdict] || '—';
   for (const r of d.data || []) dil[r.symbol] = r.verdict === 'risk' ? `RISK ${String(r.level || '').toUpperCase()} 🔴` : r.verdict === 'buyback' ? 'Buyback 🟢' : 'None';
-  const raw: Record<string, { n: string; d: string; o?: string }> = {};
+  const raw: Raw = {};
   for (const r of n.data || []) (raw[r.symbol] ||= { n: '', d: '' }).n = ({ good: 'Good', bad: 'Bad', check: 'Check', none: 'No news' } as any)[r.verdict] || '';
   for (const r of d.data || []) (raw[r.symbol] ||= { n: '', d: '' }).d = r.verdict === 'risk' ? `Risk ${r.level || ''}`.trim() : r.verdict === 'buyback' ? 'Buyback' : r.verdict === 'nodata' ? 'n/a' : 'None';
   // Options flow = your Options Flow uploads (omen_flow): last date with flow + contracts that day
   for (const s of syms) { const f = flow[s]; (raw[s] ||= { n: '', d: '' }).o = f ? `${Number(String(f.d).slice(5, 7))}/${Number(String(f.d).slice(8, 10))} ${fvol(f.contracts || 0)}` : 'No'; }
+  // Options spread (ATM call ~1 week out): "$0.05 10%" / No (no listed options) / n/a (no live bid-ask)
+  for (const s of syms) { const x = spr[s], o = (raw[s] ||= { n: '', d: '' });
+    o.s = !x ? '-' : x.status === 'none' ? 'No' : x.status !== 'ok' ? 'n/a' : `$${Number(x.spread).toFixed(2)} ${Number(x.pct) < 10 ? Number(x.pct).toFixed(1) : Math.round(Number(x.pct))}%`;
+    o.sp = x && x.status === 'ok' ? Number(x.pct) : null; }
+  const sprLine = (s: string) => { const x = spr[s];
+    if (!x) return 'Options spread: not checked yet';
+    if (x.status === 'none') return 'Options spread: no listed options';
+    if (x.status !== 'ok') return 'Options spread: n/a (no live bid/ask)';
+    const pct = Number(x.pct), k = Number(x.strike);
+    return `Options spread: ${mdy(x.expiry)} $${Number.isInteger(k) ? k : k.toFixed(2)} call · bid ${Number(x.bid).toFixed(2)} / ask ${Number(x.ask).toFixed(2)} = $${Number(x.spread).toFixed(2)} (${pct.toFixed(1)}%) ${pct <= 10 ? '🟢' : pct <= 20 ? '🟡' : '🔴 too wide'}`; };
   const flowLine = (s: string) => { const f = flow[s]; if (!f) return 'Options flow: none on file';
     const parts = [f.calls ? `${fvol(f.calls)} calls` : '', f.puts ? `${fvol(f.puts)} puts` : ''].filter(Boolean).join(' / ');
     return `Options flow: last ${mdy(f.d)} · ${fvol(f.contracts || 0)} contracts${parts ? ` (${parts})` : ''}`; };
-  return Object.assign((s: string) => `News: ${news[s] || 'not checked'} · Dilution: ${dil[s] || 'not checked'}\n${flowLine(s)}`, { raw });
+  return Object.assign((s: string) => `News: ${news[s] || 'not checked'} · Dilution: ${dil[s] || 'not checked'}\n${flowLine(s)}\n${sprLine(s)}`, { raw });
 }
 
 function statusLine(r: any) {
@@ -96,13 +164,13 @@ function pdfSafe(t: string): string {
 }
 // Landscape table PDF: one section per tier (PENNY, then LARGE), one row per alert.
 const COLS_STD: [string, number, string][] = [   // header, width, key
-  ['Ticker', 44, 'sym'], ['Alert', 82, 'status'], ['Price', 46, 'price'], ['Chg', 38, 'chg'], ['High', 46, 'high'], ['Low', 46, 'low'],
+  ['Ticker', 44, 'sym'], ['Alert', 70, 'status'], ['Price', 46, 'price'], ['Chg', 38, 'chg'], ['High', 42, 'high'], ['Low', 42, 'low'],
   ['Volume', 44, 'vol'], ['Vol x Avg', 46, 'volX'], ['Down', 30, 'down'], ['Body', 32, 'body'], ['Target', 46, 'target'], ['Stop', 46, 'stop'],
-  ['News', 42, 'news'], ['Dilution', 52, 'dil'], ['Options', 52, 'opt']];
+  ['News', 42, 'news'], ['Dilution', 48, 'dil'], ['Options', 48, 'opt'], ['Spread', 44, 'spr']];
 // running (live) list: Hits + Now up front, a shorter Alert column
 const COLS_LIVE: [string, number, string][] = [
-  ['Ticker', 40, 'sym'], ['Hits', 32, 'hits'], ['Now', 38, 'now'], ['Candle', 70, 'status'], ['Price', 44, 'price'], ['Chg', 32, 'chg'], ['High', 40, 'high'], ['Low', 40, 'low'],
-  ['Volume', 38, 'vol'], ['Vol x Avg', 46, 'volX'], ['Down', 26, 'down'], ['Target', 40, 'target'], ['Stop', 40, 'stop'], ['News', 38, 'news'], ['Dilution', 46, 'dil'], ['Options', 50, 'opt'], ['Last', 32, 'at']];
+  ['Ticker', 40, 'sym'], ['Hits', 32, 'hits'], ['Now', 38, 'now'], ['Candle', 62, 'status'], ['Price', 44, 'price'], ['Chg', 32, 'chg'], ['High', 36, 'high'], ['Low', 36, 'low'],
+  ['Volume', 38, 'vol'], ['Vol x Avg', 46, 'volX'], ['Down', 26, 'down'], ['Target', 40, 'target'], ['Stop', 40, 'stop'], ['News', 38, 'news'], ['Dilution', 46, 'dil'], ['Options', 44, 'opt'], ['Spread', 42, 'spr'], ['Last', 32, 'at']];
 function cellText(r: any, k: string): string {
   const m = (v: any) => v == null || !isFinite(Number(v)) ? '-' : '$' + (Number(v) < 1 ? Number(v).toFixed(4) : Number(v).toFixed(2));
   switch (k) {
@@ -122,6 +190,7 @@ function cellColor(r: any, k: string): string | null {
   if (k === 'dil') return /^Risk/.test(r.dil || '') ? R : r.dil === 'Buyback' ? G : null;
   if (k === 'volX') return (r.volX ?? (r.volPct == null ? 0 : r.volPct / 100)) >= 1 ? G : null;
   if (k === 'opt') return r.opt && r.opt !== 'No' ? G : null;
+  if (k === 'spr') return r.sprPct == null ? null : r.sprPct <= 10 ? G : r.sprPct <= 20 ? Y : R;
   if (k === 'now') return r.now === 'YES' ? G : r.now === 'NEAR' ? Y : R;
   if (k === 'hits') return r.hits >= 3 ? G : null;
   if (k === 'chg') return r.chg == null ? null : r.chg >= 0 ? G : R;
@@ -162,6 +231,7 @@ function makePdf(title: string, rows: any[], live = false): Uint8Array {
   ops += `BT /F1 7 Tf ${M} ${M - 18} Td (${esc(live
     ? 'Hits = how many of today\'s checks (2:30, 2:45, 3:00, 3:15, 3:30, 3:45, 3:55) the stock qualified in. Now = qualifies at this check. Vol x Avg = volume so far today / normal daily volume (20-day Large, 50-day Penny); needs > 1.0x by the close.'
     : 'Vol x Avg = that day\'s volume / the average daily volume (20-day Large, 50-day Penny), e.g. 2.9x = almost 3 times a normal day. Body = candle body as % of the day\'s range (Large rule <= 10%). Down = straight down days before the signal day.')}) Tj ET\n`;
+  ops += `BT /F1 7 Tf ${M} ${M - 27} Td (${esc('Spread = ask - bid of the at-the-money call, first expiry 5+ days out, as % of the mid price: green <= 10%, yellow 10-20%, red > 20% (too wide).')}) Tj ET\n`;
   pagesOps.push(ops);
   const objs: string[] = [];
   objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
@@ -200,7 +270,7 @@ function rowFromSignal(r: any, status: string, nd: any) {
   const x = nd.raw[r.symbol] || { n: '', d: '' };
   return { tier: r.tier, sym: r.symbol, status, price: r.close, chg: r.day_chg_pct == null ? null : Number(r.day_chg_pct), high: r.high, low: r.low,
     vol: r.close ? Number(r.dollar_vol) / Number(r.close) : null, volPct: r.vol_x == null ? null : Number(r.vol_x) * 100, avgDays: r.tier === 'large' ? 20 : 50,
-    down: r.down5, body: r.tier === 'large' ? (r.body_pct == null ? null : Number(r.body_pct)) : null, target: r.target, stop: r.stop, news: x.n, dil: x.d, opt: x.o };
+    down: r.down5, body: r.tier === 'large' ? (r.body_pct == null ? null : Number(r.body_pct)) : null, target: r.target, stop: r.stop, news: x.n, dil: x.d, opt: x.o, spr: x.s, sprPct: x.sp };
 }
 
 async function flush(supa: any) {
@@ -227,6 +297,20 @@ Deno.serve(async (req: Request) => {
       out.push('🧪 TEST ALERT\n' + signalText(r, 'confirmed at close', nd)); rows.push(rowFromSignal(r, (r.near ? 'NEAR ' : '') + 'Signal ' + mdy(r.signal_date), nd));
     }
 
+    if (mode === 'spread') {
+      let syms: string[] = Array.isArray(body.symbols) ? body.symbols.map((x: any) => String(x).toUpperCase()) : [];
+      if (!syms.length) {
+        const { data: uni } = await supa.rpc('sp_watch_universe');
+        syms = (Array.isArray(uni) ? uni : []).filter((u: any) => u.kind !== 'setup').map((u: any) => u.symbol);
+        const { data: sp } = await supa.from('single_pattern').select('symbol');
+        syms.push(...(sp || []).map((r: any) => r.symbol));
+        const { data: lv } = await supa.from('sp_live_state').select('key').like('key', `live:${et.date}:%`).gt('hits', 0).limit(1000);
+        syms.push(...(lv || []).map((r: any) => String(r.key).split(':').pop()));
+      }
+      const r = await refreshSpreads(supa, syms);
+      return Response.json({ mode, symbols: new Set(syms).size, ...r });
+    }
+
     if (mode === 'pdftest') {
       const { data } = await supa.from('single_pattern').select('*').order('vol_x', { ascending: false }).limit(60);
       const R = (data || []).filter((r: any) => !r.near).concat((data || []).filter((r: any) => r.near).slice(0, 10));
@@ -246,6 +330,7 @@ Deno.serve(async (req: Request) => {
       const { data: sent } = keys.length ? await supa.from('sp_alert_log').select('key').in('key', keys) : { data: [] };
       const have = new Set((sent || []).map((x: any) => x.key));
       const closed = !(latest === et.date && et.mins < 16 * 60);
+      if (!closed) await refreshSpreads(supa, today.map((r: any) => r.symbol));
       const nd = await ctx(supa, today.map((r: any) => r.symbol));
       for (const r of today) {
         const k = `sig:${r.tier}:${r.symbol}:${r.signal_date}`, kc = `sigc:${r.tier}:${r.symbol}:${r.signal_date}`;
@@ -320,6 +405,7 @@ Deno.serve(async (req: Request) => {
         if (state === 'none' && !prev) continue;
         evald.push({ c, o, h, l, px, v, bodyPct, state, avg, volOk, key, prev, kind });
       }
+      await refreshSpreads(supa, evald.filter(e => e.state !== 'none').map(e => e.c.symbol), ys);   // fresh spread for the alerts
       const nd = await ctx(supa, evald.map(e => e.c.symbol));
       const upserts: any[] = [];
       const msgs: { text: string; sym: string; pri: number }[] = [];
@@ -329,8 +415,9 @@ Deno.serve(async (req: Request) => {
         const what = state === 'signal' ? (c.tier === 'large' ? `doji (body ${bodyPct.toFixed(1)}%)` : 'candle OK') : state === 'near' ? `NEAR (body ${Math.round(bodyPct)}%)` : '';
         const snap = state !== 'none' ? { tier: c.tier, sym: c.symbol, status: what, price: px, chg: c.prev_close ? (px / Number(c.prev_close) - 1) * 100 : null, high: h, low: l, vol: v,
             volX: avg > 0 ? v / avg : null, avgVol: avg, avgDays: c.tier === 'large' ? 20 : 50, down: c.streak, body: c.tier === 'large' ? bodyPct : null,
-            target: px + 2 * Number(c.atr10), stop: l, news: x.n, dil: x.d, opt: x.o, at: clock }
-          : prev?.snap ? { ...prev.snap, news: x.n || prev.snap.news, dil: x.d || prev.snap.dil, opt: x.o || prev.snap.opt } : null;
+            target: px + 2 * Number(c.atr10), stop: l, news: x.n, dil: x.d, opt: x.o, spr: x.s, sprPct: x.sp, at: clock }
+          : prev?.snap ? { ...prev.snap, news: x.n || prev.snap.news, dil: x.d || prev.snap.dil, opt: x.o || prev.snap.opt,
+              spr: x.s && x.s !== '-' ? x.s : prev.snap.spr, sprPct: x.sp ?? prev.snap.sprPct } : null;
         upserts.push({ key, state, body: Math.round(bodyPct * 10) / 10, vol_ok: volOk, updated_at: new Date().toISOString(),
           hits: (prev?.hits || 0) + (state !== 'none' ? 1 : 0), snap, first_at: prev?.first_at || (state !== 'none' ? new Date().toISOString() : null) });
         if (!kind) continue;
@@ -423,7 +510,7 @@ Deno.serve(async (req: Request) => {
         { const x = nd.raw[u.symbol] || { n: '', d: '' };
           rows.push({ tier: u.tier, sym: u.symbol, status: `${sess === 'pre' ? 'Pre-mkt' : 'After-hrs'} ${h.pct > 0 ? 'UP' : 'DOWN'} - ${u.kind === 'signal' ? 'signal ' + mdy(u.signal_date) : u.kind === 'near' ? 'NEAR ' + mdy(u.signal_date) : u.kind === 'added' ? 'your stock' : 'setting up'}`,
             price: h.px, chg: h.pct, high: null, low: null, vol: xv, volPct: xv != null && u.av20 ? xv / u.av20 * 100 : null, avgDays: 20,
-            down: u.streak, body: null, target: u.target, stop: u.stop, news: x.n, dil: x.d, opt: x.o }); }
+            down: u.streak, body: null, target: u.target, stop: u.stop, news: x.n, dil: x.d, opt: x.o, spr: x.s, sprPct: x.sp }); }
         out.push([`${head(u.tier)} · ${sess === 'pre' ? '🌅 PRE-MARKET' : '🌙 AFTER-HOURS'}`,
           `$${u.symbol} ${h.pct > 0 ? '▲' : '▼'} ${h.pct > 0 ? '+' : ''}${h.pct.toFixed(1)}% at ${money(h.px)} (${sess === 'pre' ? 'prev close' : 'today\'s close'} ${money(h.ref)})`,
           volLine, status, nd(u.symbol)].join('\n'));
@@ -453,13 +540,13 @@ Deno.serve(async (req: Request) => {
       if (error) throw new Error('outbox: ' + error.message);
       if (logKeys.length) await supa.from('sp_alert_log').upsert(logKeys.map(key => ({ key })), { onConflict: 'key', ignoreDuplicates: true });
       await flush(supa);
-      if (many) {
+      {   // always a PDF overview with every alert of this run (not only when there are more than 5)
         const title = `Single Pattern alerts - ${label} - ${et.date} ${clock} - ${out.length} alerts`;
         pdfErr = await sendPdf(`single-pattern-${label.replace(/\s+/g, '-')}-${et.date}-${String(hh).padStart(2, '0')}${String(mm).padStart(2, '0')}.pdf`,
           `📎 Single Pattern · ${out.length} alerts (${label}, ${clock}) · Penny ${rows.filter(r => r.tier === 'penny').length} · Large ${rows.filter(r => r.tier === 'large').length}`, makePdf(title, rows));
       }
     }
-    return Response.json({ mode, sent: out.length, pdf: out.length > 5 ? (pdfErr || 'sent') : null, preview: out.slice(0, 2) });
+    return Response.json({ mode, sent: out.length, pdf: out.length ? (pdfErr || 'sent') : null, preview: out.slice(0, 2) });
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });
   }
