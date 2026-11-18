@@ -16758,6 +16758,9 @@ function _spPopPanel(sym) {
   const trade = r.signal_date
     ? `<div style="font-size:10.5px;color:#c0c8d4;margin-bottom:6px;">Signal ${_spDate(r.signal_date, true)} · ${_spStatus(r)}</div>
        <div style="display:flex;gap:6px;flex-wrap:wrap;">${box('ENTRY', _spMoney(r.close), '', 'signal close')}${box('STOP', _spMoney(r.stop), 'var(--red)', 'close below')}${box('TARGET', _spMoney(r.target), 'var(--green)', '2× ATR(10)')}</div>`
+    : r.lvl_entry != null   // your added ★ stocks: same formula from the latest close
+    ? `<div style="font-size:10.5px;color:var(--amber);margin-bottom:6px;">No signal yet · levels from the ${_spDate(r.lvl_date, true)} close (same formula as a signal)</div>
+       <div style="display:flex;gap:6px;flex-wrap:wrap;">${box('ENTRY', _spMoney(r.lvl_entry), '', 'latest close')}${box('STOP', _spMoney(r.lvl_stop), 'var(--red)', 'close below that day\'s low')}${box('TARGET', _spMoney(r.lvl_target), 'var(--green)', '2× ATR(10)')}</div>`
     : '<div style="font-size:11px;color:#8090a0;">No signal in the last 10 trading days — no entry / stop / target yet.</div>';
   const x = _spSpr[sym];
   let spr;
@@ -17033,7 +17036,8 @@ function _spRender() {
     symbol: r.symbol, name: r.name, sector: r.sector, signal_date: r.signal_date, prior3d_pct: r.prior3d_pct, dip_pct: r.dip_pct,
     day_chg_pct: r.day_chg_pct, vol_x: r.vol_x, close: r.signal_date ? r.entry : null, stop: r.signal_date ? r.stop : null,
     target: r.signal_date ? r.target : null, last_close: r.close, last_date: r.last_date, since_pct: r.signal_date ? r.since_pct : null,
-    status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier }));
+    status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier,
+    lvl_date: r.lvl_date, lvl_entry: r.lvl_entry, lvl_stop: r.lvl_stop, lvl_target: r.lvl_target }));
   merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
   const rows = _spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
   rows.forEach(r => { _spPopRows[r.symbol] = r; });
