@@ -16651,12 +16651,13 @@ const SP_MAX_ROWS = 50;
 let _spRows = null, _spLoading = false, _spTier = 'penny';
 let _spDown = 0;                 // minimum down days among the 5 before the signal (0 = all)
 let _spRsiMin = null, _spRsiMax = null;
+let _spCandle = 0;               // candle filter: max body % of the day's range (0 = all)
 try {
   const st = JSON.parse(localStorage.getItem('sp_single_pattern') || 'null');
   if (st) { _spTier = ['large', 'compare'].includes(st.tier) ? st.tier : 'penny'; _spDown = [0,3,4,5].includes(st.down) ? st.down : 0;
-            _spRsiMin = st.rmin ?? null; _spRsiMax = st.rmax ?? null; }
+            _spRsiMin = st.rmin ?? null; _spRsiMax = st.rmax ?? null; _spCandle = st.candle || 0; }
 } catch (e) {}
-function _spSave() { try { localStorage.setItem('sp_single_pattern', JSON.stringify({ tier: _spTier, down: _spDown, rmin: _spRsiMin, rmax: _spRsiMax })); } catch (e) {} }
+function _spSave() { try { localStorage.setItem('sp_single_pattern', JSON.stringify({ tier: _spTier, down: _spDown, rmin: _spRsiMin, rmax: _spRsiMax, candle: _spCandle })); } catch (e) {} }
 
 // MAG 7 + compare list (public.sp_compare, measured live by the sp_compare_rows() RPC).
 let _spCmp = null, _spCmpLoading = false, _spCmpMsg = '';
@@ -16679,7 +16680,7 @@ async function _spLoadCompare() {
 //  Dilution: public.sp_dilution (dilution-check, SEC EDGAR, 12 months): red = risk (offering, ATM, shelf, 8-K 3.01/3.02),
 //            green = buyback, gray = none found / not in the SEC database.
 //  Volume: sp_volumes() → last 3 daily bars per stock. Lists sort by the biggest single day of the 3.
-let _spNews = {}, _spDil = {}, _spVol = {}, _spOpt = {}, _spSpr = {}, _spNewsOpen = '';
+let _spNews = {}, _spDil = {}, _spVol = {}, _spOpt = {}, _spSpr = {}, _spV10 = {}, _spNewsOpen = '';
 async function _spLoadNews() {
   try {
     const supa = await getSupabaseAsync();
@@ -16694,6 +16695,9 @@ async function _spLoadNews() {
     // OPTIONS column: last date in your Options Flow uploads (omen_flow) + contracts that day, or No
     const syms = [...new Set([...(_spRows || []).map(r => r.symbol), ...(_spCmp || []).map(r => r.symbol)])];
     if (syms.length) { const o = await supa.rpc('sp_options_flow', { p_syms: syms }); if (!o.error) _spOpt = o.data || {}; else console.warn('[sp_options_flow]', o.error); }
+    // VOLUME / VOL ×10D columns: signal-day volume vs the average of the 10 trading days before it (sp_vol10)
+    { const rr = [...(_spRows || []), ...(_spCmp || [])].map(r => [r.symbol, String(r.signal_date || r.last_date || '').slice(0, 10)]).filter(x => x[1]);
+      if (rr.length) { const v = await supa.rpc('sp_vol10', { p_syms: rr.map(x => x[0]), p_dates: rr.map(x => x[1]) }); if (!v.error) _spV10 = v.data || {}; else console.warn('[sp_vol10]', v.error); } }
     // SPREAD column: public.sp_opt_spread (sp-alerts mode "spread", every 15 min in market hours) — ATM call ~1 week out
     if (syms.length) { const sp = await supa.from('sp_opt_spread').select('*').in('symbol', syms);
       if (!sp.error) { _spSpr = {}; (sp.data || []).forEach(r => { _spSpr[r.symbol] = r; }); } else console.warn('[sp_opt_spread]', sp.error); }
@@ -16744,6 +16748,49 @@ function _spSprCell(sym) {
     ` · volume ${Number(x.vol || 0).toLocaleString()} · open interest ${Number(x.oi || 0).toLocaleString()} · checked ${_spWhen(x.checked_at)} ET · green ≤10%, yellow 10–20%, red >20%`;
   return `<b style="color:${c};" title="${_spEsc(tip)}">${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%</b><div style="font-size:9.5px;color:#8090a0;">$${Number(x.spread).toFixed(2)} · ${m}/${d} $${ks}C</div>`;
 }
+// CANDLE = the signal day's candle body as % of that day's range (same number as the Telegram alerts).
+function _spCandleCell(r) {
+  if (r.body_pct == null) return '<span style="color:#506070;">—</span>';
+  const b = Number(r.body_pct), label = b <= 10 ? 'doji' : (r.near ? 'NEAR' : 'candle');
+  const c = b <= 10 ? 'var(--green)' : b <= 20 ? 'var(--amber)' : '#8090a0';
+  return `<span style="color:${c};font-weight:700;" title="Candle body ${b.toFixed(1)}% of the day's range (high − low)">${label} ${b < 10 ? b.toFixed(1) : Math.round(b)}%</span>`;
+}
+function _spVolDay(sym) {
+  const x = _spV10[sym]; if (!x || x.v == null) return '<span style="color:#506070;">—</span>';
+  return `<b style="color:var(--text);">${_spFmtVol(x.v)}</b><div style="font-size:9.5px;color:#8090a0;">10D avg ${x.av10 ? _spFmtVol(x.av10) : '—'}</div>`;
+}
+function _spVolX10(sym) {
+  const x = _spV10[sym]; if (!x || !x.v || !x.av10) return '<span style="color:#506070;">—</span>';
+  const f = x.v / x.av10, c = f >= 1.5 ? 'var(--green)' : f >= 1 ? 'var(--amber)' : '#8090a0';
+  return `<b style="color:${c};" title="${_spFmtVol(x.v)} on ${_spDate(x.d)} vs 10-day average ${_spFmtVol(x.av10)}">${f.toFixed(1)}×</b>`;
+}
+// PDF of the list exactly as shown (current tab + filters). jsPDF is loaded only when you press the button.
+let _spShown = [];
+function _spLoadScript(src) { return new Promise((ok, bad) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
+async function spDownloadPdf() {
+  try {
+    if (!window.jspdf) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    if (!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable)) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+    const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+    const txt = h => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.replace(/\s+/g, ' ').trim(); };
+    const tier = _spTier === 'large' ? 'LARGE' : 'PENNY';
+    const filt = [_spDown ? `down ${_spDown}+` : '', _spCandle ? `candle <= ${_spCandle}%` : '', (_spRsiMin != null || _spRsiMax != null) ? `RSI ${_spRsiMin ?? ''}-${_spRsiMax ?? ''}` : '', _spFind ? `find "${_spFind}"` : ''].filter(Boolean).join(' · ');
+    const now = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    doc.setFontSize(13); doc.text(`Single Pattern ${tier} — ${now} ET${filt ? ' · ' + filt : ''} · ${_spShown.length} stocks`, 30, 30);
+    const head = [['Ticker', 'Signal', 'Candle', 'Chg', 'Volume', '10D avg', 'Vol x10D', 'Entry', 'Stop', 'Target', 'Latest', 'Since', 'Status', 'Down', 'RSI', 'News', 'Dilution', 'Options', 'Spread']];
+    const body = _spShown.map(r => { const v = _spV10[r.symbol] || {}, n = _spNews[r.symbol], d = _spDil[r.symbol], x = _spSpr[r.symbol];
+      const lv = r.signal_date ? [r.close, r.stop, r.target] : [r.lvl_entry, r.lvl_stop, r.lvl_target];
+      return [r.symbol + (r._added ? ' *' : ''), r.signal_date ? _spDate(r.signal_date) : 'no signal', txt(_spCandleCell(r)), r.day_chg_pct == null ? '-' : `${Number(r.day_chg_pct) >= 0 ? '+' : ''}${Number(r.day_chg_pct).toFixed(1)}%`,
+        v.v ? _spFmtVol(v.v) : '-', v.av10 ? _spFmtVol(v.av10) : '-', v.v && v.av10 ? (v.v / v.av10).toFixed(1) + 'x' : '-',
+        ...lv.map(z => z == null ? '-' : txt(_spMoney(z))), txt(_spMoney(r.last_close)), r.since_pct == null ? '-' : `${Number(r.since_pct).toFixed(1)}%`, txt(_spStatus(r)),
+        r.down5 == null ? '-' : `${r.down5}/5`, r.rsi_signal == null ? '-' : String(Math.round(Number(r.rsi_signal))),
+        n ? ({ good: 'Good', bad: 'Bad', check: 'Check', none: 'No news' }[n.verdict] || '-') : '-', d ? (d.verdict === 'risk' ? 'Risk ' + (d.level || '') : d.verdict === 'buyback' ? 'Buyback' : 'None') : '-',
+        txt(_spOptCell(r.symbol)), !x ? '-' : x.status === 'none' ? 'No' : x.status !== 'ok' ? 'n/a' : `${Number(x.pct).toFixed(0)}%`]; });
+    doc.autoTable({ head, body, startY: 42, styles: { fontSize: 7, cellPadding: 2.5 }, headStyles: { fillColor: [30, 50, 80] }, margin: { left: 30, right: 30 } });
+    doc.setFontSize(7); doc.text('* = your added stock. Candle = body as % of the day\'s range. Vol x10D = signal-day volume / 10-day average. Entry/stop/target for added stocks without a signal come from the latest close.', 30, doc.internal.pageSize.getHeight() - 16);
+    doc.save(`single-pattern-${tier.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  } catch (e) { console.warn('[sp pdf]', e); alert('PDF could not be created — check the connection and try again.'); }
+}
 // Click a Single Pattern row → the stock pop-up opens with a SINGLE PATTERN box on top:
 // entry / stop / target (+ signal date and status) and the options spread. These are not columns on the sheet.
 const _spPopRows = {};
@@ -16775,6 +16822,7 @@ function _spPopPanel(sym) {
   }
   return `<div style="padding:10px 12px;border-bottom:1px solid var(--border2);">
       <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin-bottom:6px;">SINGLE PATTERN · TRADE</div>${trade}
+      <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin:10px 0 6px;">RSI · LAST 10 DAYS</div><div style="font-size:10.5px;">${_spRsi10(r)}</div>
       <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin:10px 0 6px;">OPTIONS SPREAD</div>${spr}</div>`;
 }
 function spToggleNews(key, ev) { if (ev) ev.stopPropagation(); _spNewsOpen = _spNewsOpen === key ? '' : key; _spRender(); }
@@ -16862,6 +16910,7 @@ function spOpenGroup(g, btn) {
   _spSave(); goPage('singlepattern', btn);
 }
 function spSetDown(n) { _spDown = n; _spSave(); _spRender(); }
+function spSetCandle(n) { _spCandle = n; _spSave(); _spRender(); }
 function spSetRsi(min, max) {
   const clean = v => (v === '' || v === null || v === undefined || !isFinite(Number(v))) ? null : Math.max(0, Math.min(100, Number(v)));
   _spRsiMin = clean(min); _spRsiMax = clean(max); _spSave(); _spRender();
@@ -16874,6 +16923,7 @@ function _spRsiInput() {
 function _spFiltered(tier) {
   return (_spRows || []).filter(r => r.tier === tier)
     .filter(r => !_spDown || (r.down5 ?? 0) >= _spDown)
+    .filter(r => !_spCandle || (r.body_pct != null && Number(r.body_pct) <= _spCandle))
     .filter(r => {
       if (_spRsiMin === null && _spRsiMax === null) return true;
       const v = r.rsi_signal == null ? null : Number(r.rsi_signal);
@@ -17041,6 +17091,7 @@ function _spRender() {
   merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
   const rows = _spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added);
   rows.forEach(r => { _spPopRows[r.symbol] = r; });
+  _spShown = rows;
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
   const updated = (_spRows || []).reduce((m, r) => (r.computed_at && r.computed_at > m ? r.computed_at : m), '');
   const rules = _spTier === 'large'
@@ -17054,18 +17105,18 @@ function _spRender() {
       ${td(_spNewsBadge(r.symbol, 'scan:' + r.symbol), 'left')}
       ${td(_spOptCell(r.symbol), 'left')}
       ${td(_spVolCell(r.symbol, 0))}${td(_spVolCell(r.symbol, 1))}${td(_spVolCell(r.symbol, 2))}
-      ${td(r.signal_date ? _spDate(r.signal_date, true) + _spBody(r) : '<span style="color:#8090a0;">no signal</span>', 'left')}
+      ${td(r.signal_date ? _spDate(r.signal_date, true) : '<span style="color:#8090a0;">no signal</span>', 'left')}
+      ${td(_spCandleCell(r), 'left')}
       ${td(_spPct(r.prior3d_pct))}
-      ${_spTier === 'large' ? td(_spPct(r.dip_pct)) + td(_spPct(r.day_chg_pct)) : ''}
-      ${td(r.vol_x == null ? '—' : Number(r.vol_x).toFixed(1) + '×')}
+      ${_spTier === 'large' ? td(_spPct(r.dip_pct)) : ''}${td(_spPct(r.day_chg_pct))}
+      ${td(_spVolDay(r.symbol))}${td(_spVolX10(r.symbol))}
       ${td(_spMoney(r.last_close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
       ${td(_spPct(r.since_pct))}
       ${td(_spStatus(r), 'left')}
       ${td(`<span style="font-size:13px;letter-spacing:1px;">${_spArrows(r.updown)}</span>`, 'center')}
       ${td(`${r.down5 ?? '—'}/5`, 'center')}
       ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
-      ${td(`<span style="font-size:10.5px;">${_spRsi10(r)}</span>`, 'left')}
-    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 19 : 17)}`).join('');
+    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 20 : 19)}`).join('');
   page.innerHTML = `
     ${_spTabBar(tabs)}
     <div style="padding:12px 16px;">
@@ -17077,6 +17128,9 @@ function _spRender() {
         <span style="color:#8090a0;">–</span>
         <input type="number" id="sp-rsi-max" class="wl-price-in" min="0" max="100" step="1" placeholder="max" value="${_spRsiMax ?? ''}" oninput="_spRsiInput()"/>
         ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
+        <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:14px;">Candle:</span>
+        ${btn(_spCandle === 0, 'All', 'spSetCandle(0)')}${[10, 15, 20, 30, 50].map(n => btn(_spCandle === n, n === 10 ? 'Doji ≤10%' : '≤' + n + '%', `spSetCandle(${n})`, 'Candle body as % of the day\'s range')).join('')}
+        <button class="fbtn" onclick="spDownloadPdf()" title="Download this list as a PDF (current tab and filters)" style="margin-left:14px;">⬇ PDF</button>
         <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS} by biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
       <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules: ${rules}.${_spTier === 'large' ? ' NEAR = every rule met except the doji: body up to 30% on a red candle / 20% on a green one, and not up 3%+ that day.' : ''} Entry = signal close (last hour) · Stop = a close below the signal-day low · Target = close + 2× ATR(10 trading days). Arrows: 5 days before | signal day (oldest → newest).</div>
@@ -17084,9 +17138,9 @@ function _spRender() {
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') + th('DAY') : ''}${th('VOL ×AVG')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}${th('RSI · LAST 10 DAYS', 'left')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('CANDLE', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') : ''}${th('CHG')}${th('VOLUME')}${th('VOL ×10D')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="19" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="20" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
       </table></div>
       <div style="margin-top:10px;font-size:10.5px;color:#8090a0;">★ = your added stock (always shown, ✕ removes it) — add one with "Compare ticker". Volume: <span style="color:var(--green);">green ≥ 1M</span> · <span style="color:var(--amber);">yellow ≥ 500K</span> · gray below. NEWS: green good · red bad · yellow check · gray none. DILUTION: red risk (SEC offering/shelf filings) · green buyback · gray none.</div>
     </div>`;
