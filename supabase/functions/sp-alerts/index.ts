@@ -4,6 +4,9 @@
 //  mode "ext":     pre-market (4:00–9:30 AM ET) and after-hours (4:00–8:00 PM ET) movers among the Single Pattern stocks:
 //                  signals, your added lists, and stocks close to the setup (sp_watch_universe()). Alert when the move vs the
 //                  prior close reaches ±3% / 6% / 10% (Large) or ±10% / 20% / 40% (Penny), with extended-hours volume.
+//  mode "live":    2:30–4:00 PM ET. Stocks whose prior days already fit (sp_live_candidates(): Large 5+ down days, Penny 3+)
+//                  get today's candle checked from a fresh Yahoo quote. First time it qualifies → "⏳ FORMING" alert;
+//                  when it changes (doji ↔ NEAR ↔ no longer qualifies, or volume crosses its average) → "🔄 UPDATE".
 //  Large alerts show the candle body % (rule ≤ 10%); NEAR = every Large rule met except the doji (body 10–50%).
 //  mode "test":    body.symbol (+ body.tier) — send one alert for an existing signal, marked TEST.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -111,6 +114,80 @@ Deno.serve(async (req: Request) => {
           logKeys.push(kc);
         }
       }
+    }
+
+    if (mode === 'live') {
+      const open = et.wd !== 'Sat' && et.wd !== 'Sun' && et.mins >= 9 * 60 + 30 && et.mins < 16 * 60;
+      if (!open && !body.force) return Response.json({ skipped: 'market closed' });
+      const { data: cand, error } = await supa.rpc('sp_live_candidates');
+      if (error) throw new Error('candidates: ' + error.message);
+      const C: any[] = Array.isArray(cand) ? cand : [];
+      const ys = await yahooSession();
+      if (!ys) throw new Error('Yahoo session failed');
+      const fields = 'symbol,regularMarketPrice,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume';
+      const quotes: Record<string, any> = {};
+      const syms = C.map(c => c.symbol);
+      for (let i = 0; i < syms.length; i += 100) {
+        try {
+          const r = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(syms.slice(i, i + 100).join(','))}&fields=${fields}&crumb=${encodeURIComponent(ys.crumb)}`,
+            { headers: { 'User-Agent': UA, Cookie: ys.cookie }, signal: AbortSignal.timeout(15_000) });
+          const j = await r.json();
+          for (const q of j?.quoteResponse?.result || []) quotes[q.symbol] = q;
+        } catch (_) { /**/ }
+      }
+      const keys = C.map(c => `live:${et.date}:${c.tier}:${c.symbol}`);
+      const prevState: Record<string, any> = {};
+      for (let i = 0; i < keys.length; i += 200) {
+        const { data } = await supa.from('sp_live_state').select('key,state,body,vol_ok').in('key', keys.slice(i, i + 200));
+        for (const r of data || []) prevState[r.key] = r;
+      }
+      const hh = Math.floor(et.mins / 60), mm = et.mins % 60;
+      const clock = `${hh > 12 ? hh - 12 : hh}:${String(mm).padStart(2, '0')} PM`;
+      const upserts: any[] = [];
+      const msgs: { text: string; sym: string; row: any; pri: number }[] = [];
+      for (const c of C) {
+        const q = quotes[c.symbol]; if (!q) continue;
+        const o = Number(q.regularMarketOpen), h = Number(q.regularMarketDayHigh), l = Number(q.regularMarketDayLow), px = Number(q.regularMarketPrice), v = Number(q.regularMarketVolume) || 0;
+        if (![o, h, l, px].every(isFinite) || !(h > l) || o <= 0) continue;
+        const bodyPct = Math.abs(px - o) / (h - l) * 100;
+        let state = 'none';
+        if (c.tier === 'large') {
+          if (px >= 10) state = bodyPct <= 10 ? 'signal' : bodyPct <= 50 ? 'near' : 'none';
+        } else {
+          const pos = (px - l) / (h - l), lower = Math.min(o, px) - l;
+          if (px >= 0.40 && px < 10 && pos >= 0.75 && lower >= 2 * Math.max(Math.abs(px - o), (h - l) * 0.05)) state = 'signal';
+        }
+        const avg = c.tier === 'large' ? Number(c.av20) : Number(c.av50);
+        const minDollar = c.tier === 'large' ? 5e6 : 1e6;
+        const volOk = avg > 0 && v > avg && px * v >= minDollar;
+        if (state === 'near' && !volOk) state = 'none';   // NEAR candles alert only once volume is above average
+        const key = `live:${et.date}:${c.tier}:${c.symbol}`;
+        const prev = prevState[key];
+        const was = prev?.state || 'none';
+        let kind: string | null = null;
+        if (state !== 'none' && was === 'none') kind = prev ? 'back' : 'new';
+        else if (state !== was) kind = 'change';
+        else if (state !== 'none' && volOk && prev && !prev.vol_ok) kind = 'vol';
+        const row = { key, state, body: Math.round(bodyPct * 10) / 10, vol_ok: volOk, updated_at: new Date().toISOString() };
+        if (!kind) { if (prev) upserts.push(row); continue; }
+        const label = state === 'signal' ? (c.tier === 'large' ? `✅ doji forming — body ${bodyPct.toFixed(1)}% of range (rule ≤ 10%)` : '✅ candle forming — closing near the high with a long lower wick')
+          : state === 'near' ? `⚠️ NEAR — body ${Math.round(bodyPct)}% of range (rule ≤ 10%)` : `❌ no longer qualifies — body ${Math.round(bodyPct)}% of range${c.tier === 'penny' ? ' / not near the high' : ''}`;
+        const title = kind === 'new' ? '⏳ FORMING' : '🔄 UPDATE';
+        const lines = [`${head(c.tier)} · ${title} ${clock}`,
+          `$${c.symbol}${c.name ? ' · ' + String(c.name).split(' - ')[0].slice(0, 40) : ''}`,
+          kind === 'vol' ? `Volume now above the ${c.tier === 'large' ? '20' : '50'}-day average ✅` : label,
+          `Price ${money(px)} · O ${money(o)} H ${money(h)} L ${money(l)}`,
+          `Volume so far ${fvol(v)} = ${avg > 0 ? Math.round(v / avg * 100) : '—'}% of the ${c.tier === 'large' ? '20' : '50'}-day avg ${volOk ? '✅' : '(needs > 100% by the close) ⏳'}`,
+          `${c.streak} down days before today ✅`];
+        if (state !== 'none') lines.push(`If it closes here: entry ${money(px)} · target ${money(px + 2 * Number(c.atr10))} (2× ATR10) · stop: close below ${money(l)}`);
+        msgs.push({ text: lines.join('\n'), sym: c.symbol, row, pri: state === 'signal' ? 0 : kind === 'change' && state === 'none' ? 1 : 2 });
+      }
+      msgs.sort((a, b) => a.pri - b.pri);
+      const send = msgs.slice(0, 25);            // the rest are not marked as seen, so the next run sends them
+      for (const m of send) upserts.push(m.row);
+      for (let i = 0; i < upserts.length; i += 200) await supa.from('sp_live_state').upsert(upserts.slice(i, i + 200), { onConflict: 'key' });
+      const nd = await ctx(supa, send.map(m => m.sym));
+      for (const m of send) out.push(m.text + '\n' + nd(m.sym));
     }
 
     if (mode === 'ext') {
