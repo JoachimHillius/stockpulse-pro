@@ -102,12 +102,28 @@ const head = (tier: string) => tier === 'large' ? '🟣 SINGLE PATTERN LARGE' : 
 const arrows = (s: string) => s ? [...s.slice(0, -1)].map(c => c === 'U' ? '↑' : c === 'D' ? '↓' : '→').join('') + ' | ' + (s.slice(-1) === 'U' ? '↑' : s.slice(-1) === 'D' ? '↓' : '→') : '';
 
 type Raw = Record<string, { n: string; d: string; o?: string; s?: string; sp?: number | null }>;
-async function ctx(supa: any, syms: string[]): Promise<((s: string) => string) & { raw: Raw }> {
-  const [n, d, of, sp] = await Promise.all([
+// Today's running volume (pre-market + regular + after-hours) from fast-scan mode "vol" → public.vol_accum.
+async function volFresh(syms: string[]): Promise<Record<string, any>> {
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, url = Deno.env.get('SUPABASE_URL')! + '/functions/v1/fast-scan';
+  const uniq = [...new Set(syms)].slice(0, 60), out: Record<string, any> = {};
+  await Promise.all(Array.from({ length: Math.ceil(uniq.length / 10) }, async (_, i) => {
+    try { const r = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'vol', symbols: uniq.slice(i * 10, i * 10 + 10) }), signal: AbortSignal.timeout(40_000) });
+      Object.assign(out, await r.json()); } catch (_) { /**/ }
+  }));
+  return out;
+}
+async function ctx(supa: any, syms: string[]): Promise<((s: string) => string) & { raw: Raw; vacc: Record<string, any> }> {
+  const [n, d, of, sp, va] = await Promise.all([
     supa.from('sp_news').select('symbol,verdict').in('symbol', syms),
     supa.from('sp_dilution').select('symbol,verdict,level').in('symbol', syms),
     supa.rpc('sp_options_flow', { p_syms: syms }),
-    supa.from('sp_opt_spread').select('*').in('symbol', syms)]);
+    supa.from('sp_opt_spread').select('*').in('symbol', syms),
+    supa.from('vol_accum').select('*').in('symbol', syms).gte('updated_at', new Date(Date.now() - 20 * 60_000).toISOString())]);
+  const vacc: Record<string, any> = {};
+  for (const r of va?.data || []) vacc[r.symbol] = r;
+  const volLine = (s: string) => { const a = vacc[s]; if (!a || !a.prev_vol) return '';
+    return `\n📊 Volume today ${fvol(Number(a.today_vol))}${a.pre_vol && Number(a.today_vol) !== Number(a.pre_vol) ? ` (pre-market ${fvol(Number(a.pre_vol))})` : a.pre_vol ? ' pre-market' : ''}${a.post_vol ? ` (after-hours ${fvol(Number(a.post_vol))})` : ''} = ${Math.round(Number(a.today_vol) / Number(a.prev_vol) * 100)}% of yesterday's ${fvol(Number(a.prev_vol))}`; };
   const spr: Record<string, any> = {};
   for (const r of sp?.data || []) spr[r.symbol] = r;
   const flow: Record<string, any> = of?.data || {};
@@ -132,7 +148,7 @@ async function ctx(supa: any, syms: string[]): Promise<((s: string) => string) &
   const flowLine = (s: string) => { const f = flow[s]; if (!f) return 'Options flow: none on file';
     const parts = [f.calls ? `${fvol(f.calls)} calls` : '', f.puts ? `${fvol(f.puts)} puts` : ''].filter(Boolean).join(' / ');
     return `Options flow: last ${mdy(f.d)} · ${fvol(f.contracts || 0)} contracts${parts ? ` (${parts})` : ''}`; };
-  return Object.assign((s: string) => `News: ${news[s] || 'not checked'} · Dilution: ${dil[s] || 'not checked'}\n${flowLine(s)}\n${sprLine(s)}`, { raw });
+  return Object.assign((s: string) => `News: ${news[s] || 'not checked'} · Dilution: ${dil[s] || 'not checked'}\n${flowLine(s)}\n${sprLine(s)}${volLine(s)}`, { raw, vacc });
 }
 
 function statusLine(r: any) {
@@ -399,6 +415,7 @@ Deno.serve(async (req: Request) => {
       const have = new Set((sent || []).map((x: any) => x.key));
       const closed = !(latest === et.date && et.mins < 16 * 60);
       if (!closed) await refreshSpreads(supa, today.map((r: any) => r.symbol));
+      await volFresh(today.filter((r: any) => !have.has(`sigc:${r.tier}:${r.symbol}:${r.signal_date}`)).map((r: any) => r.symbol));
       afterClose = closed;
       const nd = await ctx(supa, today.map((r: any) => r.symbol));
       for (const r of today) {
@@ -476,6 +493,7 @@ Deno.serve(async (req: Request) => {
         evald.push({ c, o, h, l, px, v, bodyPct, state, avg, volOk, key, prev, kind });
       }
       await refreshSpreads(supa, evald.filter(e => e.state !== 'none').map(e => e.c.symbol), ys);   // fresh spread for the alerts
+      await volFresh(evald.filter(e => e.kind).map(e => e.c.symbol));                                // and running volume
       const nd = await ctx(supa, evald.map(e => e.c.symbol));
       const upserts: any[] = [];
       const msgs: { text: string; sym: string; pri: number }[] = [];
@@ -561,17 +579,12 @@ Deno.serve(async (req: Request) => {
       const have = new Set((sent || []).map((x: any) => x.key));
       const fresh = hits.filter(h => !have.has(h.key)).slice(0, 25);
       let extList = '';
+      await volFresh(fresh.map(h => h.u.symbol));
       const nd = await ctx(supa, fresh.map(h => h.u.symbol));
       for (const h of fresh) {
-        let xv: number | null = null;
-        try {
-          const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.u.symbol)}?range=1d&interval=5m&includePrePost=true`,
-            { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10_000) });
-          const j = await r.json(); const res = j?.chart?.result?.[0];
-          const per = res?.meta?.currentTradingPeriod?.[sess];
-          const ts: number[] = res?.timestamp || [], vol: number[] = res?.indicators?.quote?.[0]?.volume || [];
-          if (per) xv = ts.reduce((sum, t, i) => (t >= per.start && t < per.end ? sum + (vol[i] || 0) : sum), 0);
-        } catch (_) { /**/ }
+        // extended-hours volume: Nasdaq via fast-scan (Yahoo's chart reports 0 for pre-market / after-hours)
+        const vv = nd.vacc[h.u.symbol];
+        const xv: number | null = vv ? Number(sess === 'pre' ? vv.pre_vol : vv.post_vol) : null;
         const u = h.u;
         const status = u.kind === 'near' ? `NEAR signal ${mdy(u.signal_date)} (candle body over 10%) · entry ${money(u.entry)} · target ${money(u.target)} · stop: close below ${money(u.stop)}`
           : u.kind === 'signal' ? `Signal ${mdy(u.signal_date)} · entry ${money(u.entry)} · target ${money(u.target)} · stop: close below ${money(u.stop)}`
