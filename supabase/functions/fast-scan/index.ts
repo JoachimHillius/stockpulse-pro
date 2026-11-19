@@ -8,7 +8,9 @@
 //   📈/📉 new session high / low (pre-market, regular, after-hours) once the stock is >= 10% (under $10) / 5% ($10+) away from
 //        the reference (previous close before / during the session, today's close after hours); re-sent only when the
 //        high / low extends at least another 2%.
-//  Junk filter: price >= $0.10 and >= $250K traded today. A stock is not re-sent within 5 minutes unless it is higher.
+//  Junk filter: price >= $0.10 and >= $250K traded today. Before the open / after the close the $250K is judged on today's
+//  pre-market / after-hours volume from Nasdaq (Yahoo's volume then is still yesterday's). A stock is not re-sent within
+//  5 minutes unless it is higher.
 //  Telegram commands (from your chat only): STOP XYZ → no more alerts for XYZ (here and the 👀 / ⚡ spike alerts) until
 //  START XYZ. Several tickers work too: STOP INHD, AKAN. The bot confirms each command.
 //  Every alert carries "📊 Volume today X (pre-market Y) = N% of yesterday's Z": today's running volume vs the previous
@@ -229,7 +231,8 @@ Deno.serve(async (req: Request) => {
       const key = `${s}:${sk}`, ss = sk ? (sessMap[key] || { symbol: s, d: et.date, sess: sk, hi: px, lo: px, hi_sent: null, lo_sent: null }) : null;
       const newHi = ss && px > Number(ss.hi), newLo = ss && px < Number(ss.lo);
       if (ss) { ss.hi = Math.max(Number(ss.hi), px); ss.lo = Math.min(Number(ss.lo), px); ss.updated_at = nowIso; sessUp.push(ss); }
-      if (px < MIN_PRICE || px * vol < MIN_DOLLARS) continue;
+      const extSess = sk === 'pre' || sk === 'post';
+      if (px < MIN_PRICE || (!extSess && px * vol < MIN_DOLLARS)) continue;   // extended hours: checked below with today's volume
       const tail = `${pct != null && isFinite(pct) ? ` · ${pct >= 0 ? '+' : ''}${Math.round(pct)}% ${sk === 'post' ? 'vs close' : 'today'}` : ''}${sess}\nSTOP ${s} to mute`;
       const j1 = p1 ? px / p1 - 1 : 0, j5 = p5 ? px / p5 - 1 : 0, [u1, u5] = UP(px);
       let sent = false;
@@ -260,9 +263,18 @@ Deno.serve(async (req: Request) => {
     await supa.from('fast_ticks').insert(got.map(s => ({ symbol: s, at: nowIso, px: q[s].px, pct: isFinite(Number(q[s].pct)) ? q[s].pct : null })));
     await supa.from('fast_ticks').delete().lt('at', new Date(now.getTime() - 20 * 60_000).toISOString());
     if (keep.length) await supa.from('fast_watch').update({ last_move_at: nowIso }).in('symbol', keep);
+    let va: Record<string, any> = {};
+    if (alerts.length) {
+      va = await volAccum(supa, alerts.map(a => a.symbol));
+      // extended hours: >= $250K traded today (Nasdaq pre-market / after-hours volume); no Nasdaq data → yesterday's rule
+      const keepIdx = alerts.map((a, k) => k).filter(k => { const a = alerts[k], s = a.symbol, x = q[s];
+        if (!(x.sk === 'pre' || x.sk === 'post')) return true;
+        const v = va[s]; return v ? a.px * Number(v.today_vol) >= MIN_DOLLARS : a.px * x.vol >= MIN_DOLLARS; });
+      const A = keepIdx.map(k => alerts[k]), M = keepIdx.map(k => msgs[k]);
+      alerts.length = 0; alerts.push(...A); msgs.length = 0; msgs.push(...M);
+    }
     if (alerts.length) await supa.from('fast_alerts').insert(alerts);
     if (msgs.length) {
-      const va = await volAccum(supa, alerts.map(a => a.symbol));
       const texts = msgs.map((m, k) => { const v = volLine(va[alerts[k].symbol]); return v ? m.replace(/\nSTOP /, v + '\nSTOP ') : m; });
       await supa.from('telegram_outbox').insert(texts.map(text => ({ text }))); await flush();
     }
