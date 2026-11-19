@@ -177,6 +177,28 @@ async function fetchLiveQuote(symbol: string): Promise<{row: any, error?: string
   }
 }
 
+// Yahoo's daily chart often returns TODAY's bar with open = close while the market is open, which makes every intraday
+// candle look like a doji. Today's open / high / low from the regular-session 1-minute bars; null if not available.
+async function todayOHL(symbol: string): Promise<{ open: number; high: number; low: number } | null> {
+  const fetchSymbol = YAHOO_ALIAS[symbol] || symbol;
+  try {
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(fetchSymbol)}?range=1d&interval=1m`,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; StockPulseSync/1.0)' } });
+    if (!r.ok) { try { await r.body?.cancel(); } catch (_) { /**/ } return null; }
+    const res = (await r.json())?.chart?.result?.[0];
+    const reg = res?.meta?.currentTradingPeriod?.regular, ts: number[] = res?.timestamp || [], q = res?.indicators?.quote?.[0] || {};
+    if (!reg) return null;
+    let open: number | null = null, high = -Infinity, low = Infinity;
+    for (let i = 0; i < ts.length; i++) {
+      if (ts[i] < reg.start || ts[i] >= reg.end) continue;
+      if (open == null && q.open?.[i] != null) open = Number(q.open[i]);
+      if (q.high?.[i] != null) high = Math.max(high, Number(q.high[i]));
+      if (q.low?.[i] != null) low = Math.min(low, Number(q.low[i]));
+    }
+    return open != null && isFinite(high) && isFinite(low) ? { open: Number(open.toFixed(4)), high: Number(high.toFixed(4)), low: Number(low.toFixed(4)) } : null;
+  } catch (_) { return null; }
+}
+
 async function getAllUniqueSymbols(supa: any): Promise<string[]> {
   // PostgREST caps a single response at 1,000 rows, so page through the RPC.
   const PAGE = 1000;
@@ -312,6 +334,16 @@ Deno.serve(async (req: Request) => {
       }
 
       const rows = dedupeByDate(rawRows);
+      { // today's bar from the daily chart: repair open = close (Yahoo quirk during the session); if it can't be repaired,
+        // leave today's bar out so a broken candle is never stored (the next run / the evening sync writes it)
+        const etToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const last = rows[rows.length - 1];
+        if (last && last.trading_date === etToday && last.open != null && last.open === last.close && last.high > last.low) {
+          const fix = await todayOHL(symbol);
+          if (fix && fix.open !== last.close) { last.open = fix.open; last.high = Math.max(last.high, fix.high); last.low = Math.min(last.low, fix.low); }
+          else if (!fix && rows.length > 1) rows.pop();
+        }
+      }
 
       const { error: insErr } = await supa.from('price_history')
         .upsert(rows, { onConflict: 'symbol,trading_date', ignoreDuplicates: false });
