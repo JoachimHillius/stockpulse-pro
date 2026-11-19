@@ -6969,7 +6969,8 @@ function showHoverPopup(sym, triggerEl){
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
   const spPanel = (typeof _spPopPanel === 'function') ? _spPopPanel(sym) : '';   // Single Pattern rows only
-  content.innerHTML = spPanel + buildBreakoutPanel(sym) + html + buildLevelPanel(sym);
+  content.innerHTML = spPanel + `<div id="hp-vol" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;color:#8090a0;">VOLUME TODAY · loading…</div>` + buildBreakoutPanel(sym) + html + buildLevelPanel(sym);
+  _hpLoadVol(sym);
   fetchAndRenderTrend(sym);
 
   // FIXED lower-right corner — never tracks the hovered row
@@ -16824,6 +16825,23 @@ function _spPopPanel(sym) {
       <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin-bottom:6px;">SINGLE PATTERN · TRADE</div>${trade}
       <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin:10px 0 6px;">RSI · LAST 10 DAYS</div><div style="font-size:10.5px;">${_spRsi10(r)}</div>
       <div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin:10px 0 6px;">OPTIONS SPREAD</div>${spr}</div>`;
+}
+// Pop-up: today's running volume (pre-market + regular + after-hours) vs yesterday's full volume — fast-scan mode "vol".
+async function _hpLoadVol(sym) {
+  const el = () => { const e = document.getElementById('hp-vol'); return e && e.dataset.sym === sym ? e : null; };
+  try {
+    const supa = await getSupabaseAsync(); if (!supa) throw new Error('no client');
+    const { data, error } = await supa.functions.invoke('fast-scan', { body: { mode: 'vol', symbols: [sym] } });
+    if (error) throw error;
+    const a = data && data[sym], e = el(); if (!e) return;
+    if (!a) { e.innerHTML = 'VOLUME TODAY · no volume reported yet today'; return; }
+    const pct = a.prev_vol ? a.today_vol / a.prev_vol * 100 : null, c = pct == null ? '#8090a0' : pct >= 100 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : '#c0c8d4';
+    const part = [a.pre_vol ? `pre-market ${_spFmtVol(a.pre_vol)}` : '', a.reg_vol ? `regular ${_spFmtVol(a.reg_vol)}` : '', a.post_vol ? `after-hours ${_spFmtVol(a.post_vol)}` : ''].filter(Boolean).join(' · ');
+    e.innerHTML = `<div style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin-bottom:4px;">VOLUME TODAY vs YESTERDAY</div>
+      <div><b style="font-size:14px;color:${c};">${_spFmtVol(a.today_vol)}</b>${pct != null ? ` <b style="color:${c};">= ${Math.round(pct)}%</b> of yesterday's ${_spFmtVol(a.prev_vol)}` : ' · yesterday not on file'}</div>
+      ${pct != null ? `<div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;margin:5px 0 3px;"><div style="height:5px;width:${Math.min(100, pct)}%;background:${c};border-radius:3px;"></div></div>` : ''}
+      <div style="font-size:9.5px;">${part || 'no trades yet today'} · updated ${new Date(a.updated_at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET</div>`;
+  } catch (err) { const e = el(); if (e) e.innerHTML = 'VOLUME TODAY · not available right now'; console.warn('[hp vol]', err); }
 }
 function spToggleNews(key, ev) { if (ev) ev.stopPropagation(); _spNewsOpen = _spNewsOpen === key ? '' : key; _spRender(); }
 const _spWhen = t => t ? new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';

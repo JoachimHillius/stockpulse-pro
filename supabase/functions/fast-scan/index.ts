@@ -11,6 +11,10 @@
 //  Junk filter: price >= $0.10 and >= $250K traded today. A stock is not re-sent within 5 minutes unless it is higher.
 //  Telegram commands (from your chat only): STOP XYZ → no more alerts for XYZ (here and the 👀 / ⚡ spike alerts) until
 //  START XYZ. Several tickers work too: STOP INHD, AKAN. The bot confirms each command.
+//  Every alert carries "📊 Volume today X (pre-market Y) = N% of yesterday's Z": today's running volume vs the previous
+//  day's full volume. Regular session from Yahoo; pre-market and after-hours from Nasdaq's extended-trading data (Yahoo's
+//  free data has no extended-hours volume). Stored in public.vol_accum.
+//  mode "vol" { symbols: [...] }: the same numbers for the app pop-up.
 //  mode "diag": checks the bot (webhook / another program already reading its messages) without reading any message.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -37,6 +41,69 @@ async function yahooSession(): Promise<{ cookie: string; crumb: string } | null>
   } catch (_) { return null; }
 }
 const money = (v: number) => '$' + (v < 1 ? v.toFixed(4) : v.toFixed(2));
+const fvol = (v: number) => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : String(Math.round(v));
+
+// Nasdaq extended-hours share volume ("Pre-Market Share Volume" / "After Hours Share Volume") for today, or null.
+async function nasdaqExt(sym: string, type: 'pre' | 'post'): Promise<number | null> {
+  for (const cls of ['stocks', 'etf']) {
+    try {
+      const r = await fetch(`https://api.nasdaq.com/api/quote/${encodeURIComponent(sym.replace('.', '/'))}/extended-trading?markettype=${type}&assetclass=${cls}&time=0`,
+        { headers: { 'User-Agent': UA, Accept: 'application/json, text/plain, */*', Origin: 'https://www.nasdaq.com', Referer: 'https://www.nasdaq.com/' }, signal: AbortSignal.timeout(8_000) });
+      if (!r.ok) { try { await r.body?.cancel(); } catch (_) { /**/ } continue; }
+      const j = await r.json();
+      const upd = String((j?.data?.lastUpdateInfo || []).join(' '));
+      const row = j?.data?.infoTable?.rows?.[0];
+      if (!row?.volume) continue;
+      // only today's session counts (before 4 AM Nasdaq still shows yesterday's numbers)
+      const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' });
+      if (upd && !upd.includes(today)) return 0;
+      const v = Number(String(row.volume).replace(/[^0-9]/g, ''));
+      return isFinite(v) ? v : null;
+    } catch (_) { /**/ }
+  }
+  return null;
+}
+
+// Today's running volume: regular session from Yahoo, pre-market / after-hours from Nasdaq; previous day's full volume from price_history.
+async function volAccum(supa: any, symsIn: string[]): Promise<Record<string, any>> {
+  const syms = [...new Set(symsIn)].slice(0, 60);
+  if (!syms.length) return {};
+  const today = etParts().date;
+  const { data: prevRows } = await supa.from('price_history').select('symbol,trading_date,volume').in('symbol', syms).lt('trading_date', today)
+    .gte('trading_date', new Date(Date.now() - 12 * 864e5).toISOString().slice(0, 10)).order('trading_date', { ascending: false }).limit(2000);
+  const prev: Record<string, any> = {};
+  for (const r of prevRows || []) if (!prev[r.symbol]) prev[r.symbol] = r;
+  const out: Record<string, any> = {};
+  let i = 0;
+  await Promise.all(Array.from({ length: 6 }, async () => { while (i < syms.length) { const s = syms[i++];
+    try {
+      const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.replace('.', '-'))}?range=1d&interval=1m&includePrePost=true`,
+        { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10_000) });
+      const res = (await r.json())?.chart?.result?.[0];
+      const tp = res?.meta?.currentTradingPeriod, ts: number[] = res?.timestamp || [], vol: number[] = res?.indicators?.quote?.[0]?.volume || [];
+      if (!tp) continue;
+      const day = new Date(tp.regular.start * 1000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const v = { pre: 0, reg: 0, post: 0 };
+      if (day === today) for (let k = 0; k < ts.length; k++) {
+        const t = ts[k], x = vol[k] || 0;
+        if (t >= tp.pre.start && t < tp.pre.end) v.pre += x; else if (t >= tp.regular.start && t < tp.regular.end) v.reg += x; else if (t >= tp.post.start && t < tp.post.end) v.post += x;
+      }
+      // the regular-session total from the quote is more complete than the 1-minute bars once the session has started
+      if (day === today && Date.now() / 1000 >= tp.regular.start && Number(res.meta.regularMarketVolume) > v.reg) v.reg = Number(res.meta.regularMarketVolume);
+      const nowS = Date.now() / 1000;
+      if (day === today && nowS >= tp.pre.start) { const x = await nasdaqExt(s, 'pre'); if (x != null && x > v.pre) v.pre = x; }
+      if (day === today && nowS >= tp.post.start) { const x = await nasdaqExt(s, 'post'); if (x != null && x > v.post) v.post = x; }
+      const p = prev[s];
+      if (!(v.pre + v.reg + v.post > 0)) continue;   // nothing reported yet (Nasdaq has no data for some small stocks) → no line
+      out[s] = { symbol: s, d: today, pre_vol: Math.round(v.pre), reg_vol: Math.round(v.reg), post_vol: Math.round(v.post), today_vol: Math.round(v.pre + v.reg + v.post),
+        prev_vol: p?.volume ?? null, prev_date: p?.trading_date ?? null, updated_at: new Date().toISOString() };
+    } catch (_) { /**/ } } }));
+  const rows = Object.values(out);
+  if (rows.length) await supa.from('vol_accum').upsert(rows, { onConflict: 'symbol' });
+  return out;
+}
+const volLine = (a: any) => !a || !a.prev_vol ? '' :
+  `\n📊 Volume today ${fvol(a.today_vol)}${a.pre_vol && a.today_vol !== a.pre_vol ? ` (pre-market ${fvol(a.pre_vol)})` : a.pre_vol ? ' pre-market' : ''}${a.post_vol ? ` (after-hours ${fvol(a.post_vol)})` : ''} = ${Math.round(a.today_vol / a.prev_vol * 100)}% of yesterday's ${fvol(a.prev_vol)}`;
 
 // Telegram — the token never leaves this function (errors are scrubbed).
 async function tg(method: string, params: Record<string, unknown>): Promise<any> {
@@ -94,6 +161,11 @@ Deno.serve(async (req: Request) => {
       return Response.json({ bot: me.ok ? '@' + me.result.username : me.description, webhook: wh.ok ? (wh.result.url ? 'SET' : 'none') : wh.description,
         pending: wh.result?.pending_update_count, poll: up.ok ? 'free' : `${up.error_code || ''} ${up.description || ''}`.trim(),
         chat_type: (up.result?.[0]?.message || up.result?.[0]?.channel_post)?.chat?.type || null });
+    }
+
+    if (body.mode === 'vol') {   // the app pop-up
+      const syms = (Array.isArray(body.symbols) ? body.symbols : []).map((x: any) => String(x).toUpperCase()).filter((x: string) => /^[A-Z][A-Z.\-]{0,6}$/.test(x)).slice(0, 10);
+      return Response.json(await volAccum(supa, syms));
     }
 
     const cmds = await commands(supa);
@@ -189,7 +261,11 @@ Deno.serve(async (req: Request) => {
     await supa.from('fast_ticks').delete().lt('at', new Date(now.getTime() - 20 * 60_000).toISOString());
     if (keep.length) await supa.from('fast_watch').update({ last_move_at: nowIso }).in('symbol', keep);
     if (alerts.length) await supa.from('fast_alerts').insert(alerts);
-    if (msgs.length) { await supa.from('telegram_outbox').insert(msgs.map(text => ({ text }))); await flush(); }
+    if (msgs.length) {
+      const va = await volAccum(supa, alerts.map(a => a.symbol));
+      const texts = msgs.map((m, k) => { const v = volLine(va[alerts[k].symbol]); return v ? m.replace(/\nSTOP /, v + '\nSTOP ') : m; });
+      await supa.from('telegram_outbox').insert(texts.map(text => ({ text }))); await flush();
+    }
     return Response.json({ cmds, on_list: syms.length, priced: got.length, sent: msgs.length, muted: muted.size });
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });
