@@ -539,6 +539,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('history',this)">History / Outlook</button>
     <button class="nav-btn" onclick="goPage('earnings',this)">Earnings</button>
     <button class="nav-btn" onclick="goPage('tradelog',this)" style="white-space:normal;line-height:1.2;padding:0 10px;font-size:10px;">Trade<br>Log</button>
+    <button class="nav-btn" onclick="goPage('journal',this)">Journal</button>
     <button class="nav-btn" onclick="goPage('settings',this)">Settings</button>
     <button class="nav-btn" onclick="showMarketMap()" style="color:#00d4ff;border-bottom-color:transparent;">⊞ Map</button>
     <button class="nav-btn" onclick="goPage('rangescan',this)">Range Scan</button>
@@ -1163,6 +1164,10 @@ select option{background:var(--bg2);}
   <div id="tl-root" style="max-width:1100px;">
     <div style="color:#5a708a;font-size:12px;padding:30px 0;text-align:center;">Loading sales log…</div>
   </div>
+</div>
+
+<div id="page-journal" class="page">
+  <div id="jr-root"></div>
 </div>
 
 <div id="page-history" class="page">
@@ -5880,6 +5885,9 @@ function goPage(name,btn){
   }
   if(name==='tradelog'){
     setTimeout(initTradeLog,50);
+  }
+  if(name==='journal'){
+    setTimeout(jrInit,50);
   }
   if(name==='earnings'){
     setTimeout(loadEarningsProfiles,50);
@@ -18062,5 +18070,447 @@ function _rsFlipToTracked(symbol, section) {
   <div id="hover-popup-content"></div>
 </div>
 
+<script>
+// ===== Trading Journal (STEP 20): Today (market + one card per trade) and Calendar =====
+// Tables: jr_days, jr_trades, jr_risk, jr_audit, jr_symbols · ticker search: rpc jr_symbol_search
+const JR = { tab: 'today', d: null, days: {}, trades: [], risk: [], month: null, filter: 'both', sel: null, edit: {}, seq: 0, loaded: false };
+const JR_RULES = {
+  penny: [['plan', 'Plan written before entry'], ['stop', 'Stop placed / mental stop honored'], ['size', 'Sized from the 15% stop'],
+          ['trail', 'Stop trailed at +1R (or +1R never reached)'], ['nochase', 'No chase · dilution checked']],
+  option: [['market', 'SPY / VIX / trend checked first'], ['plan', 'Plan written before entry'], ['stoporder', 'Stop order placed right after the fill'],
+           ['twoloss', '2-losses-in-a-row rule kept'], ['dailymax', 'Daily max loss kept']]
+};
+const JR_HARD = { penny: ['stop', 'size'], option: ['stoporder', 'twoloss', 'dailymax'] };   // unchecked = fail; the rest = warning
+const jrEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const jrToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+const jrNum = v => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(/[$,]/g, '')); return isNaN(n) ? null : n; };
+const jrMoney = (v, sign = true) => v == null ? '—' : `${sign ? (v > 0 ? '+' : v < 0 ? '−' : '') : (v < 0 ? '−' : '')}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const jrMoney0 = v => v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}$${Math.round(Math.abs(v)).toLocaleString('en-US')}`;
+const jrPnl = t => (t.entry == null || t.exit == null || t.qty == null) ? null : Math.round((t.exit - t.entry) * t.qty * (t.kind === 'option' ? 100 : 1) * 100) / 100;
+const jrMonday = d => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.toISOString().slice(0, 10); };
+const jrAddDays = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+
+function jrAutoResult(t) {
+  const r = t.rules || {}, list = JR_RULES[t.kind];
+  if (t.stop_used === 'gt15' || t.stop_used === 'none') return 'fail';
+  if (JR_HARD[t.kind].some(k => !r[k])) return 'fail';
+  if (list.some(([k]) => !r[k])) return 'warning';
+  if (t.stop_used === '15' || t.stop_used === '25') return 'warning';
+  return 'clean';
+}
+const jrResult = t => t.result || null;   // saved result (null = not reviewed, e.g. imported rows)
+function jrRiskFor(d) {
+  const rows = JR.risk.filter(r => r.week_start <= d).sort((a, b) => a.week_start < b.week_start ? 1 : a.week_start > b.week_start ? -1 : b.id - a.id);
+  return rows[0] || { penny_limit: 500, option_limit: 800 };
+}
+
+function jrCss() {
+  if (document.getElementById('jr-css')) return;
+  const s = document.createElement('style'); s.id = 'jr-css';
+  s.textContent = `
+#jr-root{max-width:1280px;font-size:12px;}
+.jr-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.jr-hd h2{font-size:15px;letter-spacing:1px;margin:0 6px 0 0;color:var(--text);}
+.jr-pill{font-size:11px;padding:4px 11px;border-radius:14px;border:1px solid var(--border2);color:var(--text2);background:transparent;cursor:pointer;font-family:inherit;}
+.jr-pill.on{background:rgba(0,212,255,.14);border-color:var(--cyan);color:var(--cyan);font-weight:700;}
+.jr-btn{font-size:11px;font-weight:700;padding:5px 12px;border-radius:5px;border:1px solid var(--cyan);color:var(--cyan);background:rgba(0,212,255,.1);cursor:pointer;font-family:inherit;}
+.jr-btn.g{border-color:var(--green);color:var(--green);background:rgba(0,229,176,.1);}
+.jr-btn.r{border-color:var(--red);color:var(--red);background:rgba(255,61,90,.08);}
+.jr-btn.sm{font-size:10px;padding:3px 9px;}
+.jr-sp{margin-left:auto;}
+.jr-card{background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;}
+.jr-card h3{margin:0 0 8px;font-size:10.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;display:flex;align-items:center;gap:8px;}
+.jr-row{display:flex;gap:10px;flex-wrap:wrap;}
+.jr-f{display:flex;flex-direction:column;gap:3px;flex:1;min-width:84px;position:relative;}
+.jr-f label{font-size:9.5px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;}
+.jr-f input,.jr-f select,.jr-f textarea{background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:5px 7px;color:var(--text);font-size:12px;font-family:inherit;width:100%;box-sizing:border-box;}
+.jr-f textarea{min-height:52px;resize:vertical;}
+.jr-auto{padding:5px 7px;border:1px dashed var(--border2);border-radius:5px;min-height:27px;box-sizing:border-box;color:var(--text2);white-space:nowrap;}
+.jr-seg{display:inline-flex;border:1px solid var(--border2);border-radius:5px;overflow:hidden;}
+.jr-seg button{background:transparent;border:0;border-right:1px solid var(--border2);color:var(--text2);padding:5px 9px;font-size:11px;cursor:pointer;font-family:inherit;}
+.jr-seg button:last-child{border-right:0;}
+.jr-seg button.on{background:var(--bg4);color:var(--text);font-weight:700;}
+.jr-pos{color:var(--green);} .jr-neg{color:var(--red);} .jr-amb{color:var(--amber);}
+.jr-chk{display:flex;align-items:center;gap:7px;margin:4px 0;cursor:pointer;font-size:12px;color:var(--text2);}
+.jr-chk input{width:15px;height:15px;accent-color:var(--green);}
+.jr-tag{font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:.4px;}
+.jr-tag.clean{background:rgba(0,229,176,.15);color:var(--green);} .jr-tag.warning{background:rgba(255,176,32,.15);color:var(--amber);}
+.jr-tag.fail{background:rgba(255,61,90,.15);color:var(--red);} .jr-tag.none{background:var(--bg3);color:var(--text3);}
+.jr-tbl{width:100%;border-collapse:collapse;}
+.jr-tbl td,.jr-tbl th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;font-size:11.5px;white-space:nowrap;}
+.jr-tbl th{color:var(--text3);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;}
+.jr-dd{position:absolute;top:100%;left:0;right:0;z-index:50;background:var(--bg2);border:1px solid var(--cyan);border-radius:5px;max-height:240px;overflow:auto;box-shadow:0 6px 20px rgba(0,0,0,.35);}
+.jr-dd div{padding:5px 8px;cursor:pointer;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.jr-dd div:hover,.jr-dd div.hi{background:var(--bg3);}
+.jr-dd b{color:var(--cyan);margin-right:6px;}
+.jr-cards{display:flex;flex-direction:column;gap:12px;margin-top:12px;}
+.jr-tc.penny{border-left:3px solid var(--green);} .jr-tc.option{border-left:3px solid var(--cyan);}
+.jr-cal{display:grid;grid-template-columns:repeat(5,1fr) .95fr;gap:4px;}
+.jr-ch{font-size:10px;color:var(--text3);text-transform:uppercase;padding:0 4px;}
+.jr-d{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;height:86px;padding:5px 7px;position:relative;cursor:pointer;box-sizing:border-box;}
+.jr-d .n{color:var(--text3);font-size:11px;} .jr-d .pl{font-size:16px;font-weight:700;margin-top:2px;}
+.jr-d .m{color:var(--text2);font-size:10.5px;} .jr-d .mk{position:absolute;bottom:4px;left:7px;right:7px;color:var(--text3);font-size:9.5px;white-space:nowrap;overflow:hidden;}
+.jr-d .dot{position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;}
+.jr-d.gr{background:rgba(0,229,176,.09);border-color:rgba(0,229,176,.35);} .jr-d.rd{background:rgba(255,61,90,.09);border-color:rgba(255,61,90,.35);}
+.jr-d.wk{background:var(--bg3);cursor:default;} .jr-d.e{background:transparent;border-style:dashed;cursor:default;} .jr-d.out{opacity:.35;}
+.jr-d.sel{outline:2px solid var(--cyan);}
+.dot.clean{background:var(--green);} .dot.warning{background:var(--amber);} .dot.fail{background:var(--red);}
+.jr-kp{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.jr-kp .jr-card{flex:1;min-width:120px;padding:7px 10px;}
+.jr-kp span{font-size:9.5px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;} .jr-kp b{font-size:18px;}
+.jr-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;}
+.jr-modal .jr-card{width:330px;}
+`;
+  document.head.appendChild(s);
+}
+
+async function jrInit() {
+  jrCss();
+  if (!JR.d) JR.d = jrToday();
+  if (!JR.month) JR.month = JR.d.slice(0, 7);
+  const root = document.getElementById('jr-root'); if (!root) return;
+  if (!JR.loaded) root.innerHTML = '<div style="color:var(--text3);padding:30px;text-align:center;">Loading journal…</div>';
+  await jrLoad();
+  jrRender();
+}
+async function jrLoad() {
+  const supa = await getSupabaseAsync();
+  if (!supa) { document.getElementById('jr-root').innerHTML = '<div style="color:var(--red);padding:20px;">Database unavailable</div>'; return; }
+  const [t, d, r] = await Promise.all([
+    supa.from('jr_trades').select('*').order('d').order('id').limit(5000),
+    supa.from('jr_days').select('*').limit(5000),
+    supa.from('jr_risk').select('*').order('week_start').limit(500)]);
+  if (t.error || d.error || r.error) { showToast('Journal', 'Load failed: ' + (t.error || d.error || r.error).message, 'error'); return; }
+  JR.trades = (t.data || []).map(x => ({ ...x, qty: jrNum(x.qty), entry: jrNum(x.entry), exit: jrNum(x.exit), pnl: jrNum(x.pnl) }));
+  JR.days = Object.fromEntries((d.data || []).map(x => [x.d, x]));
+  JR.risk = r.data || [];
+  JR.loaded = true;
+}
+function jrTab(t) { JR.tab = t; jrRender(); }
+function jrRender() {
+  const root = document.getElementById('jr-root'); if (!root) return;
+  const tabs = [['today', 'Today'], ['calendar', 'Calendar'], ['audit', 'Weekly Audit'], ['analytics', 'Analytics']]
+    .map(([k, l]) => `<button class="jr-pill ${JR.tab === k ? 'on' : ''}" onclick="jrTab('${k}')">${l}</button>`).join('');
+  let body = '';
+  if (JR.tab === 'today') body = jrTodayHtml();
+  else if (JR.tab === 'calendar') body = jrCalHtml();
+  else body = `<div class="jr-card" style="padding:30px;text-align:center;color:var(--text3);">${JR.tab === 'audit' ? 'Weekly Audit' : 'Analytics'} — built in the next step.</div>`;
+  root.innerHTML = `<div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'today' ? `<span class="jr-sp"></span>
+    <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button>` : ''}</div>${body}`;  if (JR.tab === 'today') Object.keys(JR.edit).forEach(jrRefreshCard);
+}
+function jrSetDate(d) {
+  if (!d) return;
+  if (Object.values(JR.edit).some(e => e._dirty) && !confirm('You have unsaved trade cards. Switch the day anyway?')) { jrRender(); return; }
+  JR.d = d; JR.edit = {}; jrRender();
+}
+
+// ---------- Today ----------
+function jrDayTrades(d) { return JR.trades.filter(t => t.d === d); }
+function jrTodayHtml() {
+  const d = JR.d, m = JR.days[d] || {}, risk = jrRiskFor(d);
+  const spyPct = (jrNum(m.spy_open) && jrNum(m.spy_close) != null) ? (m.spy_close / m.spy_open - 1) * 100 : null;
+  const vixChg = (jrNum(m.vix_open) != null && jrNum(m.vix_close) != null) ? m.vix_close - m.vix_open : null;
+  const tr = jrDayTrades(d);
+  const lim = kind => {
+    const ts = tr.filter(t => t.kind === kind), net = ts.reduce((s, t) => s + (t.pnl || 0), 0), limit = Number(kind === 'penny' ? risk.penny_limit : risk.option_limit);
+    const used = Math.max(0, -net);
+    let streak = 0; for (const t of ts.slice().sort((a, b) => String(a.entry_time || '').localeCompare(String(b.entry_time || '')) || a.id - b.id).reverse()) { if ((t.pnl ?? 0) < 0) streak++; else break; }
+    return `<tr><td>${kind === 'penny' ? 'Penny' : 'Options'}</td><td>$${limit.toLocaleString()}</td><td class="${used > 0 ? 'jr-neg' : ''}">${used > 0 ? '−$' + used.toFixed(0) : '$0'}</td>
+      <td class="${limit - used <= 0 ? 'jr-neg' : ''}">$${Math.max(0, limit - used).toFixed(0)}</td><td>${ts.length}${kind === 'option' && streak ? ` · <span class="${streak >= 2 ? 'jr-neg' : 'jr-amb'}">${streak} loss${streak > 1 ? 'es' : ''} in a row${streak >= 2 ? ' — done scalping' : ''}</span>` : ''}</td></tr>`;
+  };
+  const inp = (k, ph) => `<input type="number" step="any" value="${m[k] ?? ''}" placeholder="${ph}" onchange="jrSaveDay('${k}',this.value)">`;
+  const trend = ['up', 'down', 'side'].map((k, i) => `<button class="${m.trend === k ? 'on' : ''}" onclick="jrSaveDay('trend','${k}')">${['▲ Up', '▼ Down', '▶ Sideways'][i]}</button>`).join('');
+  // cards: saved trades of the day + new unsaved cards
+  for (const t of tr) if (!JR.edit['t' + t.id]) JR.edit['t' + t.id] = { ...t, rules: { ...(t.rules || {}) }, _k: 't' + t.id };
+  const keys = Object.keys(JR.edit).filter(k => JR.edit[k].d === d && !JR.edit[k]._deleted);
+  const cards = keys.map((k, i) => jrCardHtml(k, i + 1)).join('');
+  return `
+  <div class="jr-row">
+    <div class="jr-card" style="flex:1.3;min-width:420px;"><h3>Market — ${new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}<span class="jr-sp" id="jr-day-st" style="text-transform:none;letter-spacing:0;"></span></h3>
+      <div class="jr-row">
+        <div class="jr-f"><label>SPY open</label>${inp('spy_open', '0.00')}</div>
+        <div class="jr-f"><label>SPY close</label>${inp('spy_close', '0.00')}</div>
+        <div class="jr-f"><label>SPY %</label><div class="jr-auto ${spyPct == null ? '' : spyPct >= 0 ? 'jr-pos' : 'jr-neg'}">${spyPct == null ? '—' : (spyPct >= 0 ? '+' : '') + spyPct.toFixed(2) + '%'}</div></div>
+        <div class="jr-f"><label>VIX open</label>${inp('vix_open', '0.00')}</div>
+        <div class="jr-f"><label>VIX close</label>${inp('vix_close', '0.00')}</div>
+        <div class="jr-f"><label>VIX change</label><div class="jr-auto ${vixChg == null ? '' : vixChg > 0 ? 'jr-neg' : 'jr-pos'}">${vixChg == null ? '—' : (vixChg >= 0 ? '+' : '') + vixChg.toFixed(2)}</div></div>
+      </div>
+      <div class="jr-row" style="margin-top:8px;align-items:flex-end;">
+        <div class="jr-f" style="flex:none;"><label>Trend</label><div class="jr-seg">${trend}</div></div>
+        <div class="jr-f"><label>Market note</label><input type="text" value="${jrEsc(m.note)}" placeholder="e.g. sold off after 2 PM" onchange="jrSaveDay('note',this.value)"></div>
+      </div>
+    </div>
+    <div class="jr-card" style="flex:1;min-width:340px;"><h3>Today's limits</h3>
+      <table class="jr-tbl"><tr><th></th><th>Max loss / day</th><th>Used</th><th>Left</th><th>Trades</th></tr>${lim('penny')}${lim('option')}</table>
+      <div style="margin-top:8px;color:var(--text2);font-size:11px;">Per-trade risk ≈ ⅓ of the day: Penny $${Math.round(risk.penny_limit / 3)} · Options $${Math.round(risk.option_limit / 3)}</div>
+    </div>
+  </div>
+  <div class="jr-cards">${cards || `<div class="jr-card" style="text-align:center;color:var(--text3);padding:22px;">No trades on this day yet — use <b>+ Penny trade</b> or <b>+ Options trade</b>.</div>`}</div>`;
+}
+
+async function jrSaveDay(field, val) {
+  const d = JR.d, cur = JR.days[d] || { d }, prev = cur[field];
+  cur[field] = field === 'note' || field === 'trend' ? (val || null) : jrNum(val);
+  if (field === 'trend' && prev === val) cur.trend = null;   // click the same trend again = clear
+  JR.days[d] = cur;
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_days').upsert({ d, spy_open: cur.spy_open ?? null, spy_close: cur.spy_close ?? null, vix_open: cur.vix_open ?? null,
+    vix_close: cur.vix_close ?? null, trend: cur.trend ?? null, note: cur.note ?? null, updated_at: new Date().toISOString() }, { onConflict: 'd' });
+  if (error) { showToast('Journal', 'Market not saved: ' + error.message, 'error'); return; }
+  jrRender();
+  const st = document.getElementById('jr-day-st'); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
+}
+
+function jrNewCard(kind) {
+  const k = 'n' + (++JR.seq);
+  JR.edit[k] = { _k: k, _dirty: true, id: null, d: JR.d, kind, symbol: '', rules: {}, session: kind === 'penny' ? 'reg' : null, opt_type: kind === 'option' ? 'call' : null,
+    setup: kind === 'option' ? 'scalp' : null, stop_used: kind === 'penny' ? '10' : '20' };
+  jrRender();
+  setTimeout(() => { const el = document.getElementById('jr-sym-' + k); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 30);
+}
+function jrSegHtml(k, field, opts) {
+  const e = JR.edit[k];
+  return `<div class="jr-seg">${opts.map(([v, l]) => `<button class="${e[field] === v ? 'on' : ''}" onclick="jrSet('${k}','${field}','${v}',true)">${l}</button>`).join('')}</div>`;
+}
+function jrCardHtml(k, n) {
+  const e = JR.edit[k], P = e.kind === 'penny';
+  const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(e[field] ?? '')}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"></div>`;
+  const rules = JR_RULES[e.kind].map(([rk, l], i) => `<label class="jr-chk"><input type="checkbox" ${e.rules[rk] ? 'checked' : ''} onchange="jrRule('${k}','${rk}',this.checked)">${i + 1} ${l}</label>`).join('');
+  const sym = `<div class="jr-f" style="min-width:110px;"><label>Ticker</label><input id="jr-sym-${k}" type="text" autocomplete="off" value="${jrEsc(e.symbol)}" placeholder="type A…"
+     style="text-transform:uppercase;font-weight:700;" oninput="jrSymInput('${k}',this.value)" onkeydown="jrSymKey(event,'${k}')" onblur="setTimeout(()=>jrSymClose('${k}'),180)"><div class="jr-dd" id="jr-dd-${k}" style="display:none;"></div></div>`;
+  const top = P ? `${sym}
+      <div class="jr-f" style="flex:none;"><label>Session</label>${jrSegHtml(k, 'session', [['pre', 'Pre'], ['reg', 'Regular'], ['post', 'After']])}</div>
+      ${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${f('exit', 'Exit', 'number', '0.00')}
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>
+      ${f('entry_time', 'Time in', 'time')}${f('exit_time', 'Time out', 'time')}`
+    : `${sym}
+      <div class="jr-f" style="flex:none;"><label>Type</label>${jrSegHtml(k, 'opt_type', [['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread']])}</div>
+      ${f('expiry', 'Expiration', 'date')}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
+      ${f('entry', 'Premium in', 'number', '0.00')}${f('exit', 'Premium out', 'number', '0.00')}
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`;
+  const mid = P ? `${f('plan_entry', 'Planned entry', 'number', '0.00')}${f('plan_stop', 'Stop', 'number', '0.00')}${f('plan_target', 'Target', 'number', '0.00')}
+      <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
+      <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
+    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${f('entry_time', 'Time in', 'time')}${f('exit_time', 'Time out', 'time')}
+      <div class="jr-f" style="flex:none;"><label>Setup</label>${jrSegHtml(k, 'setup', [['scalp', 'Scalp'], ['power', 'Power hour'], ['spread', 'Spread'], ['other', 'Other']])}</div>
+    </div><div class="jr-row" style="margin-top:8px;">
+      ${f('plan_entry', 'Planned entry', 'number', '0.00')}${f('plan_stop', 'Stop', 'number', '0.00')}${f('plan_target', 'Target', 'number', '0.00')}
+      <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['20', '20%'], ['25', '25%'], ['none', 'No stop']])}</div>
+      <div class="jr-f"><label>Size check (25% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`;
+  const resSel = `<select onchange="jrSet('${k}','_ovr',this.value)">${[['', 'Auto'], ['clean', 'Clean'], ['warning', 'Warning'], ['fail', 'Fail']]
+    .map(([v, l]) => `<option value="${v}" ${(e._ovr || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  return `<div class="jr-card jr-tc ${e.kind}" id="jr-card-${k}">
+    <h3>#${n} · ${P ? 'Penny' : 'Options'}${e.source === 'sheet' ? ' · <span style="text-transform:none;">imported from your sheet</span>' : ''}
+      <span class="jr-sp" id="jr-st-${k}" style="text-transform:none;letter-spacing:0;"></span>
+      <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
+      <button class="jr-btn r sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></h3>
+    <div class="jr-row">${top}</div>
+    <div class="jr-row" style="margin-top:8px;">${mid}</div>
+    <div class="jr-row" style="margin-top:10px;align-items:flex-start;">
+      <div style="flex:1;min-width:280px;"><div style="font-size:9.5px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Rules — tick each rule you kept</div>${rules}</div>
+      <div style="flex:1.3;min-width:300px;display:flex;flex-direction:column;gap:8px;">
+        <div class="jr-row" style="align-items:flex-end;"><div class="jr-f"><label>Result</label><div class="jr-auto" id="jr-res-${k}"></div></div><div class="jr-f" style="flex:none;min-width:110px;"><label>Set by hand</label>${resSel}</div></div>
+        <div class="jr-f"><label>Notes / why the deviation</label><textarea oninput="jrSet('${k}','notes',this.value)" placeholder="What happened, why, next time I will…">${jrEsc(e.notes)}</textarea></div>
+      </div>
+    </div></div>`;
+}
+function jrSet(k, field, val, rerender) {
+  const e = JR.edit[k]; if (!e) return;
+  e[field] = val; e._dirty = true;
+  if (rerender) jrRender(); else jrRefreshCard(k);
+  jrMarkDirty(k);
+}
+function jrRule(k, rk, on) { const e = JR.edit[k]; e.rules[rk] = !!on; e._dirty = true; jrRefreshCard(k); jrMarkDirty(k); }
+function jrMarkDirty(k) { const st = document.getElementById('jr-st-' + k); if (st) { st.textContent = 'unsaved changes'; st.style.color = 'var(--amber)'; } }
+function jrCardVals(e) {
+  const o = { ...e, qty: jrNum(e.qty), entry: jrNum(e.entry), exit: jrNum(e.exit) };
+  o.pnl = jrPnl(o);
+  o.auto = jrAutoResult(o);
+  o.res = e._ovr || o.auto;
+  return o;
+}
+function jrRefreshCard(k) {
+  const e = JR.edit[k]; if (!e) return;
+  const v = jrCardVals(e), risk = jrRiskFor(e.d);
+  const pe = document.getElementById('jr-pnl-' + k);
+  if (pe) { pe.textContent = jrMoney(v.pnl); pe.className = 'jr-auto ' + (v.pnl > 0 ? 'jr-pos' : v.pnl < 0 ? 'jr-neg' : ''); }
+  const se = document.getElementById('jr-size-' + k);
+  if (se) {
+    const px = v.entry ?? jrNum(e.plan_entry);
+    if (!px || !v.qty) { se.textContent = '—'; se.className = 'jr-auto'; }
+    else if (e.kind === 'penny') { const mx = Math.floor((risk.penny_limit / 3) / (px * 0.15)); const ok = v.qty <= mx; se.textContent = `${v.qty} ${ok ? '≤' : '>'} ${mx} shares ${ok ? '✓' : '✗'}`; se.className = 'jr-auto ' + (ok ? 'jr-pos' : 'jr-amb'); }
+    else { const mx = Math.floor((risk.option_limit / 3) / (px * 100 * 0.25)); const ok = v.qty <= mx; se.textContent = `${v.qty} ${ok ? '≤' : '>'} ${mx} contracts ${ok ? '✓' : '✗'}`; se.className = 'jr-auto ' + (ok ? 'jr-pos' : 'jr-amb'); }
+  }
+  const re = document.getElementById('jr-res-' + k);
+  if (re && e.id && !e._dirty && !e.result) { re.innerHTML = '<span class="jr-tag none">NOT REVIEWED</span> <span style="color:var(--text3);font-size:11px;">tick the rules you kept, then Save</span>'; return; }
+  if (re) {
+    const miss = JR_RULES[e.kind].map(([rk], i) => !e.rules[rk] ? i + 1 : null).filter(Boolean);
+    const why = [miss.length ? `rule${miss.length > 1 ? 's' : ''} ${miss.join(', ')} not ticked` : '', e.stop_used === 'gt15' ? 'past 15% stop' : e.stop_used === 'none' ? 'no stop' : (e.stop_used === '15' || e.stop_used === '25') ? `${e.stop_used}% stop` : ''].filter(Boolean).join(' · ');
+    re.innerHTML = `<span class="jr-tag ${v.res}">${v.res.toUpperCase()}</span>${e._ovr ? ' <span style="color:var(--text3);">(set by hand)</span>' : ''} <span style="color:var(--text3);font-size:11px;">${why}</span>`;
+  }
+}
+async function jrSaveCard(k) {
+  const e = JR.edit[k]; if (!e) return;
+  const v = jrCardVals(e);
+  const sym = String(e.symbol || '').trim().toUpperCase();
+  if (!sym) { showToast('Journal', 'Ticker is required', 'error'); return; }
+  if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', 'This trade is a FAIL — write in the notes what happened and why before saving.', 'error'); return; }
+  const n = jrNum;
+  const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
+    entry_time: e.entry_time || null, exit_time: e.exit_time || null, plan_entry: n(e.plan_entry), plan_stop: n(e.plan_stop), plan_target: n(e.plan_target),
+    stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
+    setup: e.setup || null, rules: { ...e.rules, ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: v.res, notes: String(e.notes || '').trim() || null, updated_at: new Date().toISOString() };
+  const supa = await getSupabaseAsync();
+  const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
+  const { data, error } = await q;
+  if (error) { showToast('Journal', 'Not saved: ' + error.message, 'error'); return; }
+  const saved = { ...data[0], qty: n(data[0].qty), entry: n(data[0].entry), exit: n(data[0].exit), pnl: n(data[0].pnl) };
+  JR.trades = JR.trades.filter(t => t.id !== saved.id).concat(saved).sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id);
+  delete JR.edit[k];
+  JR.edit['t' + saved.id] = { ...saved, rules: { ...(saved.rules || {}) }, _ovr: saved.rules?._ovr || '', _k: 't' + saved.id };
+  showToast(sym, 'Trade saved ✓', 'info');
+  jrRender();
+  const st = document.getElementById('jr-st-t' + saved.id); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
+}
+async function jrDeleteCard(k) {
+  const e = JR.edit[k]; if (!e) return;
+  if (!e.id) { delete JR.edit[k]; jrRender(); return; }
+  if (!confirm(`Delete this ${e.symbol} trade from the journal?`)) return;
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_trades').delete().eq('id', e.id);
+  if (error) { showToast('Journal', 'Not deleted: ' + error.message, 'error'); return; }
+  JR.trades = JR.trades.filter(t => t.id !== e.id); delete JR.edit[k]; jrRender();
+}
+
+// ticker search with "add stock"
+let _jrSymT = null;
+function jrSymInput(k, val) {
+  const e = JR.edit[k]; e.symbol = val.toUpperCase(); e._dirty = true; jrMarkDirty(k);
+  clearTimeout(_jrSymT);
+  const q = val.trim().toUpperCase();
+  if (!q) { jrSymClose(k); return; }
+  _jrSymT = setTimeout(async () => {
+    const supa = await getSupabaseAsync();
+    const { data } = await supa.rpc('jr_symbol_search', { q });
+    const dd = document.getElementById('jr-dd-' + k); if (!dd) return;
+    const list = data || [], exact = list.some(r => r.symbol === q);
+    dd.innerHTML = list.map((r, i) => `<div class="${i === 0 ? 'hi' : ''}" onmousedown="jrSymPick('${k}','${jrEsc(r.symbol)}')"><b>${jrEsc(r.symbol)}</b>${jrEsc(r.name || '')}</div>`).join('')
+      + (exact ? '' : `<div onmousedown="jrAddSym('${k}','${jrEsc(q)}')" style="color:var(--green);font-weight:700;">+ Add stock “${jrEsc(q)}”</div>`);
+    dd.style.display = 'block';
+  }, 180);
+}
+function jrSymKey(ev, k) {
+  const dd = document.getElementById('jr-dd-' + k); if (!dd || dd.style.display === 'none') return;
+  const items = [...dd.children]; let i = items.findIndex(x => x.classList.contains('hi'));
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); items[i]?.classList.remove('hi'); i = (i + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; items[i].classList.add('hi'); items[i].scrollIntoView({ block: 'nearest' }); }
+  else if (ev.key === 'Enter' && i >= 0) { ev.preventDefault(); items[i].dispatchEvent(new MouseEvent('mousedown')); }
+  else if (ev.key === 'Escape') jrSymClose(k);
+}
+function jrSymPick(k, sym) { const e = JR.edit[k]; e.symbol = sym; const el = document.getElementById('jr-sym-' + k); if (el) el.value = sym; jrSymClose(k); }
+function jrSymClose(k) { const dd = document.getElementById('jr-dd-' + k); if (dd) dd.style.display = 'none'; }
+function jrAddSym(k, sym) {
+  jrSymClose(k);
+  const m = document.createElement('div'); m.className = 'jr-modal'; m.id = 'jr-add-modal';
+  m.innerHTML = `<div class="jr-card"><h3>Add stock</h3>
+    <div class="jr-f"><label>Ticker</label><input id="jr-add-sym" type="text" value="${jrEsc(sym)}" style="text-transform:uppercase;font-weight:700;"></div>
+    <div class="jr-f" style="margin-top:8px;"><label>Company name (optional)</label><input id="jr-add-name" type="text"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="jr-btn r sm" onclick="document.getElementById('jr-add-modal').remove()">Cancel</button>
+    <button class="jr-btn g sm" onclick="jrAddSymSave('${k}')">Add</button></div></div>`;
+  document.body.appendChild(m);
+  setTimeout(() => document.getElementById('jr-add-name')?.focus(), 30);
+}
+async function jrAddSymSave(k) {
+  const sym = (document.getElementById('jr-add-sym').value || '').trim().toUpperCase().replace(/^\$/, '');
+  if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(sym)) { showToast('Journal', 'Ticker looks wrong', 'error'); return; }
+  const name = document.getElementById('jr-add-name').value.trim() || null;
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_symbols').upsert({ symbol: sym, name }, { onConflict: 'symbol' });
+  if (error) { showToast('Journal', 'Not added: ' + error.message, 'error'); return; }
+  document.getElementById('jr-add-modal')?.remove();
+  jrSymPick(k, sym);
+  showToast(sym, 'Added to your ticker list ✓', 'info');
+}
+
+// ---------- Calendar ----------
+function jrCalMove(n) { const [y, m] = JR.month.split('-').map(Number); const x = new Date(y, m - 1 + n, 15); JR.month = x.toISOString().slice(0, 7); JR.sel = null; jrRender(); }
+function jrCalFilter(f) { JR.filter = f; jrRender(); }
+function jrCalSel(d) { JR.sel = JR.sel === d ? null : d; jrRender(); }
+function jrOpenDay(d) { JR.d = d; JR.edit = {}; JR.tab = 'today'; jrRender(); }
+const JR_RANK = { clean: 1, warning: 2, fail: 3 };
+function jrWorst(ts) { let w = null; for (const t of ts) if (t.result && (!w || JR_RANK[t.result] > JR_RANK[w])) w = t.result; return w; }
+function jrCalHtml() {
+  const [y, mo] = JR.month.split('-').map(Number);
+  const first = `${JR.month}-01`, last = `${JR.month}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`;
+  const inF = t => JR.filter === 'both' || t.kind === JR.filter;
+  const mt = JR.trades.filter(t => t.d >= first && t.d <= last && inF(t));
+  const byDay = {}; for (const t of mt) (byDay[t.d] ||= []).push(t);
+  const net = mt.reduce((s, t) => s + (t.pnl || 0), 0), withP = mt.filter(t => t.pnl != null), wins = withP.filter(t => t.pnl > 0).length;
+  const dayNets = Object.values(byDay).map(ts => ts.reduce((s, t) => s + (t.pnl || 0), 0));
+  const reviewed = mt.filter(t => t.result), clean = reviewed.filter(t => t.result === 'clean').length;
+  const risk = jrRiskFor(jrToday());
+  const kp = `<div class="jr-kp">
+    <div class="jr-card"><span>Net P&amp;L</span><b class="${net >= 0 ? 'jr-pos' : 'jr-neg'}">${jrMoney0(net)}</b></div>
+    <div class="jr-card"><span>Trades</span><b>${mt.length}</b></div>
+    <div class="jr-card"><span>Win rate</span><b>${withP.length ? Math.round(wins / withP.length * 100) + '%' : '—'}</b></div>
+    <div class="jr-card"><span>Green days</span><b>${dayNets.filter(x => x > 0).length} / ${dayNets.length}</b></div>
+    <div class="jr-card"><span>Rule-clean trades</span><b>${reviewed.length ? `${clean} / ${reviewed.length}` : '—'}</b>${mt.length > reviewed.length ? `<span style="display:inline;margin-left:6px;">${mt.length - reviewed.length} not reviewed</span>` : ''}</div>
+    <div class="jr-card"><span>Risk / day now</span><b style="font-size:14px;">$${Number(risk.penny_limit).toLocaleString()} · $${Number(risk.option_limit).toLocaleString()}</b></div></div>`;
+  // weeks Mon..Fri covering the month
+  let cells = '', wk = jrMonday(first);
+  while (wk <= last) {
+    let wNet = 0, wN = 0, wT = [];
+    for (let i = 0; i < 5; i++) {
+      const d = jrAddDays(wk, i), ts = byDay[d] || [], m = JR.days[d] || {}, out = d < first || d > last;
+      const dn = ts.reduce((s, t) => s + (t.pnl || 0), 0); wNet += dn; wN += ts.length; wT = wT.concat(ts);
+      const arrow = { up: '▲', down: '▼', side: '▶' }[m.trend] || '';
+      const spy = (m.spy_open && m.spy_close != null) ? ((m.spy_close / m.spy_open - 1) * 100) : null;
+      const mk = [spy != null ? `SPY ${spy >= 0 ? '+' : ''}${spy.toFixed(1)}%` : '', m.vix_close != null ? `VIX ${Number(m.vix_close).toFixed(1)}` : ''].filter(Boolean).join(' · ');
+      const w = jrWorst(ts);
+      cells += ts.length || m.trend || mk
+        ? `<div class="jr-d ${ts.length ? (dn > 0 ? 'gr' : dn < 0 ? 'rd' : '') : ''} ${out ? 'out' : ''} ${JR.sel === d ? 'sel' : ''}" onclick="jrCalSel('${d}')">${w ? `<span class="dot ${w}"></span>` : ''}
+            <div class="n">${Number(d.slice(8))} ${arrow}</div>${ts.length ? `<div class="pl ${dn >= 0 ? 'jr-pos' : 'jr-neg'}">${jrMoney0(dn)}</div><div class="m">${ts.length} trade${ts.length > 1 ? 's' : ''}</div>` : ''}<div class="mk">${mk}</div></div>`
+        : `<div class="jr-d e ${out ? 'out' : ''}" onclick="jrCalSel('${d}')" style="cursor:pointer;"><div class="n">${Number(d.slice(8))}</div></div>`;
+    }
+    const ww = jrWorst(wT);
+    cells += `<div class="jr-d wk">${ww ? `<span class="dot ${ww}"></span>` : ''}<div class="n">Week</div>${wN ? `<div class="pl ${wNet >= 0 ? 'jr-pos' : 'jr-neg'}">${jrMoney0(wNet)}</div>` : ''}<div class="m">${wN} trade${wN === 1 ? '' : 's'}${ww ? ' · ' + ww : ''}</div></div>`;
+    wk = jrAddDays(wk, 7);
+  }
+  // side panel
+  let side = '';
+  if (JR.sel) {
+    const ts = (byDay[JR.sel] || []), m = JR.days[JR.sel] || {};
+    side = `<div class="jr-card"><h3>${new Date(JR.sel + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}<span class="jr-sp"></span><button class="jr-btn sm" onclick="jrOpenDay('${JR.sel}')">Open day</button></h3>
+      ${ts.length ? `<table class="jr-tbl">${ts.map(t => `<tr><td><b>${jrEsc(t.symbol)}</b>${t.kind === 'option' && t.strike ? ' ' + jrEsc(t.strike) + (t.opt_type === 'put' ? 'P' : t.opt_type === 'call' ? 'C' : '') : ''}</td><td>${t.kind === 'penny' ? 'P' : 'O'}</td>
+        <td class="${(t.pnl || 0) >= 0 ? 'jr-pos' : 'jr-neg'}">${jrMoney0(t.pnl)}</td><td><span class="jr-tag ${t.result || 'none'}">${(t.result || 'not reviewed').toUpperCase()}</span></td></tr>`).join('')}</table>` : '<div style="color:var(--text3);">No trades.</div>'}
+      ${m.note ? `<div style="margin-top:6px;color:var(--text2);font-size:11px;">Market: ${jrEsc(m.note)}</div>` : ''}
+      ${ts.filter(t => t.notes).map(t => `<div style="margin-top:4px;color:var(--text2);font-size:11px;"><b>${jrEsc(t.symbol)}:</b> ${jrEsc(t.notes)}</div>`).join('')}</div>`;
+  }
+  const grp = (keyFn, labels) => {
+    const rows = labels.map(([k, l]) => {
+      const ts = mt.filter(t => keyFn(t) === k), p = ts.filter(t => t.kind === 'penny').reduce((s, t) => s + (t.pnl || 0), 0), o = ts.filter(t => t.kind === 'option').reduce((s, t) => s + (t.pnl || 0), 0);
+      return `<tr><td>${l}</td><td>${new Set(ts.map(t => t.d)).size}</td><td class="${p >= 0 ? 'jr-pos' : 'jr-neg'}">${ts.some(t => t.kind === 'penny') ? jrMoney0(p) : '—'}</td><td class="${o >= 0 ? 'jr-pos' : 'jr-neg'}">${ts.some(t => t.kind === 'option') ? jrMoney0(o) : '—'}</td></tr>`;
+    }).join('');
+    return `<table class="jr-tbl"><tr><th></th><th>Days</th><th>Penny</th><th>Options</th></tr>${rows}</table>`;
+  };
+  const trendOf = t => (JR.days[t.d] || {}).trend || 'none';
+  const vixOf = t => { const v = (JR.days[t.d] || {}).vix_close; return v == null ? 'none' : v < 16 ? 'lo' : v <= 18 ? 'mid' : 'hi'; };
+  const months = new Date(y, mo - 1, 15).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return `<div class="jr-hd" style="margin-top:-4px;">${[['both', 'Both'], ['penny', 'Penny'], ['option', 'Options']].map(([k, l]) => `<button class="jr-pill ${JR.filter === k ? 'on' : ''}" onclick="jrCalFilter('${k}')">${l}</button>`).join('')}
+    <span class="jr-sp"></span><button class="jr-pill" onclick="jrCalMove(-1)">◀</button><b style="min-width:130px;text-align:center;">${months}</b><button class="jr-pill" onclick="jrCalMove(1)">▶</button></div>
+    ${kp}
+    <div class="jr-row" style="align-items:flex-start;">
+      <div style="flex:2.4;min-width:560px;">
+        <div class="jr-cal" style="margin-bottom:4px;">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Week'].map(x => `<div class="jr-ch">${x}</div>`).join('')}</div>
+        <div class="jr-cal">${cells}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px;">Box color = day P&amp;L · dot = rules (green clean · amber warning · red fail) · ▲▼▶ = trend you entered · bottom line = SPY % / VIX close · click a day for its trades</div>
+      </div>
+      <div style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:10px;">${side}
+        <div class="jr-card"><h3>P&amp;L by market trend</h3>${grp(trendOf, [['up', '▲ Up'], ['down', '▼ Down'], ['side', '▶ Sideways'], ['none', 'not entered']])}</div>
+        <div class="jr-card"><h3>P&amp;L by VIX close</h3>${grp(vixOf, [['lo', '&lt; 16'], ['mid', '16 – 18'], ['hi', '&gt; 18'], ['none', 'not entered']])}</div>
+      </div>
+    </div>`;
+}
+</script>
 </body>
 </html>
