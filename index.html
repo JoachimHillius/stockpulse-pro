@@ -18209,6 +18209,7 @@ body.light-mode .jr-d .mk{color:#7a8798;} body.light-mode .jr-d .mk .up{color:#3
 .dot.clean{background:var(--green);} .dot.warning{background:var(--amber);} .dot.fail{background:var(--red);}
 .jr-kp{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
 .jr-kp .jr-card{flex:1;min-width:120px;padding:7px 10px;}
+.jr-sticky{position:sticky;top:var(--hdr-h,141px);z-index:150;background:var(--bg);margin:-16px -20px 0;padding:12px 20px 12px;box-shadow:0 6px 8px -4px rgba(0,0,0,0.45);}
 /* Analytics: raised 3D cards (light top edge, soft drop shadow, lifts on hover) */
 .jr-an .jr-card{position:relative;border-radius:12px;border:1px solid rgba(255,255,255,.07);border-top-color:rgba(255,255,255,.18);
   background:linear-gradient(180deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,.015) 45%,rgba(0,0,0,.08) 100%),var(--bg2);
@@ -18262,9 +18263,12 @@ function jrRender() {
   else if (JR.tab === 'calendar') body = jrCalHtml();
   else if (JR.tab === 'audit') body = jrAuditHtml();
   else body = `<div class="jr-an">${jrAnHtml()}</div>`;
-  root.innerHTML = `<div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'today' ? `<span class="jr-sp"></span>
+  let rest = '';   // Today: header + market + limits stay frozen below the menu; the trade cards scroll under them
+  if (JR.tab === 'today') { const cut = body.indexOf('<!--jr-cards-->'); if (cut >= 0) { rest = body.slice(cut); body = body.slice(0, cut); } }
+  if (typeof _syncStickyOffset === 'function') _syncStickyOffset();
+  root.innerHTML = `<div class="${JR.tab === 'today' ? 'jr-sticky' : ''}"><div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
   if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
 }
 function jrSetDate(d) {
@@ -18336,7 +18340,7 @@ function jrTodayHtml() {
       <div style="margin-top:8px;color:var(--text2);font-size:11px;">Per-trade risk ≈ ⅓ of the day: Penny $${Math.round(risk.penny_limit / 3)} · Options $${Math.round(risk.option_limit / 3)}</div>
     </div>
   </div>
-  <div style="margin-top:12px;">${cards || `<div class="jr-card" style="text-align:center;color:var(--text3);padding:22px;">No trades on this day yet — use <b>+ Penny trade</b> or <b>+ Options trade</b>.</div>`}</div>`;
+  <!--jr-cards--><div style="margin-top:12px;">${cards || `<div class="jr-card" style="text-align:center;color:var(--text3);padding:22px;">No trades on this day yet — use <b>+ Penny trade</b> or <b>+ Options trade</b>.</div>`}</div>`;
 }
 
 async function jrSaveDay(field, val) {
