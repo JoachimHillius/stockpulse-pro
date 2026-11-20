@@ -19275,11 +19275,26 @@ async function jrPdf(scope) {
           didParseCell: colorCells([8], -1), didDrawPage: () => header(title) });
         y = doc.lastAutoTable.finalY + 18;
       }
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY);
-      const legend = k => JR_RULES[k].map(([, l], i) => `${i + 1} ${l}`).join(' · ').replace(/→/g, '->').replace(/[–—]/g, '-');
-      if (y > H - 60) { doc.addPage(); header(title); y = 80; }
-      doc.text(doc.splitTextToSize('Penny rules: ' + legend('penny'), W - 2 * M), M, y); y += 22;
-      doc.text(doc.splitTextToSize('Options rules: ' + legend('option'), W - 2 * M), M, y);
+      // The rules, side by side in two framed cards: bigger dark text, bold numbers, one rule per line
+      const clean = t => t.replace(/→/g, '->').replace(/[–—]/g, '-');
+      const colW = (W - 2 * M - 14) / 2, lineH = 13, fs = 10.5;
+      const lay = k => { doc.setFont('helvetica', 'normal'); doc.setFontSize(fs); return JR_RULES[k].map(([, l], i) => ({ n: i + 1, lines: doc.splitTextToSize(clean(l), colW - 46) })); };
+      const P = lay('penny'), O = lay('option'), hOf = L => 30 + L.reduce((s, r) => s + r.lines.length * lineH + 5, 0) + 6;
+      const boxH = Math.max(hOf(P), hOf(O));
+      if (y + 20 + boxH > H - 30) { doc.addPage(); header(title); y = 80; }
+      y = titled('The rules — what each number in "Rules kept" means', y) + 4;
+      [[P, 'Penny stock rules', GREEN], [O, 'Options rules', NAVY]].forEach(([L, lab, c], i) => {
+        const x = M + i * (colW + 14); card(x, y, colW, boxH);
+        doc.setFillColor(...c); doc.roundedRect(x, y, colW, 22, 6, 6, 'F'); doc.rect(x, y + 12, colW, 10, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255); doc.text(lab.toUpperCase(), x + 12, y + 15);
+        let ry = y + 40;
+        L.forEach(r => {
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 1); doc.setTextColor(...c); doc.text(String(r.n), x + 16, ry);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(fs); doc.setTextColor(...INK); doc.text(r.lines, x + 34, ry);
+          ry += r.lines.length * lineH + 5;
+        });
+      });
+      y += boxH + 14;
     }
     if (tr.length && !analyticsOnly && scope !== 'day') { y = titled(`Trades (${tr.length}, newest first)`, y);
       doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'Exit date', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 10: { cellWidth: 160 } },
