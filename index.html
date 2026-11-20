@@ -18150,7 +18150,7 @@ function jrAutoResult(t) {
 const jrResult = t => t.result || null;   // saved result (null = not reviewed, e.g. imported rows)
 function jrRiskFor(d) {
   const rows = JR.risk.filter(r => r.week_start <= d).sort((a, b) => a.week_start < b.week_start ? 1 : a.week_start > b.week_start ? -1 : b.id - a.id);
-  return rows[0] || { penny_limit: 400, option_limit: 600 };
+  return rows[0] || { penny_limit: 400, option_limit: 700 };
 }
 
 function jrCss() {
@@ -18711,7 +18711,9 @@ function jrCalHtml() {
 }
 
 // ---------- STEP 21: Weekly Audit · Analytics · PDF for coach ----------
-const JR_LADDER = { penny: Array.from({ length: 20 }, (_, i) => 400 + 100 * i), option: Array.from({ length: 20 }, (_, i) => 600 + 100 * i) };   // start $400 / $600, +$100 per clean week
+// Penny: start $400, +$100 per clean week. Options: start $700 (11/20); the first +$100 needs 10 trading days (2 clean weeks in a row)
+// at the start level, after that +$100 every 5 trading days (each clean week). A fail = −$100, never below the start.
+const JR_LADDER = { penny: Array.from({ length: 20 }, (_, i) => 400 + 100 * i), option: Array.from({ length: 20 }, (_, i) => 700 + 100 * i) };
 const jrLimitKey = k => k === 'penny' ? 'penny_limit' : 'option_limit';
 function jrLevelOf(kind, v) { const L = JR_LADDER[kind]; let best = 0; L.forEach((x, i) => { if (Math.abs(x - v) < Math.abs(L[best] - v)) best = i; }); return best; }
 const jrFmtD = (d, o = { month: 'short', day: 'numeric' }) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', o);
@@ -18731,8 +18733,13 @@ function jrWeekStats(ws, kind) {
 }
 function jrSuggest(kind, ws) {
   const cur = Number(jrRiskFor(ws)[jrLimitKey(kind)]), st = jrWeekStats(ws, kind), lv = jrLevelOf(kind, cur), L = JR_LADDER[kind];
-  if (st.result === 'clean') return { v: L[Math.min(lv + 1, L.length - 1)], why: 'clean week → +$100' };
-  if (st.result === 'fail') return { v: L[Math.max(lv - 1, 0)], why: 'fail → −$100' };
+  if (st.result === 'clean' && kind === 'option' && lv === 0) {   // first step up: 10 trading days = 2 clean weeks in a row at the start level
+    const pws = jrAddDays(ws, -7), prev = jrWeekStats(pws, 'option'), prevLv = jrLevelOf('option', Number(jrRiskFor(pws).option_limit));
+    if (!(prev.result === 'clean' && prevLv === 0 && Number(jrRiskFor(pws).option_limit) >= L[0])) return { v: cur, why: 'clean week 1 of 2 — the first +$100 needs 10 trading days (2 clean weeks) at $' + L[0] };
+    return { v: L[1], why: '2 clean weeks (10 trading days) → +$100' };
+  }
+  if (st.result === 'clean') return { v: L[Math.min(lv + 1, L.length - 1)], why: kind === 'option' ? 'clean week (5 trading days) → +$100' : 'clean week → +$100' };
+  if (st.result === 'fail') return lv > 0 ? { v: L[lv - 1], why: 'fail → −$100' } : { v: L[0], why: 'fail → stays at the $' + L[0] + ' start (never lower)' + (kind === 'option' ? ' · the 10-day count starts over' : '') };
   if (st.result === 'warning') return { v: cur, why: 'warning → stays the same' };
   return { v: cur, why: st.n ? 'trades not reviewed yet → stays the same' : 'no trades → stays the same' };
 }
