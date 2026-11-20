@@ -19295,7 +19295,9 @@ async function jrPdf(scope) {
 // Reads tg_feed(): every alert that reached Telegram (fast-scan, spike alerts, Single Pattern, RSI scan), grouped by ticker
 // over the last 5 trading days, most alerts on top. Penny = under $10, Large = $10+ (Single Pattern alerts keep their own tier).
 // Auto-updates every minute while the page is open; ↻ Refresh reloads now. Single Pattern uses the same 5-day counts for its order.
-const TG = { rows: null, at: 0, loading: null, tier: 'penny', open: '', timer: null, err: '', vol: {}, hist: {}, q: '', busy: false, flash: 0 };
+const TG = { rows: null, at: 0, loading: null, tier: 'penny', open: '', timer: null, err: '', vol: {}, hist: {}, q: '', busy: false, flash: 0,
+  sort: (() => { try { return localStorage.getItem('tg_sort') || 'chg'; } catch (_) { return 'chg'; } })() };   // 'chg' = biggest change today, 'vol' = highest volume today
+function tgSetSort(v) { TG.sort = v; try { localStorage.setItem('tg_sort', v); } catch (_) {} tgRender(); }
 const TG_TYPES = { '🚀': 'Spike up', '🔻': 'Drop', '⚡': 'Jump', '📈': 'New high', '📉': 'New low', '👀': 'Watch', '🟠': 'SP Penny', '🟣': 'SP Large', '📎': 'SP list' };
 const TG_SYM = '[A-Z][A-Z.\\-]{0,6}';
 const tgNum = s => { const m = String(s || '').replace(/,/g, '').match(/^([\d.]+)\s*([KMB])?$/i); return m ? Number(m[1]) * ({ K: 1e3, M: 1e6, B: 1e9 }[(m[2] || '').toUpperCase()] || 1) : null; };
@@ -19429,7 +19431,11 @@ function tgRender() {
   const page = document.getElementById('page-telegram'); if (!page) return;
   const typing = document.activeElement && document.activeElement.id === 'tg-q';   // keep the cursor in the search box across re-draws
   const { days, groups } = TG.rows ? tgGroups() : { days: [], groups: [] };
-  const list = TG.q ? groups.filter(g => g.sym.includes(TG.q)).sort((a, b) => (b.sym === TG.q) - (a.sym === TG.q) || (b.sym.startsWith(TG.q)) - (a.sym.startsWith(TG.q))) : groups.filter(g => g.tier === TG.tier);
+  const list0 = TG.q ? groups.filter(g => g.sym.includes(TG.q)).sort((a, b) => (b.sym === TG.q) - (a.sym === TG.q) || (b.sym.startsWith(TG.q)) - (a.sym.startsWith(TG.q))) : groups.filter(g => g.tier === TG.tier);
+  // Sort: today's tickers first, then the chosen measure (search results keep their best-match order)
+  const vNum = g => g.volNow == null ? -1 : g.volNow, cNum = g => g.chg == null ? -1e9 : g.chg;
+  const list = TG.q ? list0 : list0.slice().sort((a, b) => (a.lastDay < b.lastDay ? 1 : a.lastDay > b.lastDay ? -1 : 0)
+    || (TG.sort === 'vol' ? vNum(b) - vNum(a) || cNum(b) - cNum(a) : cNum(b) - cNum(a) || vNum(b) - vNum(a)) || b.n - a.n);
   const cnt = t => groups.filter(g => g.tier === t).length;
   const dl = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', timeZone: 'UTC' });
   const th = (t, a = 'right') => `<th style="padding:6px 8px;text-align:${a};font-size:10px;letter-spacing:.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
@@ -19461,6 +19467,9 @@ function tgRender() {
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;">
       <b style="letter-spacing:1px;color:var(--cyan);font-size:14px;margin-right:8px;">TELEGRAM NEWS</b>
       ${tab('penny', 'Penny Stocks · under $10')}${tab('large', 'Large Caps · $10+')}
+      <span style="margin-left:8px;font-size:10.5px;color:#8090a0;letter-spacing:.5px;">SORT</span>
+      <button class="fbtn${TG.sort !== 'vol' ? ' active' : ''}" onclick="tgSetSort('chg')" title="Biggest change today on top">▲ Change today</button>
+      <button class="fbtn${TG.sort === 'vol' ? ' active' : ''}" onclick="tgSetSort('vol')" title="Highest volume today on top">📊 Volume today</button>
       <button class="fbtn" onclick="tgRefresh()" ${TG.busy ? 'disabled' : ''} title="Load the newest alerts now (the page also updates every minute)" style="margin-left:8px;${TG.busy ? 'opacity:.7;cursor:wait;' : fresh ? 'border-color:var(--green);color:var(--green);' : ''}">${TG.busy ? '⏳ Refreshing…' : fresh ? '✓ Updated' : '↻ Refresh'}</button>
       <span style="position:relative;display:inline-flex;align-items:center;margin-left:8px;">
         <input id="tg-q" class="wl-price-in" style="width:150px;padding-right:26px;text-transform:uppercase;${TG.q ? 'border-color:var(--cyan);' : ''}" placeholder="🔍 Search ticker" value="${tgEsc(TG.q)}" oninput="tgSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';tgSearch('')}"/>
@@ -19468,7 +19477,7 @@ function tgRender() {
       </span>
       <span style="margin-left:auto;font-size:11px;color:#8090a0;">${TG.err ? `<span style="color:var(--red);">${TG.err}</span> · ` : ''}${TG.rows ? `${TG.q ? `<b style="color:var(--cyan);">${list.length} match${list.length === 1 ? '' : 'es'} for "${tgEsc(TG.q)}"</b> (both tabs)` : `${list.length} tickers · ${list.reduce((s, g) => s + g.n, 0)} alerts`} · last 5 trading days${days.length ? ` (${dl(days[0])} – ${dl(days[days.length - 1])})` : ''} · updated <span style="${fresh ? 'color:var(--green);font-weight:700;' : ''}">${upd} ET</span>` : 'Loading…'}</span>
     </div>
-    <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Every alert sent to your Telegram, one row per ticker — today's tickers first, biggest change on top (then earlier days). Click a row for its full alert timeline and volume build-up. Volume today = the scanner's running volume (first → latest reading, with the time of the latest).</div>
+    <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Every alert sent to your Telegram, one row per ticker — today's tickers first, sorted by your choice: biggest change or highest volume today (then earlier days). Click a row for its full alert timeline and volume build-up. Volume today = the scanner's running volume (first → latest reading, with the time of the latest).</div>
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
       <thead><tr>${th('TICKER', 'left')}${th('ALERTS')}${days.map(d => th(dl(d), 'center')).join('')}${th('PRICE')}${th('CHG TODAY')}${th('VOLUME TODAY')}${th('LAST ALERT')}${th('ALERT TYPES', 'left')}</tr></thead>
       <tbody>${body || `<tr><td colspan="${8 + days.length}" style="padding:24px;text-align:center;color:#8090a0;">${!TG.rows ? 'Loading…' : TG.q ? `No Telegram alerts for "${tgEsc(TG.q)}" in the last 5 trading days — <a href="#" onclick="tgSearch('');return false;" style="color:var(--cyan);">back to the full list</a>` : 'No alerts in the last 5 trading days'}</td></tr>`}</tbody>
