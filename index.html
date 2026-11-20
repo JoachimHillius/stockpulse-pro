@@ -545,6 +545,7 @@ select option{background:var(--bg2);}
     <button class="nav-btn" onclick="goPage('rangescan',this)">Range Scan</button>
     <button class="nav-btn" onclick="spOpenGroup('penny',this)">Single Pattern Penny</button>
     <button class="nav-btn" onclick="spOpenGroup('large',this)">Single Pattern Large</button>
+    <button class="nav-btn" onclick="goPage('telegram',this)">Telegram News</button>
   </nav>
   <div class="header-right">
     <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -1555,6 +1556,7 @@ select option{background:var(--bg2);}
 <!-- ============ PAGE: TOS CSV ============ -->
 <div id="page-rangescan" class="page" style="padding:0;"></div>
 <div id="page-singlepattern" class="page" style="padding:0;"></div>
+<div id="page-telegram" class="page" style="padding:0;"></div>
 <div id="page-toscsv" class="page">
   <div style="max-width:1200px;">
 
@@ -5902,6 +5904,9 @@ function goPage(name,btn){
   }
   if(name==='singlepattern'){
     setTimeout(initSinglePattern,50);
+  }
+  if(name==='telegram'){
+    setTimeout(initTelegramNews,50);
   }
   if(name==='toscsv'){
     _tosApplySections();
@@ -16917,6 +16922,7 @@ async function initSinglePattern() {
   _spRender();
   _spLoadCompare();
   _spLoadNews();
+  tgLoad().then(_spRender);   // Telegram alert counts (last 5 trading days) decide the order
   if (_spLoading) return;
   _spLoading = true;
   try {
@@ -16930,6 +16936,7 @@ async function initSinglePattern() {
   _spRender();
 }
 function spSetTier(t) { _spTier = t; _spSave(); _spRender(); }
+function spRefresh() { if (_spLoading) return; tgLoad(true); initSinglePattern(); }   // ↻ Refresh: reload the list, volumes, news and alert counts
 function spOpenGroup(g, btn) {
   if (g === 'penny') _spTier = 'penny';
   else if (_spTier === 'penny') _spTier = 'large';
@@ -17122,7 +17129,7 @@ function _spRender() {
     target: r.signal_date ? r.target : null, last_close: r.close, last_date: r.last_date, since_pct: r.signal_date ? r.since_pct : null,
     status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier,
     lvl_date: r.lvl_date, lvl_entry: r.lvl_entry, lvl_stop: r.lvl_stop, lvl_target: r.lvl_target, body_pct: r.body_pct }));
-  merged.sort((a, b) => _spMaxVol(b.symbol) - _spMaxVol(a.symbol));
+  merged.sort((a, b) => tgCount(b.symbol) - tgCount(a.symbol) || _spMaxVol(b.symbol) - _spMaxVol(a.symbol));   // most Telegram alerts first
   const rows = (_spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added)).filter(_spCandlePass);
   rows.forEach(r => { _spPopRows[r.symbol] = r; });
   _spShown = rows;
@@ -17134,7 +17141,7 @@ function _spRender() {
   const th = (t, extra) => `<th style="padding:6px 6px;text-align:${extra || 'right'};font-size:10px;letter-spacing:0.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
   const td = (h, extra) => `<td style="padding:5px 6px;text-align:${extra || 'right'};white-space:nowrap;border-bottom:1px solid var(--border);">${h}</td>`;
   const body = rows.map(r => `<tr onclick="spPopup('${r.symbol}',this)" style="cursor:pointer;">
-      ${td(`<span style="display:flex;align-items:center;gap:6px;">${r._added ? `<button onclick="spRemoveCompare('${r.symbol}','${r._added}',event)" title="Remove ${r.symbol} from your added stocks" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;padding:0;">✕</button>` : ''}<span><b style="color:var(--text);">${r._added ? '<span style="color:var(--amber);" title="Your added stock">★</span> ' : ''}${r.symbol}</b><div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
+      ${td(`<span style="display:flex;align-items:center;gap:6px;">${r._added ? `<button onclick="spRemoveCompare('${r.symbol}','${r._added}',event)" title="Remove ${r.symbol} from your added stocks" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;padding:0;">✕</button>` : ''}<span><b style="color:var(--text);">${r._added ? '<span style="color:var(--amber);" title="Your added stock">★</span> ' : ''}${r.symbol}</b>${tgCount(r.symbol) ? ` <span title="Telegram alerts in the last 5 trading days" style="font-size:10px;color:var(--cyan);">🔔${tgCount(r.symbol)}</span>` : ''}<div style="font-size:9.5px;color:#8090a0;max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.name || '').replace(/</g, '&lt;')}</div></span></span>`, 'left')}
       ${td(_spSector(r), 'left')}
       ${td(_spNewsBadge(r.symbol, 'scan:' + r.symbol), 'left')}
       ${td(_spOptCell(r.symbol), 'left')}
@@ -17165,7 +17172,8 @@ function _spRender() {
         <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:14px;">Candle:</span>
         ${btn(_spCandle === 0, 'All', 'spSetCandle(0)')}${SP_CANDLE_BINS.map((n, i) => btn(_spCandle === n, n === 10 ? 'Doji ≤10%' : `${SP_CANDLE_BINS[i - 1]}–${n}%`, `spSetCandle(${n})`, 'Only candles with a body in this range (% of the day\'s range)')).join('')}
         <button class="fbtn" onclick="spDownloadPdf()" title="Download this list as a PDF (current tab and filters)" style="margin-left:14px;">⬇ PDF</button>
-        <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS} by biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
+        <button class="fbtn" onclick="spRefresh()" title="Reload the newest Single Pattern list, volumes, news and Telegram alert counts">${_spLoading ? '↻ Loading…' : '↻ Refresh'}</button>
+        <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS}: most Telegram alerts (🔔 last 5 trading days), then biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
       <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Rules: ${rules}.${_spTier === 'large' ? ' NEAR = every rule met except the doji: body up to 30% on a red candle / 20% on a green one, and not up 3%+ that day.' : ''} Entry = signal close (last hour) · Stop = a close below the signal-day low · Target = close + 2× ATR(10 trading days). Arrows: 5 days before | signal day (oldest → newest).</div>
       ${_spFindNote(rows.map(r => r.symbol))}
@@ -18973,6 +18981,151 @@ async function jrPdf(scope) {
     for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY); doc.text(`Page ${i} of ${n}`, W - M, H - 14, { align: 'right' }); }
     doc.save(`journal-${scope === 'range' ? 'analytics' : scope}-${from}${scope === 'range' || scope === 'month' ? '-to-' + to : ''}.pdf`);
   } catch (e) { console.error(e); showToast('Journal', 'PDF failed: ' + e.message, 'error'); }
+}
+</script>
+<script>
+// ══ TELEGRAM NEWS ═════════════════════════════════════════════════════════
+// Reads tg_feed(): every alert that reached Telegram (fast-scan, spike alerts, Single Pattern, RSI scan), grouped by ticker
+// over the last 5 trading days, most alerts on top. Penny = under $10, Large = $10+ (Single Pattern alerts keep their own tier).
+// Auto-updates every minute while the page is open; ↻ Refresh reloads now. Single Pattern uses the same 5-day counts for its order.
+const TG = { rows: null, at: 0, loading: null, tier: 'penny', open: '', timer: null, err: '' };
+const TG_TYPES = { '🚀': 'Spike up', '🔻': 'Drop', '⚡': 'Jump', '📈': 'New high', '📉': 'New low', '👀': 'Watch', '🟠': 'SP Penny', '🟣': 'SP Large', '📎': 'SP list' };
+const TG_SYM = '[A-Z][A-Z.\\-]{0,6}';
+const tgNum = s => { const m = String(s || '').replace(/,/g, '').match(/^([\d.]+)\s*([KMB])?$/i); return m ? Number(m[1]) * ({ K: 1e3, M: 1e6, B: 1e9 }[(m[2] || '').toUpperCase()] || 1) : null; };
+const tgVol = v => v == null ? '—' : v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : String(Math.round(v));
+const tgDate = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+const tgTime = d => new Date(d).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+const tgEsc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// One Telegram message → one entry per ticker it names.
+function tgParse(m) {
+  const text = String(m.text || ''), lines = text.split('\n'), first = lines[0] || '', out = [];
+  const vol = (s) => { const v = s.match(/Volume today ([\d.,]+[KMB]?)/i) || s.match(/Pre-market volume ([\d.,]+[KMB]?)/i); return v ? tgNum(v[1]) : null; };
+  const volPct = (s) => { const v = s.match(/= (\d+)% of yesterday/); return v ? Number(v[1]) : null; };
+  if (/^RSI alerts/.test(first)) {
+    lines.forEach(l => { const x = l.match(new RegExp(`^([▲▼])\\s+(${TG_SYM})\\s.*\\(price ([\\d.]+)\\)`)); if (x) out.push({ sym: x[2], price: +x[3], type: x[1] === '▲' ? 'RSI high' : 'RSI low', line: l.trim() }); });
+    return out;
+  }
+  const emo = [...first][0], type = TG_TYPES[emo] || 'Alert';
+  const tier = /SINGLE PATTERN PENNY/.test(first) ? 'penny' : /SINGLE PATTERN LARGE/.test(first) ? 'large' : null;
+  if (emo === '📎') { (lines[1] || '').split(/[,\s]+/).filter(s => new RegExp(`^${TG_SYM}$`).test(s)).forEach(sym => out.push({ sym, type, line: first })); return out; }
+  const dollar = [...new Set([...text.matchAll(new RegExp(`\\$(${TG_SYM})(?![\\w])`, 'g'))].map(x => x[1]))];
+  if (dollar.length) {
+    dollar.forEach(sym => {
+      const l = lines.find(z => z.includes('$' + sym)) || '', p = l.match(/at \$([\d.,]+)/) || text.match(/Entry \(close\) \$([\d.,]+)/), c = l.match(/([+-][\d.]+)%/);
+      out.push({ sym, price: p ? +p[1].replace(/,/g, '') : null, chg: c ? +c[1] : null, vol: vol(text), volPct: volPct(text), tier, type, line: l.trim() || first });
+    });
+    return out;
+  }
+  const x = first.match(new RegExp(`^\\S+\\s+(?:WATCH\\s+)?(${TG_SYM})(?![\\w])`));
+  if (!x) return out;
+  const p = first.match(/\$([\d.,]+)/), c = first.match(/([+-]\d+(?:\.\d+)?)% today/) || first.match(/spiking ([+-]\d+(?:\.\d+)?)%/);
+  out.push({ sym: x[1], price: p ? +p[1].replace(/,/g, '') : null, chg: c ? +c[1] : null, vol: vol(text), volPct: volPct(text), tier, type, line: first });
+  return out;
+}
+
+async function tgLoad(force) {
+  if (!force && TG.rows && Date.now() - TG.at < 55000) return TG.rows;
+  if (TG.loading) return TG.loading;
+  TG.loading = (async () => {
+    try {
+      const supa = await getSupabaseAsync();
+      const all = [];   // the API returns at most 1,000 rows per call, so read in pages
+      for (let from = 0; from < 20000; from += 1000) {
+        const { data, error } = await supa.rpc('tg_feed', { p_days: 9 }).range(from, from + 999);
+        if (error) throw error;
+        all.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      TG.rows = all; TG.at = Date.now(); TG.err = '';
+    } catch (e) { console.warn('[tg_feed]', e); TG.err = 'Could not load the Telegram alerts'; TG.rows = TG.rows || []; }
+    TG.loading = null; TG._groups = null;
+    return TG.rows;
+  })();
+  return TG.loading;
+}
+
+// Last 5 trading days that had alerts, and one group per ticker.
+function tgGroups() {
+  if (TG._groups) return TG._groups;
+  const rows = TG.rows || [];
+  const days = [...new Set(rows.map(r => tgDate(r.at)))].filter(d => { const w = new Date(d + 'T12:00:00Z').getUTCDay(); return w > 0 && w < 6; }).sort().slice(-5);
+  const dset = new Set(days), by = {};
+  rows.forEach(m => {
+    const d = tgDate(m.at); if (!dset.has(d)) return;
+    tgParse(m).forEach(e => { const g = by[e.sym] ||= { sym: e.sym, ev: [], tier: null }; g.ev.push({ ...e, at: m.at, d, id: m.id }); if (e.tier) g.tier = e.tier; });
+  });
+  const groups = Object.values(by).map(g => {
+    g.ev.sort((a, b) => a.at < b.at ? 1 : a.at > b.at ? -1 : 0);           // newest first
+    const lp = g.ev.find(e => e.price != null);
+    g.price = lp ? lp.price : null;
+    if (!g.tier && g.price != null) g.tier = g.price < 10 ? 'penny' : 'large';
+    g.n = g.ev.length; g.perDay = days.map(d => g.ev.filter(e => e.d === d).length);
+    g.last = g.ev[0]; g.lastDay = g.last.d;
+    const dayEv = g.ev.filter(e => e.d === g.lastDay);
+    const vols = dayEv.filter(e => e.vol != null);
+    g.volNow = vols.length ? vols[0].vol : null; g.volFirst = vols.length ? vols[vols.length - 1].vol : null; g.volN = vols.length;
+    const vp = dayEv.find(e => e.volPct != null); g.volPct = vp ? vp.volPct : null;
+    const ch = dayEv.find(e => e.chg != null); g.chg = ch ? ch.chg : null;
+    g.types = {}; g.ev.forEach(e => g.types[e.type] = (g.types[e.type] || 0) + 1);
+    return g;
+  }).filter(g => g.tier);
+  groups.sort((a, b) => b.n - a.n || (a.last.at < b.last.at ? 1 : -1));
+  TG._groups = { days, groups };
+  return TG._groups;
+}
+function tgCount(sym) { if (!TG.rows) return 0; const g = tgGroups().groups.find(x => x.sym === sym); return g ? g.n : 0; }
+
+function initTelegramNews() {
+  tgRender();
+  tgLoad().then(tgRender);
+  if (!TG.timer) TG.timer = setInterval(() => {
+    if (document.getElementById('page-telegram')?.classList.contains('active')) tgLoad(true).then(tgRender);
+  }, 60000);
+}
+function tgRefresh() { tgRender(); tgLoad(true).then(tgRender); }
+function tgSetTier(t) { TG.tier = t; TG.open = ''; tgRender(); }
+function tgToggle(sym) { TG.open = TG.open === sym ? '' : sym; tgRender(); }
+
+function tgRender() {
+  const page = document.getElementById('page-telegram'); if (!page) return;
+  const { days, groups } = TG.rows ? tgGroups() : { days: [], groups: [] };
+  const list = groups.filter(g => g.tier === TG.tier);
+  const cnt = t => groups.filter(g => g.tier === t).length;
+  const dl = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', timeZone: 'UTC' });
+  const th = (t, a = 'right') => `<th style="padding:6px 8px;text-align:${a};font-size:10px;letter-spacing:.5px;color:#c0c8d4;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border2);">${t}</th>`;
+  const td = (h, a = 'right', x = '') => `<td style="padding:6px 8px;text-align:${a};white-space:nowrap;border-bottom:1px solid var(--border);${x}">${h}</td>`;
+  const pct = v => v == null ? '—' : `<span style="color:${v >= 0 ? 'var(--green)' : 'var(--red)'};">${v > 0 ? '+' : ''}${v}%</span>`;
+  const money = v => v == null ? '—' : '$' + (v < 1 ? v.toFixed(4) : v.toFixed(2));
+  const maxN = Math.max(1, ...list.map(g => Math.max(...g.perDay)));
+  const body = list.map(g => {
+    const bars = g.perDay.map((n, i) => `<td style="padding:6px 4px;text-align:center;border-bottom:1px solid var(--border);"><div title="${dl(days[i])}: ${n} alert${n === 1 ? '' : 's'}" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;"><span style="width:16px;height:${n ? 4 + Math.round(n / maxN * 18) : 2}px;background:${n ? 'var(--cyan)' : 'var(--border2)'};border-radius:2px;"></span><span style="font-size:10px;color:${n ? 'var(--text)' : '#5a708a'};">${n || '·'}</span></div></td>`).join('');
+    const vol = g.volNow == null ? '—' : `${g.volN > 1 && g.volFirst !== g.volNow ? `<span style="color:#8090a0;">${tgVol(g.volFirst)} → </span>` : ''}<b>${tgVol(g.volNow)}</b>${g.volPct != null ? `<div style="font-size:10px;color:${g.volPct >= 100 ? 'var(--green)' : g.volPct >= 50 ? 'var(--amber)' : '#8090a0'};">${g.volPct}% of yesterday</div>` : ''}`;
+    const types = Object.entries(g.types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span style="font-size:10px;padding:1px 6px;border:1px solid var(--border2);border-radius:9px;margin-right:3px;">${t} ${n}</span>`).join('');
+    const open = TG.open === g.sym;
+    const tl = open ? `<tr><td colspan="${9 + days.length}" style="padding:4px 10px 12px 30px;border-bottom:1px solid var(--border2);background:rgba(0,212,255,.04);">
+      <table style="border-collapse:collapse;font-size:11.5px;width:100%;"><tr>${['When', 'Alert', 'Price', 'Chg today', 'Volume today', 'Message'].map((t, i) => th(t, i > 1 && i < 5 ? 'right' : 'left')).join('')}</tr>
+      ${g.ev.map(e => `<tr>${td(`${dl(e.d)} · ${tgTime(e.at)}`, 'left')}${td(e.type, 'left')}${td(money(e.price))}${td(pct(e.chg))}${td(e.vol == null ? '—' : tgVol(e.vol) + (e.volPct != null ? ` <span style="color:#8090a0;">(${e.volPct}%)</span>` : ''))}${td(tgEsc(e.line), 'left', 'white-space:normal;color:#a8b8c8;')}</tr>`).join('')}</table></td></tr>` : '';
+    return `<tr onclick="tgToggle('${g.sym}')" style="cursor:pointer;${open ? 'background:rgba(0,212,255,.06);' : ''}">
+      ${td(`<span style="color:#8090a0;">${open ? '▾' : '▸'}</span> <b style="color:var(--text);font-size:13px;">${g.sym}</b>`, 'left')}
+      ${td(`<b style="font-size:15px;color:var(--cyan);">${g.n}</b>`)}${bars}
+      ${td(money(g.price))}${td(pct(g.chg))}${td(vol)}
+      ${td(`${tgTime(g.last.at)}<div style="font-size:10px;color:#8090a0;">${dl(g.lastDay)} · ${g.last.type}</div>`)}
+      ${td(types, 'left', 'white-space:normal;')}</tr>${tl}`;
+  }).join('');
+  const tab = (t, l) => `<button class="fbtn${TG.tier === t ? ' active' : ''}" onclick="tgSetTier('${t}')">${l} <span style="color:#8090a0;">(${cnt(t)})</span></button>`;
+  page.innerHTML = `<div style="padding:12px 16px;">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;">
+      <b style="letter-spacing:1px;color:var(--cyan);font-size:14px;margin-right:8px;">TELEGRAM NEWS</b>
+      ${tab('penny', 'Penny Stocks · under $10')}${tab('large', 'Large Caps · $10+')}
+      <button class="fbtn" onclick="tgRefresh()" title="Load the newest alerts now (the page also updates every minute)" style="margin-left:8px;">↻ Refresh</button>
+      <span style="margin-left:auto;font-size:11px;color:#8090a0;">${TG.err ? `<span style="color:var(--red);">${TG.err}</span> · ` : ''}${TG.rows ? `${list.length} tickers · ${list.reduce((s, g) => s + g.n, 0)} alerts · last 5 trading days${days.length ? ` (${dl(days[0])} – ${dl(days[days.length - 1])})` : ''} · updated ${new Date(TG.at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET` : 'Loading…'}</span>
+    </div>
+    <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Every alert sent to your Telegram, one row per ticker — most alerts on top. Click a row for its full alert timeline. Volume today shows the first → latest reading of the ticker's most recent alert day.</div>
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr>${th('TICKER', 'left')}${th('ALERTS')}${days.map(d => th(dl(d), 'center')).join('')}${th('PRICE')}${th('CHG TODAY')}${th('VOLUME TODAY')}${th('LAST ALERT')}${th('ALERT TYPES', 'left')}</tr></thead>
+      <tbody>${body || `<tr><td colspan="${8 + days.length}" style="padding:24px;text-align:center;color:#8090a0;">${TG.rows ? 'No alerts in the last 5 trading days' : 'Loading…'}</td></tr>`}</tbody>
+    </table></div></div>`;
 }
 </script>
 </body>
