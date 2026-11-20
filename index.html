@@ -18148,9 +18148,11 @@ function jrCss() {
 .jr-cal{display:grid;grid-template-columns:repeat(5,1fr) .95fr;gap:4px;}
 .jr-ch{font-size:12px;font-weight:700;color:#ffe08a;text-transform:uppercase;padding:0 4px;}
 body.light-mode .jr-ch{color:var(--amber);}
-.jr-d{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;height:86px;padding:5px 7px;position:relative;cursor:pointer;box-sizing:border-box;}
+.jr-d{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;height:104px;padding:5px 7px;position:relative;cursor:pointer;box-sizing:border-box;}
 .jr-d .n{color:var(--text);font-size:14px;font-weight:700;} .jr-d .pl{font-size:16px;font-weight:700;margin-top:2px;}
-.jr-d .m{color:var(--text);font-size:11px;} .jr-d .mk{position:absolute;bottom:4px;left:7px;right:7px;color:var(--text2);font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;}
+.jr-d .m{color:var(--text);font-size:11px;} .jr-d .mk{position:absolute;bottom:4px;left:7px;right:7px;color:#9fb0c4;font-size:9px;font-weight:400;line-height:1.35;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;}
+.jr-d .mk .up{color:#7cc8a8;} .jr-d .mk .dn{color:#d99aa4;}
+body.light-mode .jr-d .mk{color:#7a8798;} body.light-mode .jr-d .mk .up{color:#3f9c76;} body.light-mode .jr-d .mk .dn{color:#c0606f;}
 .jr-d .dot{position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;}
 .jr-d.gr{background:rgba(0,229,176,.09);border-color:rgba(0,229,176,.35);} .jr-d.rd{background:rgba(255,61,90,.09);border-color:rgba(255,61,90,.35);}
 .jr-d.wk{background:var(--bg3);cursor:default;} .jr-d.e{background:transparent;border-style:dashed;cursor:default;} .jr-d.out{opacity:.45;}
@@ -18201,13 +18203,32 @@ function jrRender() {
   else body = jrAnHtml();
   root.innerHTML = `<div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn" onclick="jrPdf('day')">⬇ PDF (day)</button>` : ''}</div>${body}`;  if (JR.tab === 'today') Object.keys(JR.edit).forEach(jrRefreshCard);
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button><button class="jr-btn" onclick="jrPdf('day')">⬇ PDF (day)</button>` : ''}</div>${body}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
   if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
 }
 function jrSetDate(d) {
   if (!d) return;
-  if (Object.values(JR.edit).some(e => e._dirty) && !confirm('You have unsaved trade cards. Switch the day anyway?')) { jrRender(); return; }
-  JR.d = d; JR.edit = {}; jrRender();
+  jrGuard(() => { JR.d = d; JR.edit = {}; jrRender(); });
+}
+// unsaved cards → Save all / Don't save / Cancel
+function jrGuard(go) {
+  const dirty = Object.keys(JR.edit).filter(k => JR.edit[k]._dirty && !JR.edit[k]._deleted);
+  if (!dirty.length) { go(); return; }
+  document.getElementById('jr-guard')?.remove();
+  const m = document.createElement('div'); m.className = 'jr-modal'; m.id = 'jr-guard';
+  m.innerHTML = `<div class="jr-card" style="width:380px;"><h3>Unsaved trades</h3>
+    <div style="color:var(--text);font-size:12.5px;margin-bottom:12px;">${dirty.length} trade card${dirty.length > 1 ? 's have' : ' has'} unsaved changes: ${dirty.map(k => '<b>' + jrEsc(JR.edit[k].symbol || 'new') + '</b>').join(', ')}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+      <button class="jr-btn sm" id="jr-g-cancel">Cancel</button><button class="jr-btn r sm" id="jr-g-drop">Don't save</button><button class="jr-btn g sm" id="jr-g-save">Save all</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#jr-g-cancel').onclick = () => { m.remove(); jrRender(); };
+  m.querySelector('#jr-g-drop').onclick = () => { m.remove(); go(); };
+  m.querySelector('#jr-g-save').onclick = async () => { m.remove(); if (await jrSaveAll()) go(); };
+}
+async function jrSaveAll() {
+  const dirty = Object.keys(JR.edit).filter(k => JR.edit[k]._dirty && !JR.edit[k]._deleted);
+  for (const k of dirty) { const ok = await jrSaveCard(k); if (!ok) { jrRender(); return false; } }
+  return true;
 }
 
 // ---------- Today ----------
@@ -18229,7 +18250,10 @@ function jrTodayHtml() {
   // cards: saved trades of the day + new unsaved cards
   for (const t of tr) if (!JR.edit['t' + t.id]) JR.edit['t' + t.id] = { ...t, rules: { ...(t.rules || {}) }, _k: 't' + t.id };
   const keys = Object.keys(JR.edit).filter(k => JR.edit[k].d === d && !JR.edit[k]._deleted);
-  const cards = keys.map((k, i) => jrCardHtml(k, i + 1)).join('');
+  const sec = (kind, label, color) => { const ks = keys.filter(k => JR.edit[k].kind === kind); return ks.length ? `<div style="margin-top:${kind === 'option' ? 28 : 6}px;">
+      <div style="font-size:13px;font-weight:700;letter-spacing:1px;color:${color};border-bottom:2px solid ${color};padding-bottom:4px;margin-bottom:10px;">${label} · ${ks.length} trade${ks.length > 1 ? 's' : ''}</div>
+      <div class="jr-cards" style="margin-top:0;">${ks.map((k, i) => jrCardHtml(k, i + 1)).join('')}</div></div>` : ''; };
+  const cards = sec('penny', 'PENNY STOCKS', 'var(--green)') + sec('option', 'OPTIONS', 'var(--cyan)');
   return `
   <div class="jr-row">
     <div class="jr-card" style="flex:1.3;min-width:420px;"><h3>Market — ${new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}<span class="jr-sp" id="jr-day-st" style="text-transform:none;letter-spacing:0;"></span></h3>
@@ -18239,7 +18263,7 @@ function jrTodayHtml() {
         <div class="jr-f"><label>SPY %</label><div class="jr-auto ${spyPct == null ? '' : spyPct >= 0 ? 'jr-pos' : 'jr-neg'}">${spyPct == null ? '—' : (spyPct >= 0 ? '+' : '') + spyPct.toFixed(2) + '%'}</div></div>
         <div class="jr-f"><label>VIX open</label>${inp('vix_open', '0.00')}</div>
         <div class="jr-f"><label>VIX close</label>${inp('vix_close', '0.00')}</div>
-        <div class="jr-f"><label>VIX change</label><div class="jr-auto ${vixChg == null ? '' : vixChg > 0 ? 'jr-neg' : 'jr-pos'}">${vixChg == null ? '—' : (vixChg >= 0 ? '+' : '') + vixChg.toFixed(2)}</div></div>
+        <div class="jr-f"><label>VIX change</label><div class="jr-auto ${vixChg == null ? '' : vixChg >= 0 ? 'jr-pos' : 'jr-neg'}">${vixChg == null ? '—' : (vixChg >= 0 ? '+' : '') + vixChg.toFixed(2)}</div></div>
       </div>
       <div class="jr-row" style="margin-top:8px;align-items:flex-end;">
         <div class="jr-f" style="flex:none;"><label>Trend</label><div class="jr-seg">${trend}</div></div>
@@ -18251,7 +18275,7 @@ function jrTodayHtml() {
       <div style="margin-top:8px;color:var(--text2);font-size:11px;">Per-trade risk ≈ ⅓ of the day: Penny $${Math.round(risk.penny_limit / 3)} · Options $${Math.round(risk.option_limit / 3)}</div>
     </div>
   </div>
-  <div class="jr-cards">${cards || `<div class="jr-card" style="text-align:center;color:var(--text3);padding:22px;">No trades on this day yet — use <b>+ Penny trade</b> or <b>+ Options trade</b>.</div>`}</div>`;
+  <div style="margin-top:12px;">${cards || `<div class="jr-card" style="text-align:center;color:var(--text3);padding:22px;">No trades on this day yet — use <b>+ Penny trade</b> or <b>+ Options trade</b>.</div>`}</div>`;
 }
 
 async function jrSaveDay(field, val) {
@@ -18287,8 +18311,7 @@ function jrCardHtml(k, n) {
   const top = P ? `${sym}
       <div class="jr-f" style="flex:none;"><label>Session</label>${jrSegHtml(k, 'session', [['pre', 'Pre'], ['reg', 'Regular'], ['post', 'After']])}</div>
       ${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${f('exit', 'Exit', 'number', '0.00')}
-      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>
-      ${f('entry_time', 'Time in', 'time')}${f('exit_time', 'Time out', 'time')}`
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`
     : `${sym}
       <div class="jr-f" style="flex:none;"><label>Type</label>${jrSegHtml(k, 'opt_type', [['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread']])}</div>
       ${f('expiry', 'Expiration', 'date')}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
@@ -18327,7 +18350,8 @@ function jrSet(k, field, val, rerender) {
   jrMarkDirty(k);
 }
 function jrRule(k, rk, on) { const e = JR.edit[k]; e.rules[rk] = !!on; e._dirty = true; jrRefreshCard(k); jrMarkDirty(k); }
-function jrMarkDirty(k) { const st = document.getElementById('jr-st-' + k); if (st) { st.textContent = 'unsaved changes'; st.style.color = 'var(--amber)'; } }
+function jrMarkDirty(k) { const st = document.getElementById('jr-st-' + k); if (st) { st.textContent = 'unsaved changes'; st.style.color = 'var(--amber)'; } jrSaveAllBtn(); }
+function jrSaveAllBtn() { const b = document.getElementById('jr-saveall'); if (b) b.style.display = Object.values(JR.edit).some(e => e._dirty && !e._deleted) ? '' : 'none'; }
 function jrCardVals(e) {
   const o = { ...e, qty: jrNum(e.qty), entry: jrNum(e.entry), exit: jrNum(e.exit) };
   o.pnl = jrPnl(o);
@@ -18360,8 +18384,8 @@ async function jrSaveCard(k) {
   const e = JR.edit[k]; if (!e) return;
   const v = jrCardVals(e);
   const sym = String(e.symbol || '').trim().toUpperCase();
-  if (!sym) { showToast('Journal', 'Ticker is required', 'error'); return; }
-  if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', 'This trade is a FAIL — write in the notes what happened and why before saving.', 'error'); return; }
+  if (!sym) { showToast('Journal', 'Ticker is required', 'error'); return false; }
+  if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
   const n = jrNum;
   const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
     entry_time: e.entry_time || null, exit_time: e.exit_time || null, plan_entry: n(e.plan_entry), plan_stop: n(e.plan_stop), plan_target: n(e.plan_target),
@@ -18370,7 +18394,7 @@ async function jrSaveCard(k) {
   const supa = await getSupabaseAsync();
   const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
   const { data, error } = await q;
-  if (error) { showToast('Journal', 'Not saved: ' + error.message, 'error'); return; }
+  if (error) { showToast('Journal', 'Not saved: ' + error.message, 'error'); return false; }
   const saved = { ...data[0], qty: n(data[0].qty), entry: n(data[0].entry), exit: n(data[0].exit), pnl: n(data[0].pnl) };
   JR.trades = JR.trades.filter(t => t.id !== saved.id).concat(saved).sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id);
   delete JR.edit[k];
@@ -18378,6 +18402,7 @@ async function jrSaveCard(k) {
   showToast(sym, 'Trade saved ✓', 'info');
   jrRender();
   const st = document.getElementById('jr-st-t' + saved.id); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
+  return true;
 }
 async function jrDeleteCard(k) {
   const e = JR.edit[k]; if (!e) return;
@@ -18438,11 +18463,18 @@ async function jrAddSymSave(k) {
   showToast(sym, 'Added to your ticker list ✓', 'info');
 }
 
+// SPY / VIX open → close for the calendar (muted; change in soft green / red)
+function jrMktLines(m) {
+  const line = (l, o, c, dec, pct) => { o = jrNum(o); c = jrNum(c); if (o == null && c == null) return '';
+    const ch = (o != null && c != null) ? (pct ? (c / o - 1) * 100 : c - o) : null;
+    return `<div>${l} ${o != null ? o.toFixed(dec) : '—'} → ${c != null ? c.toFixed(dec) : '—'}${ch == null ? '' : ` <span class="${ch >= 0 ? 'up' : 'dn'}">${ch >= 0 ? '+' : '−'}${Math.abs(ch).toFixed(pct ? 2 : 2)}${pct ? '%' : ''}</span>`}</div>`; };
+  return line('SPY', m.spy_open, m.spy_close, 1, true) + line('VIX', m.vix_open, m.vix_close, 2, false);
+}
 // ---------- Calendar ----------
 function jrCalMove(n) { const [y, m] = JR.month.split('-').map(Number); const x = new Date(y, m - 1 + n, 15); JR.month = x.toISOString().slice(0, 7); JR.sel = null; jrRender(); }
 function jrCalFilter(f) { JR.filter = f; jrRender(); }
 function jrCalSel(d) { JR.sel = JR.sel === d ? null : d; jrRender(); }
-function jrOpenDay(d) { JR.d = d; JR.edit = {}; JR.tab = 'today'; jrRender(); }
+function jrOpenDay(d) { jrGuard(() => { JR.d = d; JR.edit = {}; JR.tab = 'today'; jrRender(); }); }
 const JR_RANK = { clean: 1, warning: 2, fail: 3 };
 function jrWorst(ts) { let w = null; for (const t of ts) if (t.result && (!w || JR_RANK[t.result] > JR_RANK[w])) w = t.result; return w; }
 function jrCalHtml() {
@@ -18470,8 +18502,7 @@ function jrCalHtml() {
       const d = jrAddDays(wk, i), ts = byDay[d] || [], m = JR.days[d] || {}, out = d < first || d > last;
       const dn = ts.reduce((s, t) => s + (t.pnl || 0), 0); wNet += dn; wN += ts.length; wT = wT.concat(ts);
       const arrow = { up: '▲', down: '▼', side: '▶' }[m.trend] || '';
-      const spy = (m.spy_open && m.spy_close != null) ? ((m.spy_close / m.spy_open - 1) * 100) : null;
-      const mk = [spy != null ? `SPY ${spy >= 0 ? '+' : ''}${spy.toFixed(1)}%` : '', m.vix_close != null ? `VIX ${Number(m.vix_close).toFixed(1)}` : ''].filter(Boolean).join(' · ');
+      const mk = jrMktLines(m);
       const w = jrWorst(ts);
       cells += ts.length || m.trend || mk
         ? `<div class="jr-d ${ts.length ? (dn > 0 ? 'gr' : dn < 0 ? 'rd' : '') : ''} ${out ? 'out' : ''} ${JR.sel === d ? 'sel' : ''}" onclick="jrCalSel('${d}')">${w ? `<span class="dot ${w}"></span>` : ''}
@@ -18509,7 +18540,7 @@ function jrCalHtml() {
       <div style="flex:2.4;min-width:560px;">
         <div class="jr-cal" style="margin-bottom:4px;">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Week'].map(x => `<div class="jr-ch">${x}</div>`).join('')}</div>
         <div class="jr-cal">${cells}</div>
-        <div style="font-size:10.5px;color:var(--text2);margin-top:6px;">Box color = day P&amp;L · dot = rules (green clean · amber warning · red fail) · ▲▼▶ = trend you entered · bottom line = SPY % / VIX close · click a day for its trades</div>
+        <div style="font-size:10.5px;color:var(--text2);margin-top:6px;">Box color = day P&amp;L · dot = rules (green clean · amber warning · red fail) · ▲▼▶ = trend you entered · bottom = SPY and VIX open → close and change · click a day for its trades</div>
       </div>
       <div style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:10px;">${side}
         <div class="jr-card"><h3>P&amp;L by market trend</h3>${grp(trendOf, [['up', '▲ Up'], ['down', '▼ Down'], ['side', '▶ Sideways'], ['none', 'not entered']])}</div>
@@ -18703,14 +18734,34 @@ function jrAnCharts() {
     options: opt({ indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: txt, callback: v => '$' + v }, grid: { color: grid } }, y: { ticks: { color: txt }, grid: { display: false } } } }) }));
 }
 
-// PDF for the coach: 'week' (Weekly Audit week) or 'month' (Calendar month)
+// PDF for the coach — white paper, framed cards, the calendar as in the app, charts drawn for print
+// scope: 'day' (Today) · 'week' (Weekly Audit) · 'month' (Calendar) · 'range' (Analytics view)
+function jrStats(ts) {
+  const p = ts.filter(t => t.pnl != null), W = p.filter(t => t.pnl > 0), L = p.filter(t => t.pnl < 0);
+  const gw = W.reduce((s, t) => s + t.pnl, 0), gl = -L.reduce((s, t) => s + t.pnl, 0), rv = ts.filter(t => t.result);
+  return { n: ts.length, net: p.reduce((s, t) => s + t.pnl, 0), win: p.length ? Math.round(W.length / p.length * 100) : null, avgW: W.length ? gw / W.length : null, avgL: L.length ? -gl / L.length : null,
+    pf: gl ? gw / gl : (W.length ? Infinity : null), clean: rv.filter(t => t.result === 'clean').length, rev: rv.length };
+}
+async function jrPdfChart(cfg, w, h) {   // renders a Chart.js chart off-screen for print and returns a PNG
+  const box = document.createElement('div'); box.style.cssText = `position:fixed;left:-20000px;top:0;width:${w}px;height:${h}px;background:#fff;`;
+  const cv = document.createElement('canvas'); cv.width = w * 2; cv.height = h * 2; cv.style.width = w + 'px'; cv.style.height = h + 'px'; box.appendChild(cv); document.body.appendChild(box);
+  const raised = { id: 'raised', beforeDatasetsDraw: c => { const x = c.ctx; x.save(); x.shadowColor = 'rgba(16,40,70,.28)'; x.shadowBlur = 10; x.shadowOffsetX = 3; x.shadowOffsetY = 5; },
+    afterDatasetsDraw: c => c.ctx.restore() };
+  const font = { family: 'Helvetica, Arial, sans-serif', size: 34 };   // ≈ 8 pt once scaled into the PDF card
+  cfg.options = { responsive: false, animation: false, devicePixelRatio: 1, ...(cfg.options || {}) };
+  cfg.plugins = [raised];
+  window.Chart.defaults.font = font; window.Chart.defaults.color = '#33475b';
+  const ch = new window.Chart(cv, cfg);
+  const url = cv.toDataURL('image/png'); ch.destroy(); box.remove();
+  window.Chart.defaults.font = { family: "'JetBrains Mono', monospace", size: 12 };
+  return url;
+}
 async function jrPdf(scope) {
   try {
     if (!window.jspdf) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
     if (!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable)) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
-    const pm = v => jrMoney0(v).replace('−', '-');   // the PDF font has no unicode minus
-    let from, to, title;
-    let kindF = 'both';
+    const pm = v => v == null ? '—' : jrMoney0(v).replace('−', '-');   // the PDF font has no unicode minus
+    let from, to, title, kindF = 'both';
     if (scope === 'week') { from = jrAuditWeek(); to = jrAddDays(from, 6); title = `Week of ${jrFmtD(from, { month: 'long', day: 'numeric', year: 'numeric' })} – ${jrFmtD(jrAddDays(from, 4))}`; }
     else if (scope === 'day') { from = to = JR.d; title = jrFmtD(JR.d, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); }
     else if (scope === 'range') { const r = jrAnRange(); kindF = r.filter; from = r.from; to = r.to;
@@ -18719,51 +18770,159 @@ async function jrPdf(scope) {
     else { from = JR.month + '-01'; const [y, m] = JR.month.split('-').map(Number); to = `${JR.month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; title = jrFmtD(from, { month: 'long', year: 'numeric' }); }
     const ts = JR.trades.filter(t => t.d >= from && t.d <= to && (kindF === 'both' || t.kind === kindF));
     const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
-    const W = doc.internal.pageSize.getWidth();
-    doc.setFontSize(18); doc.setFont(undefined, 'bold'); doc.text('Trading Journal', 40, 46);
-    doc.setFontSize(11); doc.setFont(undefined, 'normal'); doc.setTextColor(90); doc.text(`${title}  ·  created ${jrFmtD(jrToday(), { month: 'short', day: 'numeric', year: 'numeric' })}`, 40, 64); doc.setTextColor(0);
-    const sum = k => { const x = ts.filter(t => k === 'all' || t.kind === k), p = x.filter(t => t.pnl != null), w = p.filter(t => t.pnl > 0).length, rv = x.filter(t => t.result);
-      return [x.length, pm(p.reduce((s, t) => s + t.pnl, 0)), p.length ? Math.round(w / p.length * 100) + '%' : '—', rv.length ? `${rv.filter(t => t.result === 'clean').length} / ${rv.length}` : '—']; };
-    const pnlColor = (data, col) => { if (data.section === 'body' && data.column.index === col) { const s = String(data.cell.raw || ''); if (s.startsWith('+')) data.cell.styles.textColor = [29, 122, 59]; else if (s.startsWith('-')) data.cell.styles.textColor = [198, 40, 40]; } };
-    const head = { fillColor: [16, 65, 94], textColor: 255, fontStyle: 'bold' };
-    const sumRows = [['Penny', ...sum('penny')], ['Options', ...sum('option')], ['Total', ...sum('all')]];
-    if (scope === 'week') { const P = jrWeekStats(from, 'penny'), O = jrWeekStats(from, 'option'); sumRows[0].push((P.result || '—').toUpperCase()); sumRows[1].push((O.result || '—').toUpperCase()); sumRows[2].push(''); }
-    doc.autoTable({ startY: 78, head: [['', 'Trades', 'P&L', 'Win rate', 'Rule-clean', ...(scope === 'week' ? ['Audit'] : [])]], body: sumRows, theme: 'grid', headStyles: head, styles: { fontSize: 10 }, margin: { left: 40, right: 40 }, didParseCell: d => pnlColor(d, 2) });
-    if (scope === 'range') {   // the charts as shown on the Analytics tab
-      const ids = [['jr-ch-eq', 'P&L over time'], ['jr-ch-bar', 'P&L per period'], ['jr-ch-wl', 'Wins vs losses'], ['jr-ch-rules', 'Rules'], ['jr-ch-sym', 'P&L by ticker']];
-      doc.addPage(); let x = 40, y = 40; const cw = (W - 100) / 2, ch = 150;
-      for (const [id, label] of ids) {
-        const c = document.getElementById(id); if (!c) continue;
-        const tmp = document.createElement('canvas'); tmp.width = c.width; tmp.height = c.height; const g = tmp.getContext('2d');
-        g.fillStyle = '#10415e'; g.fillRect(0, 0, tmp.width, tmp.height); g.drawImage(c, 0, 0);
-        doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.text(label, x, y);
-        const k = Math.min(cw / c.width, ch / c.height); doc.addImage(tmp.toDataURL('image/png'), 'PNG', x, y + 6, c.width * k, c.height * k);
-        if (x > 40) { x = 40; y += ch + 28; } else x += cw + 20;
-      }
-      doc.addPage();
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 32;
+    const NAVY = [16, 65, 94], INK = [28, 40, 52], GREY = [110, 122, 136], LINE = [205, 214, 226], GREEN = [20, 140, 90], RED = [205, 45, 60], AMBER = [190, 120, 0];
+    const col = v => v > 0 ? GREEN : v < 0 ? RED : INK;
+    const card = (x, y, w, h, label) => {   // framed card with a soft drop shadow
+      doc.setFillColor(222, 228, 236); doc.roundedRect(x + 2.5, y + 3, w, h, 6, 6, 'F');
+      doc.setFillColor(255, 255, 255); doc.setDrawColor(...LINE); doc.setLineWidth(0.8); doc.roundedRect(x, y, w, h, 6, 6, 'FD');
+      if (label) { doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...NAVY); doc.text(label.toUpperCase(), x + 10, y + 15); }
+    };
+    const header = sub => {
+      doc.setFillColor(...NAVY); doc.rect(0, 0, W, 6, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(19); doc.setTextColor(...NAVY); doc.text('Trading Journal', M, 36);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(...GREY); doc.text(sub, M, 52);
+      doc.setFontSize(8.5); doc.text(`StockPulse Pro · created ${jrFmtD(jrToday(), { month: 'short', day: 'numeric', year: 'numeric' })}`, W - M, 36, { align: 'right' });
+      doc.setDrawColor(...LINE); doc.setLineWidth(0.8); doc.line(M, 60, W - M, 60);
+    };
+    const kpis = (y, items) => {   // row of KPI cards
+      const gap = 10, w = (W - 2 * M - gap * (items.length - 1)) / items.length, h = 46;
+      items.forEach(([l, v, c], i) => { const x = M + i * (w + gap); card(x, y, w, h, l); doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...(c || INK)); doc.text(String(v), x + 10, y + 36); });
+      return y + h;
+    };
+    const S = jrStats(ts);
+    header(title);
+    let y = kpis(72, [['Net P&L', pm(S.net), col(S.net)], ['Trades', S.n], ['Win rate', S.win == null ? '—' : S.win + '%'],
+      ['Avg win / avg loss', `${S.avgW == null ? '—' : pm(S.avgW)} / ${S.avgL == null ? '—' : pm(S.avgL)}`], ['Profit factor', S.pf == null ? '—' : S.pf === Infinity ? '∞' : S.pf.toFixed(2)],
+      ['Rule-clean', S.rev ? `${Math.round(S.clean / S.rev * 100)}%  (${S.clean}/${S.rev})` : '—']]) + 14;
+    const tblBase = { theme: 'grid', styles: { font: 'helvetica', fontSize: 8.5, textColor: INK, lineColor: LINE, lineWidth: 0.5, cellPadding: 4 },
+      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' }, alternateRowStyles: { fillColor: [246, 249, 252] }, margin: { left: M, right: M, top: 72 } };
+    const colorCells = (cols, resultCol) => d => {
+      if (d.section !== 'body') return;
+      if (cols.includes(d.column.index)) { const s = String(d.cell.raw || ''); if (s.startsWith('+')) { d.cell.styles.textColor = GREEN; d.cell.styles.fontStyle = 'bold'; } else if (s.startsWith('-')) { d.cell.styles.textColor = RED; d.cell.styles.fontStyle = 'bold'; } }
+      if (d.column.index === resultCol) { const v = d.cell.raw; d.cell.styles.textColor = v === 'FAIL' ? RED : v === 'WARNING' ? AMBER : v === 'CLEAN' ? GREEN : GREY; d.cell.styles.fontStyle = 'bold'; }
+    };
+    const titled = (label, startY) => { if (startY > H - 90) { doc.addPage(); header(title); startY = 72; } doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...NAVY); doc.text(label, M, startY + 4); return startY + 12; };
+
+    // ---- the calendar, drawn like the app (month) ----
+    if (scope === 'month') {
+      const byDay = {}; ts.forEach(t => (byDay[t.d] ||= []).push(t));
+      const weeks = []; for (let w = jrMonday(from); w <= to; w = jrAddDays(w, 7)) weeks.push(w);
+      const gx = M, gw = (W - 2 * M) * 0.7, colW = gw / 5.95, top = y + 4, hdr = 14, ch = Math.min(76, (H - top - hdr - 24) / weeks.length - 4);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(150, 110, 0);
+      ['MON', 'TUE', 'WED', 'THU', 'FRI', 'WEEK'].forEach((l, i) => doc.text(l, gx + i * colW + 4, top + 9));
+      weeks.forEach((wk, r) => {
+        let wn = 0, wc = 0, worstW = null;
+        for (let i = 0; i < 6; i++) {
+          const cx = gx + i * colW, cy = top + hdr + r * (ch + 4), cw = (i === 5 ? colW * 0.95 : colW) - 4;
+          if (i === 5) {   // week total
+            doc.setFillColor(237, 242, 248); doc.setDrawColor(...LINE); doc.roundedRect(cx, cy, cw, ch, 4, 4, 'FD');
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...INK); doc.text('Week', cx + 6, cy + 12);
+            if (wc) { doc.setFontSize(12.5); doc.setTextColor(...col(wn)); doc.text(pm(wn), cx + 6, cy + 30); }
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY); doc.text(`${wc} trade${wc === 1 ? '' : 's'}${worstW ? ' · ' + worstW : ''}`, cx + 6, cy + 42);
+            continue;
+          }
+          const d = jrAddDays(wk, i), out = d < from || d > to, x = byDay[d] || [], m = JR.days[d] || {}, dn = x.reduce((s, t) => s + (t.pnl || 0), 0);
+          wn += dn; wc += x.length; const w = jrWorst(x); if (w && (!worstW || JR_RANK[w] > JR_RANK[worstW])) worstW = w;
+          if (x.length && dn > 0) doc.setFillColor(232, 247, 239); else if (x.length && dn < 0) doc.setFillColor(253, 236, 238); else doc.setFillColor(255, 255, 255);
+          doc.setDrawColor(...(x.length ? (dn >= 0 ? [150, 210, 180] : [235, 160, 170]) : LINE)); doc.setLineWidth(0.7); doc.roundedRect(cx, cy, cw, ch, 4, 4, 'FD');
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...(out ? [180, 186, 196] : INK)); doc.text(String(Number(d.slice(8))), cx + 6, cy + 13);
+          if (m.trend) { const ax = cx + 26, ay = cy + 9; doc.setFillColor(...(m.trend === 'up' ? GREEN : m.trend === 'down' ? RED : GREY));
+            if (m.trend === 'up') doc.triangle(ax, ay + 3, ax + 7, ay + 3, ax + 3.5, ay - 3, 'F'); else if (m.trend === 'down') doc.triangle(ax, ay - 3, ax + 7, ay - 3, ax + 3.5, ay + 3, 'F'); else doc.triangle(ax, ay - 3.5, ax, ay + 3.5, ax + 6, ay, 'F'); }
+          if (w) { doc.setFillColor(...(w === 'fail' ? RED : w === 'warning' ? AMBER : GREEN)); doc.circle(cx + cw - 8, cy + 9, 3, 'F'); }
+          if (x.length) { doc.setFontSize(12.5); doc.setTextColor(...col(dn)); doc.text(pm(dn), cx + 6, cy + 30);
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY); doc.text(`${x.length} trade${x.length > 1 ? 's' : ''}`, cx + 6, cy + 41); }
+          const mline = (l, o, c, pct, yy) => { o = jrNum(o); c = jrNum(c); if (o == null || c == null) return;
+            const chg = pct ? (c / o - 1) * 100 : c - o, base = `${l} ${o.toFixed(1)} > ${c.toFixed(1)} `;
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(6.6); doc.setTextColor(125, 136, 150); doc.text(base, cx + 6, yy);
+            doc.setTextColor(...(chg >= 0 ? [90, 160, 125] : [200, 110, 125])); doc.text(`${chg >= 0 ? '+' : '-'}${Math.abs(chg).toFixed(pct ? 1 : 2)}${pct ? '%' : ''}`, cx + 6 + doc.getTextWidth(base), yy); };
+          mline('SPY', m.spy_open, m.spy_close, true, cy + ch - 13); mline('VIX', m.vix_open, m.vix_close, false, cy + ch - 5);
+        }
+      });
+      // side cards: P&L by market trend and by VIX close
+      const sx = gx + gw + 8, sw = W - M - sx, grp = (keyFn, labels) => labels.map(([k, l]) => { const x = ts.filter(t => keyFn(t) === k), p = x.filter(t => t.kind === 'penny').reduce((s, t) => s + (t.pnl || 0), 0), o = x.filter(t => t.kind === 'option').reduce((s, t) => s + (t.pnl || 0), 0);
+        return [l, new Set(x.map(t => t.d)).size, x.some(t => t.kind === 'penny') ? pm(p) : '—', x.some(t => t.kind === 'option') ? pm(o) : '—']; });
+      const trendOf = t => (JR.days[t.d] || {}).trend || 'none', vixOf = t => { const v = (JR.days[t.d] || {}).vix_close; return v == null ? 'none' : v < 16 ? 'lo' : v <= 18 ? 'mid' : 'hi'; };
+      card(sx, top, sw, 112, 'P&L by market trend');
+      doc.autoTable({ ...tblBase, theme: 'plain', startY: top + 22, margin: { left: sx + 6, right: M + 6 }, tableWidth: sw - 12, head: [['', 'Days', 'Penny', 'Options']],
+        headStyles: { textColor: NAVY, fontStyle: 'bold', fillColor: false }, body: grp(trendOf, [['up', 'Up'], ['down', 'Down'], ['side', 'Sideways'], ['none', 'not entered']]), didParseCell: colorCells([2, 3], -1) });
+      card(sx, top + 124, sw, 112, 'P&L by VIX close');
+      doc.autoTable({ ...tblBase, theme: 'plain', startY: top + 146, margin: { left: sx + 6, right: M + 6 }, tableWidth: sw - 12, head: [['VIX', 'Days', 'Penny', 'Options']],
+        headStyles: { textColor: NAVY, fontStyle: 'bold', fillColor: false }, body: grp(vixOf, [['lo', '< 16'], ['mid', '16 – 18'], ['hi', '> 18'], ['none', 'not entered']]), didParseCell: colorCells([2, 3], -1) });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY);
+      doc.text('Box color = day P&L · dot = rules (green clean · amber warning · red fail) · triangle = trend · bottom = SPY and VIX open > close and change', sx, top + 252, { maxWidth: sw });
+      doc.addPage(); header(title); y = 72;
     }
-    const dset = [...new Set(ts.map(t => t.d).concat(Object.keys(JR.days).filter(d => d >= from && d <= to)))].sort();
+
+    // ---- charts (Analytics view) ----
+    if (scope === 'range' && ts.length && window.Chart) {
+      const p = ts.filter(t => t.pnl != null), byDay = {}; p.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
+      const days = Object.keys(byDay).sort(); let cum = 0; const cumV = days.map(d => Math.round((cum += byDay[d]) * 100) / 100);
+      const perWeek = !(jrAnRange().scope === 'week' || jrAnRange().scope === 'month'), bucket = {}; p.forEach(t => { const k = perWeek ? jrMonday(t.d) : t.d; bucket[k] = (bucket[k] || 0) + t.pnl; });
+      const bk = Object.keys(bucket).sort();
+      const gridC = 'rgba(16,65,94,.10)', ax = { ticks: { color: '#33475b' }, grid: { color: gridC } };
+      const eq = await jrPdfChart({ type: 'line', data: { labels: days.map(d => jrFmtD(d)), datasets: [{ data: cumV, borderColor: '#0b7fb3', borderWidth: 5, pointRadius: 0, tension: .25, fill: true, backgroundColor: 'rgba(11,127,179,.15)' }] },
+        options: { plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }, y: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } } } } }, 760, 470);
+      const bar = await jrPdfChart({ type: 'bar', data: { labels: bk.map(d => jrFmtD(d)), datasets: [{ data: bk.map(k => Math.round(bucket[k])), backgroundColor: bk.map(k => bucket[k] >= 0 ? '#1aa673' : '#d83a4e'), borderRadius: 6 }] },
+        options: { plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } } } } }, 760, 470);
+      const w = p.filter(t => t.pnl > 0).length, l = p.filter(t => t.pnl < 0).length, e = p.length - w - l, rc = k => ts.filter(t => (t.result || 'none') === k).length;
+      const pieO = { plugins: { legend: { position: 'right', labels: { color: '#1c2834', font: { size: 34, family: 'Helvetica, Arial, sans-serif' }, boxWidth: 30 } } }, cutout: '55%' };
+      const wl = await jrPdfChart({ type: 'doughnut', data: { labels: [`Wins ${w}`, `Losses ${l}`, `Even ${e}`], datasets: [{ data: [w, l, e], backgroundColor: ['#1aa673', '#d83a4e', '#9aa6b4'], borderColor: '#fff', borderWidth: 4 }] }, options: pieO }, 520, 300);
+      const ru = await jrPdfChart({ type: 'doughnut', data: { labels: [`Clean ${rc('clean')}`, `Warning ${rc('warning')}`, `Fail ${rc('fail')}`, `Not reviewed ${rc('none')}`], datasets: [{ data: [rc('clean'), rc('warning'), rc('fail'), rc('none')], backgroundColor: ['#1aa673', '#e0a020', '#d83a4e', '#9aa6b4'], borderColor: '#fff', borderWidth: 4 }] }, options: pieO }, 520, 300);
+      const bySym = {}; p.forEach(t => bySym[t.symbol] = (bySym[t.symbol] || 0) + t.pnl);
+      const top = Object.entries(bySym).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 10).sort((a, b) => b[1] - a[1]);
+      const sy = await jrPdfChart({ type: 'bar', data: { labels: top.map(x => x[0]), datasets: [{ data: top.map(x => Math.round(x[1])), backgroundColor: top.map(x => x[1] >= 0 ? '#1aa673' : '#d83a4e'), borderRadius: 6 }] },
+        options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } }, y: { ticks: { color: '#1c2834' }, grid: { display: false } } } } }, 560, 300);
+      const cw2 = (W - 2 * M - 12) / 2, h1 = (H - y - 24) / 2 - 8;
+      const put = (img, x, yy, w, h, label, iw, ih) => { card(x, yy, w, h, label); const k = Math.min((w - 20) / iw, (h - 30) / ih); doc.addImage(img, 'PNG', x + (w - iw * k) / 2, yy + 22, iw * k, ih * k); };
+      put(eq, M, y, cw2, h1, 'P&L over time (running total)', 760, 470);
+      put(bar, M + cw2 + 12, y, cw2, h1, `P&L per ${perWeek ? 'week' : 'day'}`, 760, 470);
+      const cw3 = (W - 2 * M - 24) / 3, y2 = y + h1 + 14;
+      put(wl, M, y2, cw3, h1, 'Wins vs losses', 520, 300); put(ru, M + cw3 + 12, y2, cw3, h1, 'Rules', 520, 300); put(sy, M + 2 * (cw3 + 12), y2, cw3, h1, 'P&L by ticker (top 10)', 560, 300);
+      doc.addPage(); header(title); y = 72;
+    }
+
+    // ---- penny / options summary + audit (week, day) ----
+    if (scope === 'week' || scope === 'day') {
+      const row = (l, k) => { const x = jrStats(ts.filter(t => k === 'all' || t.kind === k)); return [l, x.n, pm(x.net), x.win == null ? '—' : x.win + '%', x.rev ? `${x.clean} / ${x.rev}` : '—']; };
+      const rows = [row('Penny', 'penny'), row('Options', 'option'), row('Total', 'all')];
+      if (scope === 'week') { const P = jrWeekStats(from, 'penny'), O = jrWeekStats(from, 'option'); rows[0].push((P.result || '—').toUpperCase()); rows[1].push((O.result || '—').toUpperCase()); rows[2].push(''); }
+      y = titled('Summary', y);
+      doc.autoTable({ ...tblBase, startY: y, head: [['', 'Trades', 'P&L', 'Win rate', 'Rule-clean', ...(scope === 'week' ? ['Audit'] : [])]], body: rows, didParseCell: colorCells([2], 5) });
+      y = doc.lastAutoTable.finalY + 16;
+      if (scope === 'week') {
+        const a = JR.audit[from] || {}, nr = JR.risk.filter(r => r.week_start === jrAddDays(from, 7)).sort((x, z) => z.id - x.id)[0];
+        const txt = doc.splitTextToSize((a.notes || 'No audit notes yet.') + (nr ? `\n\nNext week's risk: Penny $${nr.penny_limit} · Options $${nr.option_limit} — ${nr.reason}` : ''), W - 2 * M - 24);
+        const h = 30 + txt.length * 12; if (y + h > H - 40) { doc.addPage(); header(title); y = 72; }
+        card(M, y, W - 2 * M, h, 'Audit'); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...INK); doc.text(txt, M + 12, y + 30); y += h + 16;
+      }
+    }
+
+    // ---- day by day and every trade, newest first ----
+    const dset = [...new Set(ts.map(t => t.d).concat(Object.keys(JR.days).filter(d => d >= from && d <= to && scope !== 'range')))].sort().reverse();
     const dayRows = dset.map(d => { const m = JR.days[d] || {}, x = ts.filter(t => t.d === d), sp = (m.spy_open && m.spy_close != null) ? (m.spy_close / m.spy_open - 1) * 100 : null;
       const pp = x.filter(t => t.kind === 'penny').reduce((s, t) => s + (t.pnl || 0), 0), op = x.filter(t => t.kind === 'option').reduce((s, t) => s + (t.pnl || 0), 0);
-      return [jrFmtD(d, { weekday: 'short', month: 'short', day: 'numeric' }), { up: 'Up', down: 'Down', side: 'Sideways' }[m.trend] || '', sp == null ? '' : (sp >= 0 ? '+' : '') + sp.toFixed(2) + '%', m.vix_close ?? '',
+      const f2 = v => v == null ? '' : Number(v).toFixed(2), vc = (m.vix_open != null && m.vix_close != null) ? m.vix_close - m.vix_open : null;
+      return [jrFmtD(d, { weekday: 'short', month: 'short', day: 'numeric' }), { up: 'Up', down: 'Down', side: 'Sideways' }[m.trend] || '',
+        f2(m.spy_open), f2(m.spy_close), sp == null ? '' : (sp >= 0 ? '^' : 'v') + (sp >= 0 ? '+' : '-') + Math.abs(sp).toFixed(2) + '%',
+        f2(m.vix_open), f2(m.vix_close), vc == null ? '' : (vc >= 0 ? '^+' : 'v-') + Math.abs(vc).toFixed(2),
         x.some(t => t.kind === 'penny') ? pm(pp) : '', x.some(t => t.kind === 'option') ? pm(op) : '', x.length ? pm(pp + op) : '', m.note || '']; });
-    doc.autoTable({ startY: scope === 'range' ? 40 : doc.lastAutoTable.finalY + 16, head: [['Day', 'Trend', 'SPY', 'VIX close', 'Penny', 'Options', 'Total', 'Market note']], body: dayRows, theme: 'striped', headStyles: head, styles: { fontSize: 9 }, margin: { left: 40, right: 40 },
-      didParseCell: d => { pnlColor(d, 4); pnlColor(d, 5); pnlColor(d, 6); } });
-    const typ = t => t.kind === 'penny' ? 'Penny' : `${t.strike || ''}${t.opt_type === 'put' ? 'P' : t.opt_type === 'call' ? 'C' : t.opt_type === 'spread' ? ' spread' : ''}`;
+    if (dayRows.length) { y = titled('Day by day (newest first)', y);
+      const soft = d => { if (d.section !== 'body') return; if ([2, 3, 5, 6].includes(d.column.index)) d.cell.styles.textColor = [125, 136, 150];
+        if ([4, 7].includes(d.column.index)) { const v = String(d.cell.raw || ''); d.cell.text = [v.slice(1)]; d.cell.styles.textColor = v.startsWith('^') ? [90, 160, 125] : [200, 110, 125]; d.cell.styles.fontStyle = 'normal'; } };
+      doc.autoTable({ ...tblBase, startY: y, head: [['Day', 'Trend', 'SPY open', 'SPY close', 'SPY %', 'VIX open', 'VIX close', 'VIX +/-', 'Penny', 'Options', 'Total', 'Market note']], body: dayRows,
+        didParseCell: d => { colorCells([8, 9, 10], -1)(d); soft(d); }, columnStyles: { 11: { cellWidth: 120 } },
+        didDrawPage: () => header(title) }); y = doc.lastAutoTable.finalY + 18; }
+    const typ = t => t.kind === 'penny' ? `Penny${t.session ? ' · ' + ({ pre: 'pre', reg: 'reg', post: 'after' }[t.session]) : ''}` : `${t.strike || ''}${t.opt_type === 'put' ? ' P' : t.opt_type === 'call' ? ' C' : t.opt_type === 'spread' ? ' spread' : ''}${t.expiry ? ' · ' + jrFmtD(t.expiry) : ''}`;
     const stopL = { '10': '10%', '15': '15%', gt15: '>15%', '20': '20%', '25': '25%', none: 'none' };
-    const tr = ts.slice().sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed'), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
-    doc.autoTable({ startY: doc.lastAutoTable.finalY + 16, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, theme: 'striped', headStyles: head, styles: { fontSize: 8.5, cellPadding: 3 },
-      columnStyles: { 9: { cellWidth: 200 } }, margin: { left: 40, right: 40 },
-      didParseCell: d => { pnlColor(d, 6); if (d.section === 'body' && d.column.index === 8) { const v = d.cell.raw; d.cell.styles.textColor = v === 'fail' ? [198, 40, 40] : v === 'warning' ? [176, 110, 0] : v === 'clean' ? [29, 122, 59] : [120, 120, 120]; } } });
-    if (scope === 'week') {
-      const a = JR.audit[from] || {}, nr = JR.risk.filter(r => r.week_start === jrAddDays(from, 7)).sort((x, y) => y.id - x.id)[0];
-      let y = doc.lastAutoTable.finalY + 22; if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = 50; }
-      doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text('Audit', 40, y); doc.setFont(undefined, 'normal'); doc.setFontSize(10);
-      const lines = doc.splitTextToSize((a.notes || 'No audit notes.') + (nr ? `\nNext week's risk: Penny $${nr.penny_limit} · Options $${nr.option_limit} — ${nr.reason}` : ''), W - 80);
-      doc.text(lines, 40, y + 16);
-    }
+    const tr = ts.slice().sort((a, b) => a.d > b.d ? -1 : a.d < b.d ? 1 : b.id - a.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
+    if (tr.length) { y = titled(`Trades (${tr.length}, newest first)`, y);
+      doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 9: { cellWidth: 170 } },
+        didParseCell: colorCells([6], 8), didDrawPage: () => header(title) }); }
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY); doc.text(`Page ${i} of ${n}`, W - M, H - 14, { align: 'right' }); }
     doc.save(`journal-${scope === 'range' ? 'analytics' : scope}-${from}${scope === 'range' || scope === 'month' ? '-to-' + to : ''}.pdf`);
-  } catch (e) { showToast('Journal', 'PDF failed: ' + e.message, 'error'); }
+  } catch (e) { console.error(e); showToast('Journal', 'PDF failed: ' + e.message, 'error'); }
 }
 </script>
 </body>
