@@ -18494,16 +18494,23 @@ function jrRefreshCard(k) {
       const daily = risk.option_limit, maxLoss = Math.round(daily * 0.8), cost = v.entry * v.qty * 100, drop = maxLoss / (v.qty * 100);
       const floor = Math.max(0, Math.round((v.entry - drop) * 100) / 100), pct = Math.min(100, Math.round(maxLoss / cost * 100));
       const bad = [];
-      if (lv.stop != null && lv.stop < floor) bad.push(`your ${e.plan_stop_pct}% stop (${px(lv.stop)}) is below ${px(floor)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
-      if (v.exit != null && v.exit < floor) bad.push(`premium out ${px(v.exit)} is below ${px(floor)} → lost $${Math.round((v.entry - v.exit) * v.qty * 100)}, more than $${maxLoss}`);
+      if (lv.stop != null && lv.stop < floor) bad.push(`your ${e.plan_stop_pct}% stop (${px(lv.stop)}) is below $${floor.toFixed(2)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
+      if (v.exit != null && v.exit < floor) bad.push(`premium out ${px(v.exit)} is below $${floor.toFixed(2)} → lost $${Math.round((v.entry - v.exit) * v.qty * 100)}, more than $${maxLoss}`);
       mxEl.innerHTML = `<span style="padding:4px 9px;border-radius:5px;display:inline-block;${bad.length ? 'background:rgba(255,80,80,.12);border:1px solid var(--red);' : 'background:rgba(255,176,32,.08);border:1px solid var(--amber);'}">
         ${bad.length ? '⚠️' : '🛡️'} <b>Max loss ${'$' + maxLoss}</b> (80% of $${daily} daily) · cost ${'$' + Math.round(cost).toLocaleString('en-US')} ·
-        ${floor > 0 ? `<b>stop no lower than ${px(floor)}</b> (−${pct}% · $${maxLoss} ÷ (${v.qty} × 100) = $${drop.toFixed(2)} drop)` : `<b>whole position ≤ $${maxLoss}</b> — even a total loss stays inside the limit`}
+        ${floor > 0 ? `<b>stop no lower than $${floor.toFixed(2)}</b> (−${pct}% · $${maxLoss} ÷ (${v.qty} × 100) = $${drop.toFixed(2)} drop)` : `<b>whole position ≤ $${maxLoss}</b> — even a total loss stays inside the limit`}
         ${bad.length ? `<div style="color:var(--red);margin-top:3px;font-weight:700;">✗ ${bad.join(' · ')}</div>` : ''}</span>`;
     }
   }
   const zEl = document.getElementById('jr-pe-' + k); if (zEl) zEl.textContent = lv.lo != null ? `${px(lv.lo)} – ${px(lv.hi)}` : v.entry != null ? `at ${px(v.entry)}` : 'enter the entry first';
-  const sEl = document.getElementById('jr-ps-' + k); if (sEl) sEl.textContent = lv.stop != null ? `stop ${px(lv.stop)}` : '—';
+  // Options "must stop": the lowest premium out that keeps the loss within 80% of the daily risk for these contracts
+  const must = e.kind === 'option' && v.entry != null && v.qty ? Math.max(0, Math.round((v.entry - risk.option_limit * 0.8 / (v.qty * 100)) * 100) / 100) : null;
+  const sEl = document.getElementById('jr-ps-' + k);
+  if (sEl) {
+    const low = must != null && lv.stop != null && lv.stop < must;
+    sEl.innerHTML = `${lv.stop != null ? `stop ${px(lv.stop)}` : '—'}${must != null ? ` · <b class="${low ? 'jr-neg' : 'jr-amb'}" title="Lowest stop for ${v.qty} contract${v.qty > 1 ? 's' : ''} at ${px(v.entry)}: max loss $${Math.round(risk.option_limit * 0.8)} = 80% of $${risk.option_limit} daily">must stop ${must > 0 ? '$' + must.toFixed(2) : '— any'}${low ? ' ✗' : ''}</b>` : ''}`;
+    sEl.style.whiteSpace = 'normal';
+  }
   const tEl = document.getElementById('jr-pt-' + k); if (tEl) tEl.textContent = e.target_run || e.plan_target_pct === 'run' ? 'let it run' : lv.target != null ? `target ${px(lv.target)}` : '—';
   const se = document.getElementById('jr-size-' + k);
   if (se) {
