@@ -18469,19 +18469,23 @@ function jrDateIn(k, field, v, after) {
   jrRefreshCard(k); jrMarkDirty(k);
 }
 // "Today's result" strip: wins / losses / net for the saved trades of the day, total + penny + options.
-function jrDayResult(ts) {
-  const w = ts.filter(t => t.pnl > 0), l = ts.filter(t => t.pnl < 0);
-  return { n: ts.length, w: w.length, l: l.length, even: ts.length - w.length - l.length, won: w.reduce((s, t) => s + t.pnl, 0), lost: l.reduce((s, t) => s + t.pnl, 0), net: ts.reduce((s, t) => s + (t.pnl || 0), 0) };
+function jrDayResult(ts) {   // all trades of the day; open = no exit yet (not counted as win, loss or break-even)
+  const open = ts.filter(t => t.exit == null || t.exit === '' || t.pnl == null), closed = ts.filter(t => !open.includes(t));
+  const w = closed.filter(t => t.pnl > 0), l = closed.filter(t => t.pnl < 0);
+  return { n: ts.length, penny: ts.filter(t => t.kind === 'penny').length, option: ts.filter(t => t.kind === 'option').length, open: open.length,
+    openList: open.map(t => t.symbol).join(', '), w: w.length, l: l.length, even: closed.length - w.length - l.length,
+    won: w.reduce((s, t) => s + t.pnl, 0), lost: l.reduce((s, t) => s + t.pnl, 0), net: closed.reduce((s, t) => s + (t.pnl || 0), 0) };
 }
 function jrDayResultHtml(d) {
-  const ts = JR.trades.filter(t => t.d === d && t.pnl != null);
+  const ts = JR.trades.filter(t => t.d === d);
   if (!ts.length) return `<div class="jr-card" style="margin-top:10px;padding:8px 12px;color:var(--text3);"><b style="color:var(--text2);">TODAY'S RESULT</b> · no saved trades yet</div>`;
   const line = (lab, x, big) => `<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;${big ? '' : 'font-size:11.5px;color:var(--text2);margin-top:3px;'}">
       <span style="min-width:${big ? 130 : 130}px;${big ? 'font-weight:700;letter-spacing:1px;color:var(--text);' : ''}">${lab}</span>
-      <span>${x.n} trade${x.n === 1 ? '' : 's'}</span>
+      <span>${x.n} trade${x.n === 1 ? '' : 's'}${big && x.penny && x.option ? ` <span style="color:var(--text3);">(${x.option} options · ${x.penny} penny)</span>` : ''}</span>
       <span class="jr-pos">✔ ${x.w} win${x.w === 1 ? '' : 's'} <b>${jrMoney0(x.won)}</b></span>
       <span class="jr-neg">✘ ${x.l} loss${x.l === 1 ? '' : 'es'} <b>${jrMoney0(x.lost)}</b></span>
       ${x.even ? `<span style="color:var(--text3);">${x.even} break-even</span>` : ''}
+      ${x.open ? `<span style="background:rgba(255,214,0,.16);border:1px solid rgba(255,214,0,.55);color:#ffd84d;border-radius:4px;padding:0 6px;">⏳ ${x.open} open${x.openList ? ' — ' + x.openList : ''}</span>` : ''}
       <span>Net <b class="${x.net > 0 ? 'jr-pos' : x.net < 0 ? 'jr-neg' : ''}" style="${big ? 'font-size:17px;' : ''}">${jrMoney0(x.net)}</b></span></div>`;
   const all = jrDayResult(ts), P = ts.filter(t => t.kind === 'penny'), O = ts.filter(t => t.kind === 'option');
   return `<div class="jr-card" style="margin-top:10px;padding:9px 14px;border-left:4px solid ${all.net > 0 ? 'var(--green)' : all.net < 0 ? 'var(--red)' : 'var(--border2)'};">
@@ -19153,7 +19157,7 @@ async function jrPdf(scope) {
     const S = jrStats(ts);
     header(title);
     // Result band: how many won / lost and how much — readable for someone who has never seen the journal
-    const R = jrDayResult(ts.filter(t => t.pnl != null)), bandY = 74, bw = (W - 2 * M - 30) / 4, bh = 50;
+    const R = jrDayResult(ts), bandY = 74, bw = (W - 2 * M - 30) / 4, bh = 50;
     const band = (i, label, big, sub, rgb, fill) => { const x = M + i * (bw + 10);
       doc.setFillColor(...fill); doc.setDrawColor(...rgb); doc.setLineWidth(1.2); doc.roundedRect(x, bandY, bw, bh, 6, 6, 'FD');
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...rgb); doc.text(label, x + 10, bandY + 14);
@@ -19161,7 +19165,7 @@ async function jrPdf(scope) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GREY); doc.text(sub, x + bw - 10, bandY + 36, { align: 'right' }); };
     band(0, 'WINS', `${R.w} won`, pm(R.won), GREEN, [232, 247, 239]);
     band(1, 'LOSSES', `${R.l} lost`, pm(R.lost), RED, [252, 234, 236]);
-    band(2, 'TRADES', `${R.n}`, R.even ? `${R.even} break-even` : '', NAVY, [236, 243, 250]);
+    band(2, 'TRADES', `${R.n}`, [R.option && R.penny ? `${R.option} opt · ${R.penny} penny` : '', R.open ? `${R.open} open` : '', R.even ? `${R.even} even` : ''].filter(Boolean).join(' · '), NAVY, [236, 243, 250]);
     band(3, 'NET RESULT', pm(R.net), R.net > 0 ? 'profit' : R.net < 0 ? 'loss' : 'flat', R.net > 0 ? GREEN : R.net < 0 ? RED : NAVY, R.net > 0 ? [232, 247, 239] : R.net < 0 ? [252, 234, 236] : [236, 243, 250]);
     let y = kpis(bandY + bh + 12, [['Win rate', S.win == null ? '—' : S.win + '%'],
       ['Avg win / avg loss', `${S.avgW == null ? '—' : pm(S.avgW)} / ${S.avgL == null ? '—' : pm(S.avgL)}`], ['Profit factor', S.pf == null ? '—' : S.pf === Infinity ? '∞' : S.pf.toFixed(2)],
@@ -19173,6 +19177,9 @@ async function jrPdf(scope) {
       if (cols.includes(d.column.index)) { const s = String(d.cell.raw || ''); if (s.startsWith('+')) { d.cell.styles.textColor = GREEN; d.cell.styles.fontStyle = 'bold'; } else if (s.startsWith('-')) { d.cell.styles.textColor = RED; d.cell.styles.fontStyle = 'bold'; } }
       if (d.column.index === resultCol) { const v = d.cell.raw; d.cell.styles.textColor = v === 'FAIL' ? RED : v === 'WARNING' ? AMBER : v === 'CLEAN' ? GREEN : GREY; d.cell.styles.fontStyle = 'bold'; }
     };
+    // open trades (no exit yet): light yellow cells and an "OPEN" label so they're not mistaken for a result
+    const openCell = (d, cols, pnlCol) => { if (d.section !== 'body') return; const row = d.row.raw || [];
+      if (row[pnlCol] !== 'OPEN') return; if (cols.includes(d.column.index)) { d.cell.styles.fillColor = [255, 246, 196]; d.cell.styles.textColor = [150, 105, 0]; d.cell.styles.fontStyle = 'bold'; if (d.column.index === 7 && !d.cell.raw) d.cell.text = ['OPEN']; } };
     const titled = (label, startY) => { if (startY > H - 90) { doc.addPage(); header(title); startY = 80; } doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...NAVY); doc.text(label, M, startY + 4); return startY + 12; };
 
     // ---- the calendar, drawn like the app (month) ----
@@ -19309,22 +19316,22 @@ async function jrPdf(scope) {
         didDrawPage: () => header(title) }); y = doc.lastAutoTable.finalY + 18; }
     const typ = t => t.kind === 'penny' ? `Penny${t.session ? ' · ' + ({ pre: 'pre', reg: 'reg', post: 'after' }[t.session]) : ''}` : `${t.strike || ''}${t.opt_type === 'put' ? ' P' : t.opt_type === 'call' ? ' C' : t.opt_type === 'spread' ? ' spread' : ''}${t.expiry ? ' · ' + jrFmtD(t.expiry) : ''}`;
     const stopL = { '10': '10%', '15': '15%', gt15: '>15%', '20': '20%', '25': '25%', none: 'none' };
-    const tr = ts.slice().sort((a, b) => a.d > b.d ? -1 : a.d < b.d ? 1 : b.id - a.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', t.exit_date && t.exit_date !== t.d ? jrFmtD(t.exit_date) : '', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
+    const tr = ts.slice().sort((a, b) => a.d > b.d ? -1 : a.d < b.d ? 1 : b.id - a.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'OPEN', t.exit_date && t.exit_date !== t.d ? jrFmtD(t.exit_date) : '', t.pnl == null ? 'OPEN' : pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
     if (scope === 'day') {   // printable day sheet: what's filled in + empty lines to fill in by hand
       const blank = n => Array.from({ length: n }, () => Array(11).fill(''));
       const rulesTxt = t => { const r = t.rules || {}; return JR_RULES[t.kind].map(([k], i) => (r[k] || (k === 'expiry' && jrExpiryCheck(t)?.ok) ? '[x]' : '[ ]') + (i + 1)).join(' '); };
       for (const [kind, label] of [['penny', 'Penny stocks'], ['option', 'Options']]) {
         const P = kind === 'penny', rows = ts.filter(t => t.kind === kind).sort((a, b) => a.id - b.id).map(t => [t.symbol,
           P ? ({ pre: 'Pre', reg: 'Regular', post: 'After' }[t.session] || '') : `${t.strike || ''}${t.opt_type === 'put' ? ' P' : t.opt_type === 'call' ? ' C' : ''}${t.expiry ? ' · ' + jrShowMD(t.expiry) : ''}`,
-          t.qty ?? '', t.entry ?? '', t.exit ?? '', t.exit_date ? jrShowMD(t.exit_date) : '', t.plan_stop_pct != null ? t.plan_stop_pct + '%' : '', P ? (t.plan_target ?? '') : (t.target_run ? 'run' : t.plan_target_pct != null ? '+' + t.plan_target_pct + '%' : ''),
-          pm(t.pnl), rulesTxt(t) + '  ' + (t.result || '').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
+          t.qty ?? '', jrPx2(t.entry), t.exit == null ? 'OPEN' : jrPx2(t.exit), t.exit_date ? jrShowMD(t.exit_date) : '', t.plan_stop_pct != null ? t.plan_stop_pct + '%' : '', P ? (t.plan_target ?? '') : (t.target_run ? 'run' : t.plan_target_pct != null ? '+' + t.plan_target_pct + '%' : ''),
+          t.pnl == null ? 'OPEN' : pm(t.pnl), rulesTxt(t) + '  ' + (t.result || '').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
         const empty = blank(Math.max(3, 6 - rows.length));
         if (y > H - 230) { doc.addPage(); header(title); y = 80; }
         y = titled(`${label} — ${rows.length} filled · ${empty.length} empty lines to fill in by hand`, y);
         doc.autoTable({ ...tblBase, startY: y, head: [['Ticker', P ? 'Session' : 'Strike / exp.', P ? 'Shares' : 'Contracts', P ? 'Entry' : 'Prem. in', P ? 'Exit' : 'Prem. out', 'Exit date', 'Stop %', 'Target', 'P&L',
           `Rules kept (1-${JR_RULES[kind].length}) / result`, 'Notes']], body: rows.concat(empty),
           bodyStyles: { minCellHeight: 22, valign: 'middle' }, columnStyles: { 9: { cellWidth: 150 }, 10: { cellWidth: 150 } },
-          didParseCell: colorCells([8], -1), didDrawPage: () => header(title) });
+          didParseCell: d => { colorCells([8], -1)(d); openCell(d, [4, 7, 8], 8); }, didDrawPage: () => header(title) });
         y = doc.lastAutoTable.finalY + 18;
       }
       // The rules, side by side in two framed cards: bigger dark text, bold numbers, one rule per line
@@ -19350,7 +19357,7 @@ async function jrPdf(scope) {
     }
     if (tr.length && !analyticsOnly && scope !== 'day') { y = titled(`Trades (${tr.length}, newest first)`, y);
       doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'Exit date', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 10: { cellWidth: 160 } },
-        didParseCell: colorCells([7], 9), didDrawPage: () => header(title) }); }
+        didParseCell: d => { colorCells([7], 9)(d); openCell(d, [5, 7], 7); }, didDrawPage: () => header(title) }); }
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY); doc.text(`Page ${i} of ${n}`, W - M, H - 14, { align: 'right' }); }
     doc.save(`journal-${scope === 'range' ? 'analytics' : scope}-${from}${scope === 'range' || scope === 'month' ? '-to-' + to : ''}.pdf`);
