@@ -18090,12 +18090,44 @@ function _rsFlipToTracked(symbol, section) {
 // Tables: jr_days, jr_trades, jr_risk, jr_audit, jr_symbols · ticker search: rpc jr_symbol_search
 const JR = { tab: 'today', d: null, days: {}, trades: [], risk: [], audit: {}, month: null, filter: 'both', sel: null, edit: {}, seq: 0, loaded: false };
 const JR_RULES = {
-  penny: [['plan', 'Plan written before entry'], ['stop', 'Stop placed / mental stop honored'], ['size', 'Sized from the 15% stop'],
+  penny: [['plan', 'Plan written before entry'], ['stop_pre', 'Pre-market / after-hours: mental stop honored (no stop orders then)'],
+          ['stop_reg', 'Regular session: hard stop order placed'], ['size', 'Sized from the 15% stop'],
           ['trail', 'Stop trailed at +1R (or +1R never reached)'], ['nochase', 'No chase · dilution checked']],
   option: [['market', 'SPY / VIX / trend checked first'], ['plan', 'Plan written before entry'], ['stoporder', 'Stop order placed right after the fill'],
-           ['twoloss', '2-losses-in-a-row rule kept'], ['dailymax', 'Daily max loss kept']]
+           ['twoloss', '2-losses-in-a-row rule kept'], ['dailymax', 'Daily max loss kept'],
+           ['powerhour', 'Power hour (3–4 PM): the wider 25% stop only in the power hour'],
+           ['expiry', 'Expiration: 7 days or less to expiry → out within 2 trading days · more than 7 days → check every Friday, out by the Friday before the expiration week']]
 };
-const JR_HARD = { penny: ['stop', 'size'], option: ['stoporder', 'twoloss', 'dailymax'] };   // unchecked = fail; the rest = warning
+// unchecked = fail; the rest = warning. Penny: one of the two stop rows must be ticked (pre/after-hours mental stop OR regular-session hard stop).
+const JR_HARD = { penny: ['size'], option: ['stoporder', 'twoloss', 'dailymax', 'expiry'] };
+const JR_TOL = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10];
+const JR_STOP_PCT = { penny: [5, 10, 15, 20], option: [10, 15, 20, 25] };
+const JR_TGT_PCT = [10, 20, 25, 30, 40, 50, 70, 100];
+// Dates typed as M/D: the year is filled in — the entry date takes this year; exit date and expiration take the entry date's year,
+// or the next year when M/D would fall before the entry date (entry 11/20, exit 1/15 → 1/15/2027).
+function jrParseMD(v, ref, after) {
+  const t = String(v || '').trim(); if (!t) return null;
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/); if (!m) return undefined;
+  const mo = +m[1], da = +m[2]; if (mo < 1 || mo > 12 || da < 1 || da > 31) return undefined;
+  const refY = +(ref || jrToday()).slice(0, 4);
+  let y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : refY;
+  let iso = `${y}-${String(mo).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+  if (!m[3] && after && ref && iso < ref) iso = `${y + 1}-${iso.slice(5)}`;
+  const chk = new Date(iso + 'T12:00:00'); if (isNaN(chk) || chk.toISOString().slice(0, 10) !== iso) return undefined;
+  return iso;
+}
+const jrShowMD = iso => { if (!iso) return ''; const [y, mo, da] = iso.split('-').map(Number); return `${mo}/${da}${y !== +jrToday().slice(0, 4) ? '/' + String(y).slice(2) : ''}`; };
+const jrLongD = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric' }) : '';
+// Expiration rule, worked out from entry date, exit date and expiration: true = kept, false = broken, null = can't tell yet.
+function jrExpiryCheck(t) {
+  if (t.kind !== 'option' || !t.expiry || !t.d) return null;
+  const out = t.exit_date || (t.exit != null && t.exit !== '' ? t.d : null); if (!out) return null;
+  const dte = Math.round((new Date(t.expiry + 'T12:00:00') - new Date(t.d + 'T12:00:00')) / 864e5);
+  if (dte <= 7) { let n = 0; for (let x = t.d; x < out; x = jrAddDays(x, 1)) { const w = new Date(jrAddDays(x, 1) + 'T12:00:00').getDay(); if (w > 0 && w < 6) n++; } return { ok: n <= 2, why: `${dte} days to expiry · held ${n} trading day${n === 1 ? '' : 's'} (max 2)` }; }
+  const ex = new Date(t.expiry + 'T12:00:00'), monday = jrAddDays(t.expiry, -((ex.getDay() + 6) % 7)), friBefore = jrAddDays(monday, -3);
+  return { ok: out <= friBefore, why: `${dte} days to expiry · out ${jrShowMD(out)} · deadline Friday ${jrShowMD(friBefore)}` };
+}
 const jrEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const jrToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 const jrNum = v => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(/[$,]/g, '')); return isNaN(n) ? null : n; };
@@ -18106,11 +18138,13 @@ const jrMonday = d => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate
 const jrAddDays = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
 
 function jrAutoResult(t) {
-  const r = t.rules || {}, list = JR_RULES[t.kind];
+  const r = { ...(t.rules || {}) }, list = JR_RULES[t.kind];
+  const ec = jrExpiryCheck(t); if (ec) r.expiry = ec.ok;   // worked out from the dates when possible
   if (t.stop_used === 'gt15' || t.stop_used === 'none') return 'fail';
   if (JR_HARD[t.kind].some(k => !r[k])) return 'fail';
-  if (list.some(([k]) => !r[k])) return 'warning';
-  if (t.stop_used === '15' || t.stop_used === '25') return 'warning';
+  if (t.kind === 'penny' && !(r.stop_pre || r.stop_reg || r.stop)) return 'fail';   // r.stop = older trades (one stop row)
+  if (list.some(([k]) => !r[k] && !(t.kind === 'penny' && (k === 'stop_pre' || k === 'stop_reg')))) return 'warning';
+  if (t.stop_used === '15' || (t.stop_used === '25' && t.setup !== 'power')) return 'warning';   // 25% is fine in the power hour
   return 'clean';
 }
 const jrResult = t => t.result || null;   // saved result (null = not reviewed, e.g. imported rows)
@@ -18275,8 +18309,8 @@ function jrTodayHtml() {
   const inp = (k, ph) => `<input type="number" step="any" value="${m[k] ?? ''}" placeholder="${ph}" onchange="jrSaveDay('${k}',this.value)">`;
   const trend = ['up', 'down', 'side'].map((k, i) => `<button class="${m.trend === k ? 'on' : ''}" onclick="jrSaveDay('trend','${k}')">${['▲ Up', '▼ Down', '▶ Sideways'][i]}</button>`).join('');
   // cards: saved trades of the day + new unsaved cards
-  for (const t of tr) if (!JR.edit['t' + t.id]) JR.edit['t' + t.id] = { ...t, rules: { ...(t.rules || {}) }, _k: 't' + t.id };
-  const keys = Object.keys(JR.edit).filter(k => JR.edit[k].d === d && !JR.edit[k]._deleted);
+  for (const t of tr) if (!JR.edit['t' + t.id]) JR.edit['t' + t.id] = jrEditOf(t);
+  const keys = Object.keys(JR.edit).filter(k => (JR.edit[k]._origD || JR.edit[k].d) === d && !JR.edit[k]._deleted);   // a card stays on its page until saved
   const sec = (kind, label, color) => { const ks = keys.filter(k => JR.edit[k].kind === kind); return ks.length ? `<div style="margin-top:${kind === 'option' ? 28 : 6}px;">
       <div style="font-size:13px;font-weight:700;letter-spacing:1px;color:${color};border-bottom:2px solid ${color};padding-bottom:4px;margin-bottom:10px;">${label} · ${ks.length} trade${ks.length > 1 ? 's' : ''}</div>
       <div class="jr-cards" style="margin-top:0;">${ks.map((k, i) => jrCardHtml(k, i + 1)).join('')}</div></div>` : ''; };
@@ -18320,8 +18354,8 @@ async function jrSaveDay(field, val) {
 
 function jrNewCard(kind) {
   const k = 'n' + (++JR.seq);
-  JR.edit[k] = { _k: k, _dirty: true, id: null, d: JR.d, kind, symbol: '', rules: {}, session: 'reg', opt_type: kind === 'option' ? 'call' : null,
-    setup: kind === 'option' ? 'scalp' : null, stop_used: kind === 'penny' ? '10' : '20' };
+  JR.edit[k] = { _k: k, _dirty: true, id: null, d: JR.d, _origD: JR.d, kind, symbol: '', rules: {}, session: 'reg', opt_type: kind === 'option' ? 'call' : null,
+    setup: kind === 'option' ? 'scalp' : null, stop_used: kind === 'penny' ? '10' : '20', plan_stop_pct: kind === 'penny' ? 10 : 20 };
   jrRender();
   setTimeout(() => { const el = document.getElementById('jr-sym-' + k); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 30);
 }
@@ -18329,28 +18363,76 @@ function jrSegHtml(k, field, opts) {
   const e = JR.edit[k];
   return `<div class="jr-seg">${opts.map(([v, l]) => `<button class="${e[field] === v ? 'on' : ''}" onclick="jrSet('${k}','${field}','${v}',true)">${l}</button>`).join('')}</div>`;
 }
+// Saved row → editable card state (derives the % for older trades that only have $ levels).
+function jrEditOf(t) {
+  const e = { ...t, rules: { ...(t.rules || {}) }, _ovr: t.rules?._ovr || '', _k: 't' + t.id, _origD: t.d };
+  const en = jrNum(t.entry);
+  if (e.plan_stop_pct == null && t.plan_stop != null && en) e.plan_stop_pct = Math.round((1 - t.plan_stop / en) * 1000) / 10;
+  if (t.kind === 'option' && e.plan_target_pct == null && t.plan_target != null && en) e.plan_target_pct = Math.round((t.plan_target / en - 1) * 1000) / 10;
+  if (t.target_run) e.plan_target_pct = 'run';
+  return e;
+}
+// ± tolerance / stop % / target % pickers: a list plus "Other" (type your own number).
+function jrPick(k, field, opts, fmt, extra = []) {
+  const e = JR.edit[k], cur = e[field], inList = cur == null || cur === '' || opts.some(o => +o === +cur) || extra.some(([v]) => v === cur);
+  const other = e['_o_' + field] || !inList;
+  return `<div style="display:flex;gap:4px;"><select onchange="jrPickSet('${k}','${field}',this.value)">
+      <option value="" ${cur == null || cur === '' ? 'selected' : ''}>—</option>
+      ${opts.map(o => `<option value="${o}" ${!other && +o === +cur ? 'selected' : ''}>${fmt(o)}</option>`).join('')}
+      ${extra.map(([v, l]) => `<option value="${v}" ${!other && cur === v ? 'selected' : ''}>${l}</option>`).join('')}
+      <option value="__o" ${other ? 'selected' : ''}>Other…</option></select>
+    ${other ? `<input type="number" step="any" style="width:70px;" value="${jrEsc(cur ?? '')}" placeholder="${fmt('').trim() || '#'}" oninput="jrSet('${k}','${field}',this.value)">` : ''}</div>`;
+}
+function jrPickSet(k, field, v) {
+  const e = JR.edit[k];
+  if (v === '__o') { e['_o_' + field] = true; jrSet(k, field, e[field] ?? '', true); return; }
+  e['_o_' + field] = false;
+  if (field === 'plan_target_pct') e.target_run = v === 'run';
+  jrSet(k, field, v === '' || v === 'run' ? (v === 'run' ? 'run' : null) : Number(v), true);
+}
+function jrDateF(k, field, label, after) {
+  const e = JR.edit[k], raw = e['_r_' + field];
+  return `<div class="jr-f" style="max-width:120px;"><label>${label}</label><input type="text" inputmode="numeric" placeholder="M/D" value="${jrEsc(raw ?? jrShowMD(e[field]))}"
+      oninput="jrDateIn('${k}','${field}',this.value,${after ? 1 : 0})"><div id="jr-dh-${k}-${field}" style="font-size:9.5px;color:var(--text3);min-height:12px;">${e[field] ? jrLongD(e[field]) : ''}</div></div>`;
+}
+function jrDateIn(k, field, v, after) {
+  const e = JR.edit[k]; e['_r_' + field] = v;
+  const iso = jrParseMD(v, field === 'd' ? jrToday() : e.d, !!after);
+  const h = document.getElementById(`jr-dh-${k}-${field}`);
+  if (iso === undefined) { if (h) { h.textContent = 'type M/D, e.g. 11/20'; h.style.color = 'var(--red)'; } e['_bad_' + field] = true; jrMarkDirty(k); return; }
+  e['_bad_' + field] = false;
+  if (field === 'd' && !iso) { if (h) { h.textContent = 'entry date is required'; h.style.color = 'var(--red)'; } e._bad_d = true; return; }
+  e[field] = iso; e._dirty = true;
+  if (h) { h.textContent = iso ? jrLongD(iso) : ''; h.style.color = 'var(--text3)'; }
+  jrRefreshCard(k); jrMarkDirty(k);
+}
 function jrCardHtml(k, n) {
   const e = JR.edit[k], P = e.kind === 'penny';
   const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(e[field] ?? '')}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"></div>`;
-  const rules = JR_RULES[e.kind].map(([rk, l], i) => `<label class="jr-chk"><input type="checkbox" ${e.rules[rk] ? 'checked' : ''} onchange="jrRule('${k}','${rk}',this.checked)">${i + 1} ${l}</label>`).join('');
+  const ec = jrExpiryCheck({ ...e, exit: jrNum(e.exit) });
+  const rules = JR_RULES[e.kind].map(([rk, l], i) => rk === 'expiry' && ec
+    ? `<label class="jr-chk" title="Worked out from the entry date, exit date and expiration" style="flex-wrap:wrap;"><input type="checkbox" disabled ${ec.ok ? 'checked' : ''}>${i + 1} ${l}<div style="flex-basis:100%;padding-left:22px;" class="${ec.ok ? 'jr-pos' : 'jr-neg'}"><b>auto ${ec.ok ? '✓ kept' : '✗ broken'}</b> · ${ec.why}</div></label>`
+    : `<label class="jr-chk"><input type="checkbox" ${e.rules[rk] ? 'checked' : ''} onchange="jrRule('${k}','${rk}',this.checked)">${i + 1} ${l}</label>`).join('');
+  const tolF = `<div class="jr-f" style="flex:none;min-width:150px;"><label>Planned entry ±</label>${jrPick(k, 'plan_tol', JR_TOL, o => o === '' ? '$' : '± $' + Number(o).toFixed(2))}<div class="jr-auto" id="jr-pe-${k}" style="margin-top:3px;"></div></div>`;
+  const stopF = `<div class="jr-f" style="flex:none;min-width:150px;"><label>Stop (% below ${P ? 'entry' : 'premium in'})</label>${jrPick(k, 'plan_stop_pct', JR_STOP_PCT[e.kind], o => o === '' ? '%' : o + '%')}<div class="jr-auto" id="jr-ps-${k}" style="margin-top:3px;"></div></div>`;
   const sym = `<div class="jr-f" style="min-width:110px;"><label>Ticker</label><input id="jr-sym-${k}" type="text" autocomplete="off" value="${jrEsc(e.symbol)}" placeholder="type A…"
      style="text-transform:uppercase;font-weight:700;" oninput="jrSymInput('${k}',this.value)" onkeydown="jrSymKey(event,'${k}')" onblur="setTimeout(()=>jrSymClose('${k}'),180)"><div class="jr-dd" id="jr-dd-${k}" style="display:none;"></div></div>`;
   const top = P ? `${sym}
       <div class="jr-f" style="flex:none;"><label>Session</label>${jrSegHtml(k, 'session', [['pre', 'Pre'], ['reg', 'Regular'], ['post', 'After']])}</div>
-      ${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${f('exit', 'Exit', 'number', '0.00')}
-      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>${f('exit_date', 'Exit date', 'date')}`
+      ${jrDateF(k, 'd', 'Entry date', false)}${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${f('exit', 'Exit', 'number', '0.00')}
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>${jrDateF(k, 'exit_date', 'Exit date', true)}`
     : `${sym}
       <div class="jr-f" style="flex:none;"><label>Type</label>${jrSegHtml(k, 'opt_type', [['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread']])}</div>
-      ${f('expiry', 'Expiration', 'date')}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
+      ${jrDateF(k, 'd', 'Entry date', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
       ${f('entry', 'Premium in', 'number', '0.00')}${f('exit', 'Premium out', 'number', '0.00')}
       <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`;
-  const mid = P ? `${f('plan_entry', 'Planned entry', 'number', '0.00')}${f('plan_stop', 'Stop', 'number', '0.00')}${f('plan_target', 'Target', 'number', '0.00')}
+  const mid = P ? `${tolF}${stopF}${f('plan_target', 'Target', 'number', '0.00')}
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
       <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
-    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${f('exit_date', 'Exit date', 'date')}
+    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${jrDateF(k, 'exit_date', 'Exit date', true)}
       <div class="jr-f" style="flex:none;"><label>Setup</label>${jrSegHtml(k, 'setup', [['scalp', 'Scalp'], ['power', 'Power hour'], ['spread', 'Spread'], ['other', 'Other']])}</div>
     </div><div class="jr-row" style="margin-top:8px;">
-      ${f('plan_entry', 'Planned entry', 'number', '0.00')}${f('plan_stop', 'Stop', 'number', '0.00')}${f('plan_target', 'Target', 'number', '0.00')}
+      ${tolF}${stopF}<div class="jr-f" style="flex:none;min-width:150px;"><label>Target (% above premium in)</label>${jrPick(k, 'plan_target_pct', JR_TGT_PCT, o => o === '' ? '%' : '+' + o + '%', [['run', 'Let it run']])}<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['20', '20%'], ['25', '25%'], ['none', 'No stop']])}</div>
       <div class="jr-f"><label>Size check (25% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`;
   const resSel = `<select onchange="jrSet('${k}','_ovr',this.value)">${[['', 'Auto'], ['clean', 'Clean'], ['warning', 'Warning'], ['fail', 'Fail']]
@@ -18379,6 +18461,13 @@ function jrSet(k, field, val, rerender) {
 function jrRule(k, rk, on) { const e = JR.edit[k]; e.rules[rk] = !!on; e._dirty = true; jrRefreshCard(k); jrMarkDirty(k); }
 function jrMarkDirty(k) { const st = document.getElementById('jr-st-' + k); if (st) { st.textContent = 'unsaved changes'; st.style.color = 'var(--amber)'; } jrSaveAllBtn(); }
 function jrSaveAllBtn() { const b = document.getElementById('jr-saveall'); if (b) b.style.display = Object.values(JR.edit).some(e => e._dirty && !e._deleted) ? '' : 'none'; }
+// Planned levels from the actual entry: zone = entry ± tolerance, stop = entry − stop %, option target = entry + target %.
+function jrPlanLevels(e) {
+  const en = jrNum(e.entry), tol = jrNum(e.plan_tol), sp = jrNum(e.plan_stop_pct), tp = e.plan_target_pct === 'run' ? null : jrNum(e.plan_target_pct);
+  const r4 = x => Math.round(x * 10000) / 10000;
+  return { lo: en != null && tol != null ? r4(Math.max(0, en - tol)) : null, hi: en != null && tol != null ? r4(en + tol) : null,
+    stop: en != null && sp != null ? r4(en * (1 - sp / 100)) : null, target: e.kind === 'option' && en != null && tp != null ? r4(en * (1 + tp / 100)) : null };
+}
 function jrCardVals(e) {
   const o = { ...e, qty: jrNum(e.qty), entry: jrNum(e.entry), exit: jrNum(e.exit) };
   o.pnl = jrPnl(o);
@@ -18391,6 +18480,10 @@ function jrRefreshCard(k) {
   const v = jrCardVals(e), risk = jrRiskFor(e.d);
   const pe = document.getElementById('jr-pnl-' + k);
   if (pe) { pe.textContent = jrMoney(v.pnl); pe.className = 'jr-auto ' + (v.pnl > 0 ? 'jr-pos' : v.pnl < 0 ? 'jr-neg' : ''); }
+  const lv = jrPlanLevels(e), px = x => x == null ? '—' : '$' + (x < 1 ? x.toFixed(4) : x.toFixed(2));
+  const zEl = document.getElementById('jr-pe-' + k); if (zEl) zEl.textContent = lv.lo != null ? `${px(lv.lo)} – ${px(lv.hi)}` : v.entry != null ? `at ${px(v.entry)}` : 'enter the entry first';
+  const sEl = document.getElementById('jr-ps-' + k); if (sEl) sEl.textContent = lv.stop != null ? `stop ${px(lv.stop)}` : '—';
+  const tEl = document.getElementById('jr-pt-' + k); if (tEl) tEl.textContent = e.target_run || e.plan_target_pct === 'run' ? 'let it run' : lv.target != null ? `target ${px(lv.target)}` : '—';
   const se = document.getElementById('jr-size-' + k);
   if (se) {
     const px = v.entry ?? jrNum(e.plan_entry);
@@ -18402,8 +18495,9 @@ function jrRefreshCard(k) {
   if (re && e.id && !e._dirty && e.result) { re.innerHTML = `<span class="jr-tag ${e.result}">${e.result.toUpperCase()}</span>${e._ovr || (e.rules || {})._ovr ? ' <span style="color:var(--text3);">(set by hand)</span>' : ''} <span style="color:var(--text3);font-size:11px;">saved</span>`; return; }
   if (re && e.id && !e._dirty && !e.result) { re.innerHTML = '<span class="jr-tag none">NOT REVIEWED</span> <span style="color:var(--text3);font-size:11px;">tick the rules you kept, then Save</span>'; return; }
   if (re) {
-    const miss = JR_RULES[e.kind].map(([rk], i) => !e.rules[rk] ? i + 1 : null).filter(Boolean);
-    const why = [miss.length ? `rule${miss.length > 1 ? 's' : ''} ${miss.join(', ')} not ticked` : '', e.stop_used === 'gt15' ? 'past 15% stop' : e.stop_used === 'none' ? 'no stop' : (e.stop_used === '15' || e.stop_used === '25') ? `${e.stop_used}% stop` : ''].filter(Boolean).join(' · ');
+    const ecx = jrExpiryCheck({ ...e, exit: jrNum(e.exit) }), rr = { ...e.rules, ...(ecx ? { expiry: ecx.ok } : {}) }, stopOk = rr.stop_pre || rr.stop_reg || rr.stop;
+    const miss = JR_RULES[e.kind].map(([rk], i) => !rr[rk] && !(e.kind === 'penny' && (rk === 'stop_pre' || rk === 'stop_reg') && stopOk) ? i + 1 : null).filter(Boolean);
+    const why = [miss.length ? `rule${miss.length > 1 ? 's' : ''} ${miss.join(', ')} not kept` : '', e.stop_used === 'gt15' ? 'past 15% stop' : e.stop_used === 'none' ? 'no stop' : (e.stop_used === '15' || (e.stop_used === '25' && e.setup !== 'power')) ? `${e.stop_used}% stop` : ''].filter(Boolean).join(' · ');
     re.innerHTML = `<span class="jr-tag ${v.res}">${v.res.toUpperCase()}</span>${e._ovr ? ' <span style="color:var(--text3);">(set by hand)</span>' : ''} <span style="color:var(--text3);font-size:11px;">${why}</span>`;
   }
 }
@@ -18412,12 +18506,18 @@ async function jrSaveCard(k) {
   const v = jrCardVals(e);
   const sym = String(e.symbol || '').trim().toUpperCase();
   if (!sym) { showToast('Journal', 'Ticker is required', 'error'); return false; }
+  const bad = ['d', 'exit_date', 'expiry'].find(fl => e['_bad_' + fl]);
+  if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type M/D, e.g. 11/20)`, 'error'); return false; }
   if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
-  const n = jrNum;
+  const n = jrNum, lv = jrPlanLevels(e), ecs = jrExpiryCheck({ ...e, exit: v.exit });
   const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
-    exit_date: e.exit_date || null, plan_entry: n(e.plan_entry), plan_stop: n(e.plan_stop), plan_target: n(e.plan_target),
+    exit_date: e.exit_date && e.exit_date !== e.d ? e.exit_date : null,
+    plan_entry: n(e.plan_tol) != null ? v.entry : n(e.plan_entry), plan_tol: n(e.plan_tol),
+    plan_stop_pct: n(e.plan_stop_pct), plan_stop: lv.stop ?? (n(e.plan_stop_pct) == null ? n(e.plan_stop) : null),
+    plan_target_pct: e.kind === 'option' && e.plan_target_pct !== 'run' ? n(e.plan_target_pct) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
+    plan_target: e.kind === 'option' ? lv.target : n(e.plan_target),
     stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
-    setup: e.setup || null, rules: { ...e.rules, ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: v.res, notes: String(e.notes || '').trim() || null, updated_at: new Date().toISOString() };
+    setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: v.res, notes: String(e.notes || '').trim() || null, updated_at: new Date().toISOString() };
   const supa = await getSupabaseAsync();
   const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
   const { data, error } = await q;
@@ -18425,8 +18525,9 @@ async function jrSaveCard(k) {
   const saved = { ...data[0], qty: n(data[0].qty), entry: n(data[0].entry), exit: n(data[0].exit), pnl: n(data[0].pnl) };
   JR.trades = JR.trades.filter(t => t.id !== saved.id).concat(saved).sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id);
   delete JR.edit[k];
-  JR.edit['t' + saved.id] = { ...saved, rules: { ...(saved.rules || {}) }, _ovr: saved.rules?._ovr || '', _k: 't' + saved.id };
-  showToast(sym, 'Trade saved ✓', 'info');
+  JR.edit['t' + saved.id] = jrEditOf(saved);
+  if (saved.d !== JR.d) { showToast(sym, `Trade saved ✓ — moved to its entry date ${jrShowMD(saved.d)}`, 'info'); JR.d = saved.d; }
+  else showToast(sym, 'Trade saved ✓', 'info');
   jrRender();
   const st = document.getElementById('jr-st-t' + saved.id); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
   return true;
