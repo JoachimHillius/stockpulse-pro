@@ -18686,9 +18686,11 @@ function jrAnHtml() {
   const byDay = {}; withP.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
   const days = Object.entries(byDay).sort(), best = days.reduce((b, x) => !b || x[1] > b[1] ? x : b, null), worst = days.reduce((b, x) => !b || x[1] < b[1] ? x : b, null);
   const rev = ts.filter(t => t.result), clean = rev.filter(t => t.result === 'clean').length;
-  const cost = t => (Number(t.entry) || 0) * (Number(t.qty) || 0) * (t.kind === 'option' ? 100 : 1);   // money put into each trade
-  const spent = ts.reduce((s, t) => s + cost(t), 0), usd = v => '$' + Math.round(v).toLocaleString('en-US');
-  const spentSplit = r.filter === 'both' ? `<span style="display:block;text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">Penny ${usd(ts.filter(t => t.kind === 'penny').reduce((s, t) => s + cost(t), 0))} · Options ${usd(ts.filter(t => t.kind === 'option').reduce((s, t) => s + cost(t), 0))}</span>` : '';
+  const mult = t => (Number(t.qty) || 0) * (t.kind === 'option' ? 100 : 1);
+  const bought = withP.reduce((s, t) => s + (Number(t.entry) || 0) * mult(t), 0), sold = withP.reduce((s, t) => s + (Number(t.exit) || 0) * mult(t), 0);
+  const usd = v => '$' + Math.round(v).toLocaleString('en-US'), sub = 'display:block;text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;font-size:11px;';
+  const traded = `${usd(bought)}<span style="${sub}">bought for ${usd(bought)} · sold for ${usd(sold)}</span><span style="${sub}">result <i class="${sold - bought >= 0 ? 'jr-pos' : 'jr-neg'}" style="font-style:normal;font-weight:700;">${jrMoney0(sold - bought)}</i> = Net P&amp;L</span>`;
+  const wonLost = `<i class="jr-pos" style="font-style:normal;">${jrMoney0(gw)}</i> · <i class="jr-neg" style="font-style:normal;">${jrMoney0(-gl)}</i><span style="${sub}">${W.length} wins · ${Lo.length} losses → net ${jrMoney0(gw - gl)}</span>`;
   const kp = (l, v, c = '') => `<div class="jr-card"><span>${l}</span><b class="${c}">${v}</b></div>`;
   // week-over-week
   const lastW = jrMonday(r.scope === 'all' ? (JR.trades.length ? JR.trades[JR.trades.length - 1].d : jrToday()) : (r.to > jrToday() ? jrToday() : r.to));
@@ -18708,7 +18710,7 @@ function jrAnHtml() {
   return `<div class="jr-hd" style="margin-top:-4px;">${[['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['all', 'All']].map(([k, l]) => `<button class="jr-pill ${r.scope === k ? 'on' : ''}" onclick="jrAnSet('scope','${k}')">${l}</button>`).join('')}
     <span style="width:12px;"></span>${[['both', 'Both'], ['penny', 'Penny'], ['option', 'Options']].map(([k, l]) => `<button class="jr-pill ${r.filter === k ? 'on' : ''}" onclick="jrAnSet('filter','${k}')">${l}</button>`).join('')}
     <span class="jr-sp"></span>${r.scope !== 'all' ? `<button class="jr-pill" onclick="jrAnMove(-1)">◀</button>` : ''}<b style="min-width:150px;text-align:center;font-size:15px;color:var(--text);">${r.label}</b>${r.scope !== 'all' ? `<button class="jr-pill" onclick="jrAnMove(1)">▶</button>` : ''}</div>
-  <div class="jr-kp">${kp('Net P&amp;L', jrMoney0(net), net >= 0 ? 'jr-pos' : 'jr-neg')}${kp('Trades', ts.length)}${kp('Total spent', usd(spent) + spentSplit)}${kp('Win rate', withP.length ? Math.round(W.length / withP.length * 100) + '%' : '—')}
+  <div class="jr-kp">${kp('Net P&amp;L', jrMoney0(net), net >= 0 ? 'jr-pos' : 'jr-neg')}${kp('Trades', ts.length)}${kp('Total traded', traded)}${kp('Won · lost', wonLost)}${kp('Win rate', withP.length ? Math.round(W.length / withP.length * 100) + '%' : '—')}
     ${kp('Avg win · avg loss', `<i class="jr-pos" style="font-style:normal;">${W.length ? jrMoney0(gw / W.length) : '—'}</i> · <i class="jr-neg" style="font-style:normal;">${Lo.length ? jrMoney0(-gl / Lo.length) : '—'}</i>`)}
     ${kp('Profit factor', gl ? (gw / gl).toFixed(2) : W.length ? '∞' : '—')}${kp('Best day', best ? `${jrMoney0(best[1])} <span style="display:inline;">${jrFmtD(best[0])}</span>` : '—', 'jr-pos')}
     ${kp('Worst day', worst ? `${jrMoney0(worst[1])} <span style="display:inline;">${jrFmtD(worst[0])}</span>` : '—', 'jr-neg')}${kp('Rule-clean', rev.length ? `${Math.round(clean / rev.length * 100)}% <span style="display:inline;">${clean}/${rev.length}</span>` : '—')}</div>
