@@ -18707,7 +18707,7 @@ function jrDlMenu(btn) {
   const old = document.getElementById('jr-dl'); if (old) { old.remove(); return; }
   const r = jrAnRange(), w = jrAuditWeek();
   const items = [['day', 'Day', jrFmtD(JR.d, { weekday: 'short', month: 'short', day: 'numeric' })], ['week', 'Week', `${jrFmtD(w)} – ${jrFmtD(jrAddDays(w, 4))}`],
-    ['month', 'Month', jrFmtD(JR.month + '-01', { month: 'long', year: 'numeric' })], ['range', 'Analytics only', `${r.label}${r.filter === 'both' ? '' : r.filter === 'penny' ? ' · Penny' : ' · Options'} — charts, months, weeks`],
+    ['month', 'Month', jrFmtD(JR.month + '-01', { month: 'long', year: 'numeric' })], ['year', 'Year', `${JR.month.slice(0, 4)} — dashboard cover, months, weeks, days, trades`], ['range', 'Analytics only', `${r.label}${r.filter === 'both' ? '' : r.filter === 'penny' ? ' · Penny' : ' · Options'} — charts, months, weeks`],
     ['all', 'Everything', 'all trades: charts, months, weeks, days, trades']];
   const m = document.createElement('div'); m.id = 'jr-dl'; const b = btn.getBoundingClientRect();
   m.style.cssText = `position:fixed;top:${b.bottom + 4}px;right:${Math.max(8, window.innerWidth - b.right)}px;z-index:9999;background:var(--bg2);border:1px solid var(--cyan);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:300px;padding:6px;`;
@@ -19129,6 +19129,7 @@ async function jrPdf(scope) {
     else if (scope === 'range') { const r = jrAnRange(); kindF = r.filter; from = r.from; to = r.to;
       if (r.scope === 'all') { from = JR.trades[0]?.d || jrToday(); to = JR.trades[JR.trades.length - 1]?.d || jrToday(); }
       title = `Analytics · ${r.label}${kindF === 'both' ? '' : kindF === 'penny' ? ' · Penny' : ' · Options'}`; }
+    else if (scope === 'year') { const yy = JR.month.slice(0, 4); from = `${yy}-01-01`; to = `${yy}-12-31`; title = `Year ${yy}`; }
     else if (scope === 'all') { from = JR.trades[0]?.d || jrToday(); to = JR.trades[JR.trades.length - 1]?.d || jrToday();
       title = `Complete report · ${jrFmtD(from, { month: 'short', day: 'numeric', year: 'numeric' })} – ${jrFmtD(to, { month: 'short', day: 'numeric', year: 'numeric' })}`; }
     else { from = JR.month + '-01'; const [y, m] = JR.month.split('-').map(Number); to = `${JR.month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; title = jrFmtD(from, { month: 'long', year: 'numeric' }); }
@@ -19151,7 +19152,8 @@ async function jrPdf(scope) {
     };
     const kpis = (y, items) => {   // row of KPI cards
       const gap = 10, w = (W - 2 * M - gap * (items.length - 1)) / items.length, h = 46;
-      items.forEach(([l, v, c], i) => { const x = M + i * (w + gap); card(x, y, w, h, l); doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...(c || INK)); doc.text(String(v), x + 10, y + 36); });
+      items.forEach(([l, v, c], i) => { const x = M + i * (w + gap); card(x, y, w, h, l); doc.setFont('helvetica', 'bold'); let fs = 15; doc.setFontSize(fs);
+        while (fs > 8 && doc.getTextWidth(String(v)) > w - 18) doc.setFontSize(--fs); doc.setTextColor(...(c || INK)); doc.text(String(v), x + 10, y + 36); });
       return y + h;
     };
     const S = jrStats(ts);
@@ -19162,12 +19164,20 @@ async function jrPdf(scope) {
       doc.setFillColor(...fill); doc.setDrawColor(...rgb); doc.setLineWidth(1.2); doc.roundedRect(x, bandY, bw, bh, 6, 6, 'FD');
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...rgb); doc.text(label, x + 10, bandY + 14);
       doc.setFontSize(18); doc.text(big, x + 10, bandY + 36);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GREY); doc.text(sub, x + bw - 10, bandY + 36, { align: 'right' }); };
+      // the small detail sits on the label line, right side, shrunk to fit — never on top of the big number
+      if (sub) { doc.setFont('helvetica', 'normal'); let fs = 9; doc.setFontSize(fs); const room = bw - 20 - doc.getTextWidth(label) - 10;
+        while (fs > 6 && doc.getTextWidth(sub) > room) doc.setFontSize(--fs); doc.setTextColor(...GREY); doc.text(sub, x + bw - 10, bandY + 14, { align: 'right' }); } };
     band(0, 'WINS', `${R.w} won`, pm(R.won), GREEN, [232, 247, 239]);
     band(1, 'LOSSES', `${R.l} lost`, pm(R.lost), RED, [252, 234, 236]);
     band(2, 'TRADES', `${R.n}`, [R.option && R.penny ? `${R.option} opt · ${R.penny} penny` : '', R.open ? `${R.open} open` : '', R.even ? `${R.even} even` : ''].filter(Boolean).join(' · '), NAVY, [236, 243, 250]);
     band(3, 'NET RESULT', pm(R.net), R.net > 0 ? 'profit' : R.net < 0 ? 'loss' : 'flat', R.net > 0 ? GREEN : R.net < 0 ? RED : NAVY, R.net > 0 ? [232, 247, 239] : R.net < 0 ? [252, 234, 236] : [236, 243, 250]);
-    let y = kpis(bandY + bh + 12, [['Win rate', S.win == null ? '—' : S.win + '%'],
+    const cvr = ['week', 'month', 'year', 'range', 'all'].includes(scope);   // these get the dashboard cover page
+    const dayNet = {}; ts.forEach(t => { if (t.pnl != null) dayNet[t.d] = (dayNet[t.d] || 0) + t.pnl; });
+    const dn = Object.entries(dayNet).sort((a, b) => b[1] - a[1]), bestD = dn[0], worstD = dn[dn.length - 1];
+    const traded = ts.filter(t => t.pnl != null).reduce((s, t) => s + (Number(t.entry) || 0) * (Number(t.qty) || 0) * (t.kind === 'option' ? 100 : 1), 0);
+    const extra = cvr ? [['Total traded', '$' + Math.round(traded).toLocaleString('en-US')], ['Best day', bestD ? `${pm(bestD[1])} ${jrFmtD(bestD[0])}` : '—', bestD ? col(bestD[1]) : INK],
+      ['Worst day', worstD ? `${pm(worstD[1])} ${jrFmtD(worstD[0])}` : '—', worstD ? col(worstD[1]) : INK]] : [];
+    let y = kpis(bandY + bh + 12, [...extra, ['Win rate', S.win == null ? '—' : S.win + '%'],
       ['Avg win / avg loss', `${S.avgW == null ? '—' : pm(S.avgW)} / ${S.avgL == null ? '—' : pm(S.avgL)}`], ['Profit factor', S.pf == null ? '—' : S.pf === Infinity ? '∞' : S.pf.toFixed(2)],
       ['Rule-clean', S.rev ? `${Math.round(S.clean / S.rev * 100)}%  (${S.clean}/${S.rev})` : '—']]) + 14;
     const tblBase = { theme: 'grid', styles: { font: 'helvetica', fontSize: 8.5, textColor: INK, lineColor: LINE, lineWidth: 0.5, cellPadding: 4 },
@@ -19181,6 +19191,35 @@ async function jrPdf(scope) {
     const openCell = (d, cols, pnlCol) => { if (d.section !== 'body') return; const row = d.row.raw || [];
       if (row[pnlCol] !== 'OPEN') return; if (cols.includes(d.column.index)) { d.cell.styles.fillColor = [255, 246, 196]; d.cell.styles.textColor = [150, 105, 0]; d.cell.styles.fontStyle = 'bold'; if (d.column.index === 7 && !d.cell.raw) d.cell.text = ['OPEN']; } };
     const titled = (label, startY) => { if (startY > H - 90) { doc.addPage(); header(title); startY = 80; } doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...NAVY); doc.text(label, M, startY + 4); return startY + 12; };
+
+    // ---- dashboard cover: the Analytics charts on page 1 (week, month, year, analytics, everything); the details follow ----
+    if (cvr && ts.length && window.Chart) {
+      const p = ts.filter(t => t.pnl != null), byDay = {}; p.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
+      const days = Object.keys(byDay).sort(); let cum = 0; const cumV = days.map(d => Math.round((cum += byDay[d]) * 100) / 100);
+      const perWeek = scope === 'all' || scope === 'year' || (scope === 'range' && !(jrAnRange().scope === 'week' || jrAnRange().scope === 'month')), bucket = {}; p.forEach(t => { const k = perWeek ? jrMonday(t.d) : t.d; bucket[k] = (bucket[k] || 0) + t.pnl; });
+      const bk = Object.keys(bucket).sort();
+      const gridC = 'rgba(16,65,94,.10)', ax = { ticks: { color: '#33475b' }, grid: { color: gridC } };
+      const eq = await jrPdfChart({ type: 'line', data: { labels: days.map(d => jrFmtD(d)), datasets: [{ data: cumV, borderColor: '#0b7fb3', borderWidth: 5, pointRadius: 0, tension: .25, fill: true, backgroundColor: 'rgba(11,127,179,.15)' }] },
+        options: { plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }, y: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } } } } }, 760, 470);
+      const bar = await jrPdfChart({ type: 'bar', data: { labels: bk.map(d => jrFmtD(d)), datasets: [{ data: bk.map(k => Math.round(bucket[k])), backgroundColor: bk.map(k => bucket[k] >= 0 ? '#1aa673' : '#d83a4e'), borderRadius: 6 }] },
+        options: { plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } } } } }, 760, 470);
+      const w = p.filter(t => t.pnl > 0).length, l = p.filter(t => t.pnl < 0).length, e = p.length - w - l, rc = k => ts.filter(t => (t.result || 'none') === k).length;
+      const pieO = { plugins: { legend: { position: 'right', labels: { color: '#1c2834', font: { size: 34, family: 'Helvetica, Arial, sans-serif' }, boxWidth: 30 } } }, cutout: '55%' };
+      const wl = await jrPdfChart({ type: 'doughnut', data: { labels: [`Wins ${w}`, `Losses ${l}`, `Even ${e}`], datasets: [{ data: [w, l, e], backgroundColor: ['#1aa673', '#d83a4e', '#9aa6b4'], borderColor: '#fff', borderWidth: 4 }] }, options: pieO }, 520, 300);
+      const ru = await jrPdfChart({ type: 'doughnut', data: { labels: [`Clean ${rc('clean')}`, `Warning ${rc('warning')}`, `Fail ${rc('fail')}`, `Not reviewed ${rc('none')}`], datasets: [{ data: [rc('clean'), rc('warning'), rc('fail'), rc('none')], backgroundColor: ['#1aa673', '#e0a020', '#d83a4e', '#9aa6b4'], borderColor: '#fff', borderWidth: 4 }] }, options: pieO }, 520, 300);
+      const bySym = {}; p.forEach(t => bySym[t.symbol] = (bySym[t.symbol] || 0) + t.pnl);
+      const top = Object.entries(bySym).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 10).sort((a, b) => b[1] - a[1]);
+      const sy = await jrPdfChart({ type: 'bar', data: { labels: top.map(x => x[0]), datasets: [{ data: top.map(x => Math.round(x[1])), backgroundColor: top.map(x => x[1] >= 0 ? '#1aa673' : '#d83a4e'), borderRadius: 6 }] },
+        options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } }, y: { ticks: { color: '#1c2834' }, grid: { display: false } } } } }, 560, 300);
+      const cw2 = (W - 2 * M - 12) / 2, h1 = (H - y - 24) / 2 - 8;
+      const put = (img, x, yy, w, h, label, iw, ih) => { card(x, yy, w, h, label); const k = Math.min((w - 20) / iw, (h - 30) / ih); doc.addImage(img, 'PNG', x + (w - iw * k) / 2, yy + 22, iw * k, ih * k); };
+      put(eq, M, y, cw2, h1, 'P&L over time (running total)', 760, 470);
+      put(bar, M + cw2 + 12, y, cw2, h1, `P&L per ${perWeek ? 'week' : 'day'}`, 760, 470);
+      const cw3 = (W - 2 * M - 24) / 3, y2 = y + h1 + 14;
+      put(wl, M, y2, cw3, h1, 'Wins vs losses', 520, 300); put(ru, M + cw3 + 12, y2, cw3, h1, 'Rules', 520, 300); put(sy, M + 2 * (cw3 + 12), y2, cw3, h1, 'P&L by ticker (top 10)', 560, 300);
+      doc.addPage(); header(title); y = 80;
+    }
+
 
     // ---- the calendar, drawn like the app (month) ----
     if (scope === 'month') {
@@ -19208,8 +19247,10 @@ async function jrPdf(scope) {
           if (m.trend) { const ax = cx + 26, ay = cy + 9; doc.setFillColor(...(m.trend === 'up' ? GREEN : m.trend === 'down' ? RED : GREY));
             if (m.trend === 'up') doc.triangle(ax, ay + 3, ax + 7, ay + 3, ax + 3.5, ay - 3, 'F'); else if (m.trend === 'down') doc.triangle(ax, ay - 3, ax + 7, ay - 3, ax + 3.5, ay + 3, 'F'); else doc.triangle(ax, ay - 3.5, ax, ay + 3.5, ax + 6, ay, 'F'); }
           if (w) { doc.setFillColor(...(w === 'fail' ? RED : w === 'warning' ? AMBER : GREEN)); doc.circle(cx + cw - 8, cy + 9, 3, 'F'); }
-          if (x.length) { doc.setFontSize(12.5); doc.setTextColor(...col(dn)); doc.text(pm(dn), cx + 6, cy + 30);
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY); doc.text(`${x.length} trade${x.length > 1 ? 's' : ''}`, cx + 6, cy + 41); }
+          if (x.length) { doc.setFontSize(12.5); doc.setTextColor(...col(dn)); doc.text(pm(dn), cx + 6, cy + 30); const pw = doc.getTextWidth(pm(dn));
+            // trade count under the P&L when the box is tall enough, otherwise next to it (keeps it clear of the SPY / VIX lines)
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY); const tl = `${x.length} trade${x.length > 1 ? 's' : ''}`;
+            if (ch >= 62 || !(m.spy_open || m.vix_open)) doc.text(tl, cx + 6, cy + 41); else doc.text(tl, cx + 10 + pw, cy + 30); }
           const mline = (l, o, c, pct, yy) => { o = jrNum(o); c = jrNum(c); if (o == null || c == null) return;
             const chg = pct ? (c / o - 1) * 100 : c - o, base = `${l} ${o.toFixed(1)} > ${c.toFixed(1)} `;
             doc.setFont('helvetica', 'normal'); doc.setFontSize(6.6); doc.setTextColor(125, 136, 150); doc.text(base, cx + 6, yy);
@@ -19233,33 +19274,6 @@ async function jrPdf(scope) {
     }
 
     // ---- charts (Analytics view) ----
-    if ((scope === 'range' || scope === 'all') && ts.length && window.Chart) {
-      const p = ts.filter(t => t.pnl != null), byDay = {}; p.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
-      const days = Object.keys(byDay).sort(); let cum = 0; const cumV = days.map(d => Math.round((cum += byDay[d]) * 100) / 100);
-      const perWeek = scope === 'all' || !(jrAnRange().scope === 'week' || jrAnRange().scope === 'month'), bucket = {}; p.forEach(t => { const k = perWeek ? jrMonday(t.d) : t.d; bucket[k] = (bucket[k] || 0) + t.pnl; });
-      const bk = Object.keys(bucket).sort();
-      const gridC = 'rgba(16,65,94,.10)', ax = { ticks: { color: '#33475b' }, grid: { color: gridC } };
-      const eq = await jrPdfChart({ type: 'line', data: { labels: days.map(d => jrFmtD(d)), datasets: [{ data: cumV, borderColor: '#0b7fb3', borderWidth: 5, pointRadius: 0, tension: .25, fill: true, backgroundColor: 'rgba(11,127,179,.15)' }] },
-        options: { plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }, y: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } } } } }, 760, 470);
-      const bar = await jrPdfChart({ type: 'bar', data: { labels: bk.map(d => jrFmtD(d)), datasets: [{ data: bk.map(k => Math.round(bucket[k])), backgroundColor: bk.map(k => bucket[k] >= 0 ? '#1aa673' : '#d83a4e'), borderRadius: 6 }] },
-        options: { plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } } } } }, 760, 470);
-      const w = p.filter(t => t.pnl > 0).length, l = p.filter(t => t.pnl < 0).length, e = p.length - w - l, rc = k => ts.filter(t => (t.result || 'none') === k).length;
-      const pieO = { plugins: { legend: { position: 'right', labels: { color: '#1c2834', font: { size: 34, family: 'Helvetica, Arial, sans-serif' }, boxWidth: 30 } } }, cutout: '55%' };
-      const wl = await jrPdfChart({ type: 'doughnut', data: { labels: [`Wins ${w}`, `Losses ${l}`, `Even ${e}`], datasets: [{ data: [w, l, e], backgroundColor: ['#1aa673', '#d83a4e', '#9aa6b4'], borderColor: '#fff', borderWidth: 4 }] }, options: pieO }, 520, 300);
-      const ru = await jrPdfChart({ type: 'doughnut', data: { labels: [`Clean ${rc('clean')}`, `Warning ${rc('warning')}`, `Fail ${rc('fail')}`, `Not reviewed ${rc('none')}`], datasets: [{ data: [rc('clean'), rc('warning'), rc('fail'), rc('none')], backgroundColor: ['#1aa673', '#e0a020', '#d83a4e', '#9aa6b4'], borderColor: '#fff', borderWidth: 4 }] }, options: pieO }, 520, 300);
-      const bySym = {}; p.forEach(t => bySym[t.symbol] = (bySym[t.symbol] || 0) + t.pnl);
-      const top = Object.entries(bySym).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 10).sort((a, b) => b[1] - a[1]);
-      const sy = await jrPdfChart({ type: 'bar', data: { labels: top.map(x => x[0]), datasets: [{ data: top.map(x => Math.round(x[1])), backgroundColor: top.map(x => x[1] >= 0 ? '#1aa673' : '#d83a4e'), borderRadius: 6 }] },
-        options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ...ax, ticks: { color: '#33475b', callback: v => '$' + v } }, y: { ticks: { color: '#1c2834' }, grid: { display: false } } } } }, 560, 300);
-      const cw2 = (W - 2 * M - 12) / 2, h1 = (H - y - 24) / 2 - 8;
-      const put = (img, x, yy, w, h, label, iw, ih) => { card(x, yy, w, h, label); const k = Math.min((w - 20) / iw, (h - 30) / ih); doc.addImage(img, 'PNG', x + (w - iw * k) / 2, yy + 22, iw * k, ih * k); };
-      put(eq, M, y, cw2, h1, 'P&L over time (running total)', 760, 470);
-      put(bar, M + cw2 + 12, y, cw2, h1, `P&L per ${perWeek ? 'week' : 'day'}`, 760, 470);
-      const cw3 = (W - 2 * M - 24) / 3, y2 = y + h1 + 14;
-      put(wl, M, y2, cw3, h1, 'Wins vs losses', 520, 300); put(ru, M + cw3 + 12, y2, cw3, h1, 'Rules', 520, 300); put(sy, M + 2 * (cw3 + 12), y2, cw3, h1, 'P&L by ticker (top 10)', 560, 300);
-      doc.addPage(); header(title); y = 80;
-    }
-
     // ---- penny / options summary + audit (week, day) ----
     if (scope === 'week' || scope === 'day') {
       const row = (l, k) => { const x = jrStats(ts.filter(t => k === 'all' || t.kind === k)); return [l, x.n, pm(x.net), x.win == null ? '—' : x.win + '%', x.rev ? `${x.clean} / ${x.rev}` : '—']; };
@@ -19278,7 +19292,7 @@ async function jrPdf(scope) {
 
     // ---- day by day and every trade, newest first ----
     // ---- month by month and week by week overview (analytics, everything, month) ----
-    if (scope === 'range' || scope === 'all' || scope === 'month') {
+    if (scope === 'range' || scope === 'all' || scope === 'month' || scope === 'year') {
       const sumK = (x, k) => x.filter(t => t.kind === k).reduce((a, t) => a + (t.pnl || 0), 0);
       const ov = (x, prevTotal) => { const st = jrStats(x), tot = st.net;
         return [x.length, x.some(t => t.kind === 'penny') ? pm(sumK(x, 'penny')) : '—', x.some(t => t.kind === 'option') ? pm(sumK(x, 'option')) : '—', pm(tot),
