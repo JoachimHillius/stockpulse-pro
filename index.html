@@ -18425,7 +18425,8 @@ function jrCardHtml(k, n) {
       <div class="jr-f" style="flex:none;"><label>Type</label>${jrSegHtml(k, 'opt_type', [['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread']])}</div>
       ${jrDateF(k, 'd', 'Entry date', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
       ${f('entry', 'Premium in', 'number', '0.00')}${f('exit', 'Premium out', 'number', '0.00')}
-      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`;
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>
+    </div><div id="jr-max-${k}" style="margin-top:6px;font-size:11.5px;"></div><div class="jr-row" style="margin-top:8px;">`;
   const mid = P ? `${tolF}${stopF}${f('plan_target', 'Target', 'number', '0.00')}
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
       <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
@@ -18481,6 +18482,22 @@ function jrRefreshCard(k) {
   const pe = document.getElementById('jr-pnl-' + k);
   if (pe) { pe.textContent = jrMoney(v.pnl); pe.className = 'jr-auto ' + (v.pnl > 0 ? 'jr-pos' : v.pnl < 0 ? 'jr-neg' : ''); }
   const lv = jrPlanLevels(e), px = x => x == null ? '—' : '$' + (x < 1 ? x.toFixed(4) : x.toFixed(2));
+  // Options: max loss per trade = 80% of the daily risk → lowest premium out (stop) allowed for these contracts
+  const mxEl = document.getElementById('jr-max-' + k);
+  if (mxEl) {
+    if (v.entry == null || !v.qty) mxEl.innerHTML = '<span style="color:var(--text3);">Enter premium in + contracts to see your max loss and the lowest stop allowed.</span>';
+    else {
+      const daily = risk.option_limit, maxLoss = Math.round(daily * 0.8), cost = v.entry * v.qty * 100, drop = maxLoss / (v.qty * 100);
+      const floor = Math.max(0, Math.round((v.entry - drop) * 100) / 100), pct = Math.min(100, Math.round(maxLoss / cost * 100));
+      const bad = [];
+      if (lv.stop != null && lv.stop < floor) bad.push(`your ${e.plan_stop_pct}% stop (${px(lv.stop)}) is below ${px(floor)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
+      if (v.exit != null && v.exit < floor) bad.push(`premium out ${px(v.exit)} is below ${px(floor)} → lost $${Math.round((v.entry - v.exit) * v.qty * 100)}, more than $${maxLoss}`);
+      mxEl.innerHTML = `<span style="padding:4px 9px;border-radius:5px;display:inline-block;${bad.length ? 'background:rgba(255,80,80,.12);border:1px solid var(--red);' : 'background:rgba(255,176,32,.08);border:1px solid var(--amber);'}">
+        ${bad.length ? '⚠️' : '🛡️'} <b>Max loss ${'$' + maxLoss}</b> (80% of $${daily} daily) · cost ${'$' + Math.round(cost).toLocaleString('en-US')} ·
+        ${floor > 0 ? `<b>stop no lower than ${px(floor)}</b> (−${pct}% · $${maxLoss} ÷ (${v.qty} × 100) = $${drop.toFixed(2)} drop)` : `<b>whole position ≤ $${maxLoss}</b> — even a total loss stays inside the limit`}
+        ${bad.length ? `<div style="color:var(--red);margin-top:3px;font-weight:700;">✗ ${bad.join(' · ')}</div>` : ''}</span>`;
+    }
+  }
   const zEl = document.getElementById('jr-pe-' + k); if (zEl) zEl.textContent = lv.lo != null ? `${px(lv.lo)} – ${px(lv.hi)}` : v.entry != null ? `at ${px(v.entry)}` : 'enter the entry first';
   const sEl = document.getElementById('jr-ps-' + k); if (sEl) sEl.textContent = lv.stop != null ? `stop ${px(lv.stop)}` : '—';
   const tEl = document.getElementById('jr-pt-' + k); if (tEl) tEl.textContent = e.target_run || e.plan_target_pct === 'run' ? 'let it run' : lv.target != null ? `target ${px(lv.target)}` : '—';
