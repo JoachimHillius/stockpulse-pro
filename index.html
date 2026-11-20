@@ -18468,7 +18468,7 @@ function jrDlMenu(btn) {
   const old = document.getElementById('jr-dl'); if (old) { old.remove(); return; }
   const r = jrAnRange(), w = jrAuditWeek();
   const items = [['day', 'Day', jrFmtD(JR.d, { weekday: 'short', month: 'short', day: 'numeric' })], ['week', 'Week', `${jrFmtD(w)} – ${jrFmtD(jrAddDays(w, 4))}`],
-    ['month', 'Month', jrFmtD(JR.month + '-01', { month: 'long', year: 'numeric' })], ['range', 'Analytics', `${r.label}${r.filter === 'both' ? '' : r.filter === 'penny' ? ' · Penny' : ' · Options'}`],
+    ['month', 'Month', jrFmtD(JR.month + '-01', { month: 'long', year: 'numeric' })], ['range', 'Analytics only', `${r.label}${r.filter === 'both' ? '' : r.filter === 'penny' ? ' · Penny' : ' · Options'} — charts, months, weeks`],
     ['all', 'Everything', 'all trades: charts, months, weeks, days, trades']];
   const m = document.createElement('div'); m.id = 'jr-dl'; const b = btn.getBoundingClientRect();
   m.style.cssText = `position:fixed;top:${b.bottom + 4}px;right:${Math.max(8, window.innerWidth - b.right)}px;z-index:9999;background:var(--bg2);border:1px solid var(--cyan);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:300px;padding:6px;`;
@@ -18939,7 +18939,8 @@ async function jrPdf(scope) {
         doc.autoTable({ ...tblBase, startY: y, head: [['Week of', 'Trades', 'Penny', 'Options', 'Total', 'vs week before', 'Win rate', 'Rule-clean', 'Audit', 'Risk / day']], body: wr, didParseCell: colorCells([2, 3, 4, 5], 8), didDrawPage: () => header(title) });
         y = doc.lastAutoTable.finalY + 18; }
     }
-    const dset = [...new Set(ts.map(t => t.d).concat(Object.keys(JR.days).filter(d => d >= from && d <= to && scope !== 'range' && scope !== 'all')))].sort().reverse();
+    const analyticsOnly = scope === 'range';   // the Analytics download stops after the overviews
+    const dset = analyticsOnly ? [] : [...new Set(ts.map(t => t.d).concat(Object.keys(JR.days).filter(d => d >= from && d <= to && scope !== 'all')))].sort().reverse();
     const dayRows = dset.map(d => { const m = JR.days[d] || {}, x = ts.filter(t => t.d === d), sp = (m.spy_open && m.spy_close != null) ? (m.spy_close / m.spy_open - 1) * 100 : null;
       const pp = x.filter(t => t.kind === 'penny').reduce((s, t) => s + (t.pnl || 0), 0), op = x.filter(t => t.kind === 'option').reduce((s, t) => s + (t.pnl || 0), 0);
       const f2 = v => v == null ? '' : Number(v).toFixed(2), vc = (m.vix_open != null && m.vix_close != null) ? m.vix_close - m.vix_open : null;
@@ -18956,7 +18957,7 @@ async function jrPdf(scope) {
     const typ = t => t.kind === 'penny' ? `Penny${t.session ? ' · ' + ({ pre: 'pre', reg: 'reg', post: 'after' }[t.session]) : ''}` : `${t.strike || ''}${t.opt_type === 'put' ? ' P' : t.opt_type === 'call' ? ' C' : t.opt_type === 'spread' ? ' spread' : ''}${t.expiry ? ' · ' + jrFmtD(t.expiry) : ''}`;
     const stopL = { '10': '10%', '15': '15%', gt15: '>15%', '20': '20%', '25': '25%', none: 'none' };
     const tr = ts.slice().sort((a, b) => a.d > b.d ? -1 : a.d < b.d ? 1 : b.id - a.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', t.exit_date && t.exit_date !== t.d ? jrFmtD(t.exit_date) : '', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
-    if (tr.length) { y = titled(`Trades (${tr.length}, newest first)`, y);
+    if (tr.length && !analyticsOnly) { y = titled(`Trades (${tr.length}, newest first)`, y);
       doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'Exit date', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 10: { cellWidth: 160 } },
         didParseCell: colorCells([7], 9), didDrawPage: () => header(title) }); }
     const n = doc.getNumberOfPages();
