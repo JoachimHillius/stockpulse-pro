@@ -18403,16 +18403,32 @@ function jrPickSet(k, field, v) {
   if (field === 'plan_target_pct') e.target_run = v === 'run';
   jrSet(k, field, v === '' || v === 'run' ? (v === 'run' ? 'run' : null) : Number(v), true);
 }
+// Prices show at least 2 decimals: 2 → 2.00, 2.1 → 2.10, 701 → 701.00; 0.3103 stays 0.3103.
+function jrPx2(v) {
+  if (v == null || v === '') return '';
+  const t = String(v).trim(); if (!/^-?\d*\.?\d*$/.test(t) || t === '' || t === '.') return t;
+  const dec = (t.split('.')[1] || '').length; return dec >= 2 ? t : Number(t).toFixed(2);
+}
+function jrPxBlur(el, k, field) { const v = jrPx2(el.value); if (v !== el.value) { el.value = v; jrSet(k, field, v); } }
+// Dates on a professional form: MM/DD/YY, the slashes come in by themselves (type 112026 → 11/20/26; 1120 → 11/20, year filled in)
+const jrShowMDY = iso => { if (!iso) return ''; const [y, mo, da] = iso.split('-'); return `${mo}/${da}/${y.slice(2)}`; };
+function jrDateMask(v) {
+  const t = String(v || '');
+  if (/[.\-]/.test(t) || t.split('/').slice(0, -1).some(x => x.length === 1)) return t;   // typed their own short form (e.g. 1/5/27): keep
+  const d = t.replace(/\D/g, '').slice(0, 8);
+  return d.length <= 2 ? d : d.length <= 4 ? `${d.slice(0, 2)}/${d.slice(2)}` : `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+}
 function jrDateF(k, field, label, after) {
   const e = JR.edit[k], raw = e['_r_' + field];
-  return `<div class="jr-f" style="max-width:120px;"><label>${label}</label><input type="text" inputmode="numeric" placeholder="M/D" value="${jrEsc(raw ?? jrShowMD(e[field]))}"
-      oninput="jrDateIn('${k}','${field}',this.value,${after ? 1 : 0})"><div id="jr-dh-${k}-${field}" style="font-size:9.5px;color:var(--text3);min-height:12px;">${e[field] ? jrLongD(e[field]) : ''}</div></div>`;
+  return `<div class="jr-f" style="max-width:120px;"><label>${label}</label><input type="text" inputmode="numeric" maxlength="10" placeholder="MM/DD/YY" value="${jrEsc(raw ?? jrShowMDY(e[field]))}"
+      oninput="const m=jrDateMask(this.value);if(m!==this.value&&!(event.inputType||'').startsWith('delete'))this.value=m;jrDateIn('${k}','${field}',this.value,${after ? 1 : 0})"
+      onblur="if(JR.edit['${k}']&&JR.edit['${k}'].${field}&&!JR.edit['${k}']._bad_${field}){this.value=jrShowMDY(JR.edit['${k}'].${field});JR.edit['${k}']._r_${field}=this.value;}"><div id="jr-dh-${k}-${field}" style="font-size:9.5px;color:var(--text3);min-height:12px;">${e[field] ? jrLongD(e[field]) : ''}</div></div>`;
 }
 function jrDateIn(k, field, v, after) {
   const e = JR.edit[k]; e['_r_' + field] = v;
   const iso = jrParseMD(v, field === 'd' ? jrToday() : e.d, !!after);
   const h = document.getElementById(`jr-dh-${k}-${field}`);
-  if (iso === undefined) { if (h) { h.textContent = 'type M/D, e.g. 11/20'; h.style.color = 'var(--red)'; } e['_bad_' + field] = true; jrMarkDirty(k); return; }
+  if (iso === undefined) { if (h) { h.textContent = 'type MM/DD/YY, e.g. 11/20/26'; h.style.color = 'var(--red)'; } e['_bad_' + field] = true; jrMarkDirty(k); return; }
   e['_bad_' + field] = false;
   if (field === 'd' && !iso) { if (h) { h.textContent = 'entry date is required'; h.style.color = 'var(--red)'; } e._bad_d = true; return; }
   e[field] = iso; e._dirty = true;
@@ -18440,7 +18456,8 @@ function jrDayResultHtml(d) {
 }
 function jrCardHtml(k, n) {
   const e = JR.edit[k], P = e.kind === 'penny';
-  const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(e[field] ?? '')}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"></div>`;
+  const PX = ['entry', 'exit', 'stock_entry', 'plan_target', 'plan_entry', 'plan_stop'];
+  const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(PX.includes(field) ? jrPx2(e[field]) : (e[field] ?? ''))}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"${PX.includes(field) ? ` onblur="jrPxBlur(this,'${k}','${field}')"` : ''}></div>`;
   const ec = jrExpiryCheck({ ...e, exit: jrNum(e.exit) });
   const rules = JR_RULES[e.kind].map(([rk, l], i) => rk === 'expiry' && ec
     ? `<label class="jr-chk" title="Worked out from the entry date, exit date and expiration" style="flex-wrap:wrap;"><input type="checkbox" disabled ${ec.ok ? 'checked' : ''}>${i + 1} ${l}<div style="flex-basis:100%;padding-left:22px;" class="${ec.ok ? 'jr-pos' : 'jr-neg'}"><b>auto ${ec.ok ? '✓ kept' : '✗ broken'}</b> · ${ec.why}</div></label>`
@@ -18563,7 +18580,7 @@ async function jrSaveCard(k) {
   const sym = String(e.symbol || '').trim().toUpperCase();
   if (!sym) { showToast('Journal', 'Ticker is required', 'error'); return false; }
   const bad = ['d', 'exit_date', 'expiry'].find(fl => e['_bad_' + fl]);
-  if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type M/D, e.g. 11/20)`, 'error'); return false; }
+  if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type MM/DD/YY, e.g. 11/20/26)`, 'error'); return false; }
   if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
   const n = jrNum, lv = jrPlanLevels(e), ecs = jrExpiryCheck({ ...e, exit: v.exit });
   const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
@@ -18991,7 +19008,7 @@ function jrPlanHtml() {
   const px = v => v == null ? '—' : '$' + (v < 1 ? Number(v).toFixed(4) : Number(v).toFixed(2));
   const sel = p => `<select onchange="jrPlanSet(${p.id},'stop_pct',this.value)">${['', ...JR_PLAN_STOP[p.kind]].map(o => `<option value="${o}" ${String(o) === String(jrNum(p.stop_pct) ?? '') ? 'selected' : ''}>${o === '' ? '—' : o + '%'}</option>`).join('')}
       ${p.stop_pct != null && !JR_PLAN_STOP[p.kind].includes(Number(p.stop_pct)) ? `<option selected>${p.stop_pct}%</option>` : ''}</select>`;
-  const inp = (p, f, ph, w = 80, extra = '') => `<input value="${jrEsc(p[f] ?? '')}" placeholder="${ph}" style="width:${w}px;${extra}" onchange="jrPlanSet(${p.id},'${f}',this.value)">`;
+  const inp = (p, f, ph, w = 80, extra = '') => `<input value="${jrEsc(f === 'price' ? jrPx2(p[f]) : (p[f] ?? ''))}" placeholder="${ph}" style="width:${w}px;${extra}" onchange="jrPlanSet(${p.id},'${f}',this.value)">`;
   const sec = (kind, title, color) => {
     const rows = ps.filter(p => p.kind === kind), b = c[kind], P = kind === 'penny';
     const body = rows.map((p, i) => { const x = c[p.id] || {};
