@@ -18210,6 +18210,11 @@ body.light-mode .jr-d .mk{color:#7a8798;} body.light-mode .jr-d .mk .up{color:#3
 .dot.clean{background:var(--green);} .dot.warning{background:var(--amber);} .dot.fail{background:var(--red);}
 .jr-kp{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
 .jr-kp .jr-card{flex:1;min-width:120px;padding:7px 10px;}
+.jr-micw{position:relative;display:block;}
+.jr-micw > input,.jr-micw > textarea{width:100%;padding-right:34px !important;box-sizing:border-box;}
+.jr-mic{position:absolute;right:4px;top:4px;width:26px;height:24px;border-radius:5px;border:1px solid var(--cyan);background:rgba(0,212,255,.08);color:var(--cyan);cursor:pointer;font-size:13px;line-height:1;padding:0;}
+.jr-mic.on{background:var(--cyan);color:#06202c;animation:jrMicPulse 1s ease-in-out infinite;}
+@keyframes jrMicPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,.6);}50%{box-shadow:0 0 0 5px rgba(0,212,255,0);}}
 .jr-plan input,.jr-plan select{background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 6px;font-family:inherit;font-size:12px;box-sizing:border-box;}
 .jr-plan select{width:auto;}
 .jr-sticky{position:sticky;top:var(--hdr-h,141px);z-index:150;background:var(--bg);margin:-16px -20px 0;padding:12px 20px 12px;box-shadow:0 6px 8px -4px rgba(0,0,0,0.45);}
@@ -18340,7 +18345,7 @@ function jrTodayHtml() {
       </div>
       <div class="jr-row" style="margin-top:8px;align-items:flex-end;">
         <div class="jr-f" style="flex:none;"><label>Trend</label><div class="jr-seg">${trend}</div></div>
-        <div class="jr-f"><label>Market note</label><input type="text" value="${jrEsc(m.note)}" placeholder="e.g. sold off after 2 PM" onchange="jrSaveDay('note',this.value)"></div>
+        <div class="jr-f"><label>Market note</label><div class="jr-micw"><input type="text" value="${jrEsc(m.note)}" placeholder="e.g. sold off after 2 PM" onchange="jrSaveDay('note',this.value)">${jrMicBtn()}</div></div>
       </div>
     </div>
     <div class="jr-card" style="flex:1;min-width:340px;"><h3>Today's limits</h3>
@@ -18403,16 +18408,60 @@ function jrPickSet(k, field, v) {
   if (field === 'plan_target_pct') e.target_run = v === 'run';
   jrSet(k, field, v === '' || v === 'run' ? (v === 'run' ? 'run' : null) : Number(v), true);
 }
+// What's left of the day's risk after today's saved trades (net loss so far), and the most one more trade may lose:
+// options = the smaller of 80% of the daily risk and what's left; penny = what's left. excludeId = the trade being edited.
+function jrDayLeft(kind, d, excludeId) {
+  const r = jrRiskFor(d), limit = Number(kind === 'penny' ? r.penny_limit : r.option_limit);
+  const net = JR.trades.filter(t => t.d === d && t.kind === kind && t.id !== excludeId).reduce((s, t) => s + (t.pnl || 0), 0);
+  const used = Math.round(Math.max(0, -net)), left = Math.max(0, limit - used), cap = kind === 'option' ? Math.round(limit * 0.8) : limit;
+  return { limit, used, left, cap, max: Math.min(cap, left) };
+}
+// 🎤 Dictation: click the mic, talk, click again (or pause) to stop — the words are added to the field.
+// Uses the browser's built-in speech recognition (Chrome / Safari / Edge); the button is hidden where it isn't available.
+const JR_SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let _jrRec = null, _jrRecBtn = null;
+function jrMicBtn() { return JR_SR ? `<button type="button" class="jr-mic" onclick="jrMic(this)" title="Dictate: click, talk, click again to stop">🎤</button>` : ''; }
+function jrMic(btn) {
+  if (_jrRec) { const same = _jrRecBtn === btn; try { _jrRec.stop(); } catch (_) {} if (same) return; }
+  const el = btn.parentElement.querySelector('input,textarea'); if (!el || !JR_SR) return;
+  const rec = new JR_SR(); rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = ev => {
+    let txt = ''; for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) txt += ev.results[i][0].transcript;
+    txt = txt.trim(); if (!txt) return;
+    const cur = el.value; el.value = cur + (cur && !/\s$/.test(cur) ? ' ' : '') + txt.charAt(0).toUpperCase() + txt.slice(1);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  rec.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') showToast('Dictation', 'Allow the microphone for this site in the browser (address bar → site settings) and try again.', 'error'); };
+  rec.onend = () => { btn.classList.remove('on'); btn.textContent = '🎤'; if (_jrRec === rec) { _jrRec = null; _jrRecBtn = null; } el.dispatchEvent(new Event('change', { bubbles: true })); };
+  _jrRec = rec; _jrRecBtn = btn; btn.classList.add('on'); btn.textContent = '■';
+  try { rec.start(); } catch (e) { btn.classList.remove('on'); btn.textContent = '🎤'; _jrRec = null; }
+}
+// Prices show at least 2 decimals: 2 → 2.00, 2.1 → 2.10, 701 → 701.00; 0.3103 stays 0.3103.
+function jrPx2(v) {
+  if (v == null || v === '') return '';
+  const t = String(v).trim(); if (!/^-?\d*\.?\d*$/.test(t) || t === '' || t === '.') return t;
+  const dec = (t.split('.')[1] || '').length; return dec >= 2 ? t : Number(t).toFixed(2);
+}
+function jrPxBlur(el, k, field) { const v = jrPx2(el.value); if (v !== el.value) { el.value = v; jrSet(k, field, v); } }
+// Dates on a professional form: MM/DD/YY, the slashes come in by themselves (type 112026 → 11/20/26; 1120 → 11/20, year filled in)
+const jrShowMDY = iso => { if (!iso) return ''; const [y, mo, da] = iso.split('-'); return `${mo}/${da}/${y.slice(2)}`; };
+function jrDateMask(v) {
+  const t = String(v || '');
+  if (/[.\-]/.test(t) || t.split('/').slice(0, -1).some(x => x.length === 1)) return t;   // typed their own short form (e.g. 1/5/27): keep
+  const d = t.replace(/\D/g, '').slice(0, 8);
+  return d.length <= 2 ? d : d.length <= 4 ? `${d.slice(0, 2)}/${d.slice(2)}` : `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+}
 function jrDateF(k, field, label, after) {
   const e = JR.edit[k], raw = e['_r_' + field];
-  return `<div class="jr-f" style="max-width:120px;"><label>${label}</label><input type="text" inputmode="numeric" placeholder="M/D" value="${jrEsc(raw ?? jrShowMD(e[field]))}"
-      oninput="jrDateIn('${k}','${field}',this.value,${after ? 1 : 0})"><div id="jr-dh-${k}-${field}" style="font-size:9.5px;color:var(--text3);min-height:12px;">${e[field] ? jrLongD(e[field]) : ''}</div></div>`;
+  return `<div class="jr-f" style="max-width:120px;"><label>${label}</label><input type="text" inputmode="numeric" maxlength="10" placeholder="MM/DD/YY" value="${jrEsc(raw ?? jrShowMDY(e[field]))}"
+      oninput="const m=jrDateMask(this.value);if(m!==this.value&&!(event.inputType||'').startsWith('delete'))this.value=m;jrDateIn('${k}','${field}',this.value,${after ? 1 : 0})"
+      onblur="if(JR.edit['${k}']&&JR.edit['${k}'].${field}&&!JR.edit['${k}']._bad_${field}){this.value=jrShowMDY(JR.edit['${k}'].${field});JR.edit['${k}']._r_${field}=this.value;}"><div id="jr-dh-${k}-${field}" style="font-size:9.5px;color:var(--text3);min-height:12px;">${e[field] ? jrLongD(e[field]) : ''}</div></div>`;
 }
 function jrDateIn(k, field, v, after) {
   const e = JR.edit[k]; e['_r_' + field] = v;
   const iso = jrParseMD(v, field === 'd' ? jrToday() : e.d, !!after);
   const h = document.getElementById(`jr-dh-${k}-${field}`);
-  if (iso === undefined) { if (h) { h.textContent = 'type M/D, e.g. 11/20'; h.style.color = 'var(--red)'; } e['_bad_' + field] = true; jrMarkDirty(k); return; }
+  if (iso === undefined) { if (h) { h.textContent = 'type MM/DD/YY, e.g. 11/20/26'; h.style.color = 'var(--red)'; } e['_bad_' + field] = true; jrMarkDirty(k); return; }
   e['_bad_' + field] = false;
   if (field === 'd' && !iso) { if (h) { h.textContent = 'entry date is required'; h.style.color = 'var(--red)'; } e._bad_d = true; return; }
   e[field] = iso; e._dirty = true;
@@ -18440,7 +18489,8 @@ function jrDayResultHtml(d) {
 }
 function jrCardHtml(k, n) {
   const e = JR.edit[k], P = e.kind === 'penny';
-  const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(e[field] ?? '')}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"></div>`;
+  const PX = ['entry', 'exit', 'stock_entry', 'plan_target', 'plan_entry', 'plan_stop'];
+  const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(PX.includes(field) ? jrPx2(e[field]) : (e[field] ?? ''))}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"${PX.includes(field) ? ` onblur="jrPxBlur(this,'${k}','${field}')"` : ''}></div>`;
   const ec = jrExpiryCheck({ ...e, exit: jrNum(e.exit) });
   const rules = JR_RULES[e.kind].map(([rk, l], i) => rk === 'expiry' && ec
     ? `<label class="jr-chk" title="Worked out from the entry date, exit date and expiration" style="flex-wrap:wrap;"><input type="checkbox" disabled ${ec.ok ? 'checked' : ''}>${i + 1} ${l}<div style="flex-basis:100%;padding-left:22px;" class="${ec.ok ? 'jr-pos' : 'jr-neg'}"><b>auto ${ec.ok ? '✓ kept' : '✗ broken'}</b> · ${ec.why}</div></label>`
@@ -18481,7 +18531,7 @@ function jrCardHtml(k, n) {
       <div style="flex:1;min-width:280px;"><div style="font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Rules — tick each rule you kept</div>${rules}</div>
       <div style="flex:1.3;min-width:300px;display:flex;flex-direction:column;gap:8px;">
         <div class="jr-row" style="align-items:flex-end;"><div class="jr-f"><label>Result</label><div class="jr-auto" id="jr-res-${k}"></div></div><div class="jr-f" style="flex:none;min-width:110px;"><label>Set by hand</label>${resSel}</div></div>
-        <div class="jr-f"><label>Notes / why the deviation</label><textarea oninput="jrSet('${k}','notes',this.value)" placeholder="What happened, why, next time I will…">${jrEsc(e.notes)}</textarea></div>
+        <div class="jr-f"><label>Notes / why the deviation</label><div class="jr-micw"><textarea oninput="jrSet('${k}','notes',this.value)" placeholder="What happened, why, next time I will…">${jrEsc(e.notes)}</textarea>${jrMicBtn()}</div></div>
       </div>
     </div></div>`;
 }
@@ -18519,24 +18569,25 @@ function jrRefreshCard(k) {
   if (mxEl) {
     if (v.entry == null || !v.qty) mxEl.innerHTML = '<span style="color:var(--text3);">Enter premium in + contracts to see your max loss and the lowest stop allowed.</span>';
     else {
-      const daily = risk.option_limit, maxLoss = Math.round(daily * 0.8), cost = v.entry * v.qty * 100, drop = maxLoss / (v.qty * 100);
+      const ML = jrDayLeft('option', e.d, e.id), daily = ML.limit, maxLoss = ML.max, cost = v.entry * v.qty * 100, drop = maxLoss / (v.qty * 100);
       const floor = Math.max(0, Math.round((v.entry - drop) * 100) / 100), pct = Math.min(100, Math.round(maxLoss / cost * 100));
       const bad = [];
       if (lv.stop != null && lv.stop < floor) bad.push(`your ${e.plan_stop_pct}% stop (${px(lv.stop)}) is below $${floor.toFixed(2)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
       if (v.exit != null && v.exit < floor) bad.push(`premium out ${px(v.exit)} is below $${floor.toFixed(2)} → lost $${Math.round((v.entry - v.exit) * v.qty * 100)}, more than $${maxLoss}`);
       mxEl.innerHTML = `<span style="padding:4px 9px;border-radius:5px;display:inline-block;${bad.length ? 'background:rgba(255,80,80,.12);border:1px solid var(--red);' : 'background:rgba(255,176,32,.08);border:1px solid var(--amber);'}">
-        ${bad.length ? '⚠️' : '🛡️'} <b>Max loss ${'$' + maxLoss}</b> (80% of $${daily} daily) · cost ${'$' + Math.round(cost).toLocaleString('en-US')} ·
+        ${bad.length ? '⚠️' : '🛡️'} <b>Max loss ${'$' + maxLoss}</b> ${ML.max < ML.cap ? `(only $${ML.left} left today — already −$${ML.used} of $${daily})` : `(80% of $${daily} daily${ML.used ? ` · −$${ML.used} lost today` : ''})`} · cost ${'$' + Math.round(cost).toLocaleString('en-US')} ·
         ${floor > 0 ? `<b>stop no lower than $${floor.toFixed(2)}</b> (−${pct}% · $${maxLoss} ÷ (${v.qty} × 100) = $${drop.toFixed(2)} drop)` : `<b>whole position ≤ $${maxLoss}</b> — even a total loss stays inside the limit`}
         ${bad.length ? `<div style="color:var(--red);margin-top:3px;font-weight:700;">✗ ${bad.join(' · ')}</div>` : ''}</span>`;
     }
   }
   const zEl = document.getElementById('jr-pe-' + k); if (zEl) zEl.textContent = lv.lo != null ? `${px(lv.lo)} – ${px(lv.hi)}` : v.entry != null ? `at ${px(v.entry)}` : 'enter the entry first';
   // Options "must stop": the lowest premium out that keeps the loss within 80% of the daily risk for these contracts
-  const must = e.kind === 'option' && v.entry != null && v.qty ? Math.max(0, Math.round((v.entry - risk.option_limit * 0.8 / (v.qty * 100)) * 100) / 100) : null;
+  const mustML = e.kind === 'option' ? jrDayLeft('option', e.d, e.id) : null;
+  const must = e.kind === 'option' && v.entry != null && v.qty ? Math.max(0, Math.round((v.entry - mustML.max / (v.qty * 100)) * 100) / 100) : null;
   const sEl = document.getElementById('jr-ps-' + k);
   if (sEl) {
     const low = must != null && lv.stop != null && lv.stop < must;
-    sEl.innerHTML = `${lv.stop != null ? `stop ${px(lv.stop)}` : '—'}${must != null ? ` · <b class="${low ? 'jr-neg' : 'jr-amb'}" title="Lowest stop for ${v.qty} contract${v.qty > 1 ? 's' : ''} at ${px(v.entry)}: max loss $${Math.round(risk.option_limit * 0.8)} = 80% of $${risk.option_limit} daily">must stop ${must > 0 ? '$' + must.toFixed(2) : '— any'}${low ? ' ✗' : ''}</b>` : ''}`;
+    sEl.innerHTML = `${lv.stop != null ? `stop ${px(lv.stop)}` : '—'}${must != null ? ` · <b class="${low ? 'jr-neg' : 'jr-amb'}" title="Lowest stop for ${v.qty} contract${v.qty > 1 ? 's' : ''} at ${px(v.entry)}: max loss $${mustML.max}${mustML.max < mustML.cap ? ` (what's left today after −$${mustML.used})` : ` = 80% of $${mustML.limit} daily`}">must stop ${must > 0 ? '$' + must.toFixed(2) : '— any'}${low ? ' ✗' : ''}</b>` : ''}`;
     sEl.style.whiteSpace = 'normal';
   }
   const tEl = document.getElementById('jr-pt-' + k); if (tEl) tEl.textContent = e.target_run || e.plan_target_pct === 'run' ? 'let it run' : lv.target != null ? `target ${px(lv.target)}` : '—';
@@ -18563,7 +18614,7 @@ async function jrSaveCard(k) {
   const sym = String(e.symbol || '').trim().toUpperCase();
   if (!sym) { showToast('Journal', 'Ticker is required', 'error'); return false; }
   const bad = ['d', 'exit_date', 'expiry'].find(fl => e['_bad_' + fl]);
-  if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type M/D, e.g. 11/20)`, 'error'); return false; }
+  if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type MM/DD/YY, e.g. 11/20/26)`, 'error'); return false; }
   if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
   const n = jrNum, lv = jrPlanLevels(e), ecs = jrExpiryCheck({ ...e, exit: v.exit });
   const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
@@ -18813,7 +18864,7 @@ function jrAuditHtml() {
           ${row('Result', tag(P.result), tag(O.result))}</table>
         <div style="font-size:11px;color:var(--text2);margin-top:6px;">Clean = no fails and at most 1 warning · 2 warnings or any fail or a day over the limit = fail · trades that aren't reviewed don't count.</div></div>
       <div class="jr-card"><h3>Audit notes<span class="jr-sp" id="jr-aud-st" style="text-transform:none;letter-spacing:0;"></span></h3>
-        <div class="jr-f"><textarea id="jr-aud-notes" style="min-height:90px;" placeholder="What went well, what broke the rules, what changes next week">${jrEsc(a.notes)}</textarea></div>
+        <div class="jr-f"><div class="jr-micw"><textarea id="jr-aud-notes" style="min-height:90px;" placeholder="What went well, what broke the rules, what changes next week">${jrEsc(a.notes)}</textarea>${jrMicBtn()}</div></div>
         <div style="margin-top:8px;text-align:right;"><button class="jr-btn g sm" onclick="jrSaveAudit()">Save audit</button></div></div>
     </div>
     <div style="flex:1;min-width:380px;display:flex;flex-direction:column;gap:10px;">
@@ -18966,7 +19017,7 @@ function jrStats(ts) {
 // Options budget = 80% of the day's options risk ($560 of $700): max contracts = budget left ÷ (premium × 100 × stop %).
 // Plans on the same day share the budget top to bottom: what plan 1 risks at its stop is taken off what plan 2 can use.
 const JR_PLAN_STOP = { penny: [5, 10, 15, 20], option: [10, 15, 20, 25] };
-function jrPlanBudget(kind, d) { const r = jrRiskFor(d); return kind === 'penny' ? Number(r.penny_limit) : Math.round(Number(r.option_limit) * 0.8); }
+function jrPlanBudget(kind, d) { return jrDayLeft(kind, d).max; }   // already lowered by today's losses
 function jrPlanCalc(d) {
   const out = {};
   for (const kind of ['penny', 'option']) {
@@ -18981,7 +19032,8 @@ function jrPlanCalc(d) {
       out[p.id] = { budget, left, per, max, risk, stop, must, scale, over: risk != null && risk > left, ruleSize: kind === 'penny' && per ? Math.floor(budget / 3 / per) : null };
       if (risk != null) used += Math.min(risk, left);
     });
-    out[kind] = { budget, used: Math.min(used, budget), left: Math.max(0, budget - used) };
+    const dl = jrDayLeft(kind, d);
+    out[kind] = { budget, used: Math.min(used, budget), left: Math.max(0, budget - used), lost: dl.used, limit: dl.limit, cap: dl.cap };
   }
   return out;
 }
@@ -18991,7 +19043,7 @@ function jrPlanHtml() {
   const px = v => v == null ? '—' : '$' + (v < 1 ? Number(v).toFixed(4) : Number(v).toFixed(2));
   const sel = p => `<select onchange="jrPlanSet(${p.id},'stop_pct',this.value)">${['', ...JR_PLAN_STOP[p.kind]].map(o => `<option value="${o}" ${String(o) === String(jrNum(p.stop_pct) ?? '') ? 'selected' : ''}>${o === '' ? '—' : o + '%'}</option>`).join('')}
       ${p.stop_pct != null && !JR_PLAN_STOP[p.kind].includes(Number(p.stop_pct)) ? `<option selected>${p.stop_pct}%</option>` : ''}</select>`;
-  const inp = (p, f, ph, w = 80, extra = '') => `<input value="${jrEsc(p[f] ?? '')}" placeholder="${ph}" style="width:${w}px;${extra}" onchange="jrPlanSet(${p.id},'${f}',this.value)">`;
+  const inp = (p, f, ph, w = 80, extra = '') => `<input value="${jrEsc(f === 'price' ? jrPx2(p[f]) : (p[f] ?? ''))}" placeholder="${ph}" style="width:${w}px;${extra}" onchange="jrPlanSet(${p.id},'${f}',this.value)">`;
   const sec = (kind, title, color) => {
     const rows = ps.filter(p => p.kind === kind), b = c[kind], P = kind === 'penny';
     const body = rows.map((p, i) => { const x = c[p.id] || {};
@@ -19002,11 +19054,11 @@ function jrPlanHtml() {
         <td>${inp(p, 'qty', '0', 60)}</td>
         <td class="${x.over ? 'jr-neg' : ''}">${money(x.risk)}${x.over ? ' ✗' : ''}</td>
         ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
-        <td>${money(x.left)}</td><td>${inp(p, 'notes', 'setup / why', 160)}</td>
+        <td>${money(x.left)}</td><td><div class="jr-micw">${inp(p, 'notes', 'setup / why', 170)}${jrMicBtn()}</div></td>
         <td><button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
         ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
-        <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${Math.round(b.budget / 0.8)} daily)`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
+        <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${b.lost && b.budget < b.cap ? `Budget $${b.budget} (only this much left today — already −$${b.lost} of $${b.limit})` : P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${b.limit} daily${b.lost ? ` · −$${b.lost} lost today` : ''})`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
       ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Price' : 'Premium'}</th><th>Stop %</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th>Budget left</th><th>Notes</th><th></th></tr>${body}</table>`
         : `<div style="color:var(--text3);padding:8px 0;">No ${P ? 'penny' : 'options'} plans for this day — use <b>+ ${P ? 'Penny' : 'Options'} plan</b>.</div>`}</div>`;
   };
@@ -19275,11 +19327,26 @@ async function jrPdf(scope) {
           didParseCell: colorCells([8], -1), didDrawPage: () => header(title) });
         y = doc.lastAutoTable.finalY + 18;
       }
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY);
-      const legend = k => JR_RULES[k].map(([, l], i) => `${i + 1} ${l}`).join(' · ').replace(/→/g, '->').replace(/[–—]/g, '-');
-      if (y > H - 60) { doc.addPage(); header(title); y = 80; }
-      doc.text(doc.splitTextToSize('Penny rules: ' + legend('penny'), W - 2 * M), M, y); y += 22;
-      doc.text(doc.splitTextToSize('Options rules: ' + legend('option'), W - 2 * M), M, y);
+      // The rules, side by side in two framed cards: bigger dark text, bold numbers, one rule per line
+      const clean = t => t.replace(/→/g, '->').replace(/[–—]/g, '-');
+      const colW = (W - 2 * M - 14) / 2, lineH = 13, fs = 10.5;
+      const lay = k => { doc.setFont('helvetica', 'normal'); doc.setFontSize(fs); return JR_RULES[k].map(([, l], i) => ({ n: i + 1, lines: doc.splitTextToSize(clean(l), colW - 46) })); };
+      const P = lay('penny'), O = lay('option'), hOf = L => 30 + L.reduce((s, r) => s + r.lines.length * lineH + 5, 0) + 6;
+      const boxH = Math.max(hOf(P), hOf(O));
+      if (y + 20 + boxH > H - 30) { doc.addPage(); header(title); y = 80; }
+      y = titled('The rules — what each number in "Rules kept" means', y) + 4;
+      [[P, 'Penny stock rules', GREEN], [O, 'Options rules', NAVY]].forEach(([L, lab, c], i) => {
+        const x = M + i * (colW + 14); card(x, y, colW, boxH);
+        doc.setFillColor(...c); doc.roundedRect(x, y, colW, 22, 6, 6, 'F'); doc.rect(x, y + 12, colW, 10, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255); doc.text(lab.toUpperCase(), x + 12, y + 15);
+        let ry = y + 40;
+        L.forEach(r => {
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(fs + 1); doc.setTextColor(...c); doc.text(String(r.n), x + 16, ry);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(fs); doc.setTextColor(...INK); doc.text(r.lines, x + 34, ry);
+          ry += r.lines.length * lineH + 5;
+        });
+      });
+      y += boxH + 14;
     }
     if (tr.length && !analyticsOnly && scope !== 'day') { y = titled(`Trades (${tr.length}, newest first)`, y);
       doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'Exit date', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 10: { cellWidth: 160 } },
