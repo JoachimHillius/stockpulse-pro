@@ -18209,6 +18209,8 @@ body.light-mode .jr-d .mk{color:#7a8798;} body.light-mode .jr-d .mk .up{color:#3
 .dot.clean{background:var(--green);} .dot.warning{background:var(--amber);} .dot.fail{background:var(--red);}
 .jr-kp{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
 .jr-kp .jr-card{flex:1;min-width:120px;padding:7px 10px;}
+.jr-plan input,.jr-plan select{background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 6px;font-family:inherit;font-size:12px;box-sizing:border-box;}
+.jr-plan select{width:auto;}
 .jr-sticky{position:sticky;top:var(--hdr-h,141px);z-index:150;background:var(--bg);margin:-16px -20px 0;padding:12px 20px 12px;box-shadow:0 6px 8px -4px rgba(0,0,0,0.45);}
 /* Analytics: raised 3D cards (light top edge, soft drop shadow, lifts on hover) */
 .jr-an .jr-card{position:relative;border-radius:12px;border:1px solid rgba(255,255,255,.07);border-top-color:rgba(255,255,255,.18);
@@ -18247,6 +18249,7 @@ async function jrLoad() {
     supa.from('jr_risk').select('*').order('week_start').limit(500),
     supa.from('jr_audit').select('*').limit(500)]);
   JR.audit = Object.fromEntries(((au && au.data) || []).map(x => [x.week_start, x]));
+  try { const pl = await supa.from('jr_plans').select('*').order('d').order('id').limit(3000); JR.plans = (pl && pl.data) || []; } catch (_) { JR.plans = []; }
   if (t.error || d.error || r.error) { showToast('Journal', 'Load failed: ' + (t.error || d.error || r.error).message, 'error'); return; }
   JR.trades = (t.data || []).map(x => ({ ...x, qty: jrNum(x.qty), entry: jrNum(x.entry), exit: jrNum(x.exit), pnl: jrNum(x.pnl) }));
   JR.days = Object.fromEntries((d.data || []).map(x => [x.d, x]));
@@ -18256,19 +18259,23 @@ async function jrLoad() {
 function jrTab(t) { JR.tab = t; jrRender(); }
 function jrRender() {
   const root = document.getElementById('jr-root'); if (!root) return;
-  const tabs = [['today', 'Today'], ['calendar', 'Calendar'], ['audit', 'Weekly Audit'], ['analytics', 'Analytics']]
+  const tabs = [['today', 'Today'], ['plan', 'Plan'], ['calendar', 'Calendar'], ['audit', 'Weekly Audit'], ['analytics', 'Analytics']]
     .map(([k, l]) => `<button class="jr-pill ${JR.tab === k ? 'on' : ''}" onclick="jrTab('${k}')">${l}</button>`).join('');
   let body = '';
   if (JR.tab === 'today') body = jrTodayHtml();
+  else if (JR.tab === 'plan') body = jrPlanHtml();
   else if (JR.tab === 'calendar') body = jrCalHtml();
   else if (JR.tab === 'audit') body = jrAuditHtml();
   else body = `<div class="jr-an">${jrAnHtml()}</div>`;
   let rest = '';   // Today: header + market + limits stay frozen below the menu; the trade cards scroll under them
   if (JR.tab === 'today') { const cut = body.indexOf('<!--jr-cards-->'); if (cut >= 0) { rest = body.slice(cut); body = body.slice(0, cut); } }
   if (typeof _syncStickyOffset === 'function') _syncStickyOffset();
-  root.innerHTML = `<div class="${JR.tab === 'today' ? 'jr-sticky' : ''}"><div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'today' ? `<span class="jr-sp"></span>
+  root.innerHTML = `<div class="${JR.tab === 'today' ? 'jr-sticky' : ''}"><div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'plan' ? `<span class="jr-sp"></span>
+    <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
+    <button class="jr-btn g" onclick="jrPlanAdd('penny')">+ Penny plan</button><button class="jr-btn" onclick="jrPlanAdd('option')">+ Options plan</button>
+    <button class="jr-btn" onclick="jrPlanCsv()" title="Download this day's plan as a spreadsheet (opens in Excel / Numbers / Google Sheets)">⬇ Spreadsheet</button>` : ''}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : JR.tab === 'plan' ? '' : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
   if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
 }
 function jrSetDate(d) {
@@ -18494,16 +18501,23 @@ function jrRefreshCard(k) {
       const daily = risk.option_limit, maxLoss = Math.round(daily * 0.8), cost = v.entry * v.qty * 100, drop = maxLoss / (v.qty * 100);
       const floor = Math.max(0, Math.round((v.entry - drop) * 100) / 100), pct = Math.min(100, Math.round(maxLoss / cost * 100));
       const bad = [];
-      if (lv.stop != null && lv.stop < floor) bad.push(`your ${e.plan_stop_pct}% stop (${px(lv.stop)}) is below ${px(floor)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
-      if (v.exit != null && v.exit < floor) bad.push(`premium out ${px(v.exit)} is below ${px(floor)} → lost $${Math.round((v.entry - v.exit) * v.qty * 100)}, more than $${maxLoss}`);
+      if (lv.stop != null && lv.stop < floor) bad.push(`your ${e.plan_stop_pct}% stop (${px(lv.stop)}) is below $${floor.toFixed(2)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
+      if (v.exit != null && v.exit < floor) bad.push(`premium out ${px(v.exit)} is below $${floor.toFixed(2)} → lost $${Math.round((v.entry - v.exit) * v.qty * 100)}, more than $${maxLoss}`);
       mxEl.innerHTML = `<span style="padding:4px 9px;border-radius:5px;display:inline-block;${bad.length ? 'background:rgba(255,80,80,.12);border:1px solid var(--red);' : 'background:rgba(255,176,32,.08);border:1px solid var(--amber);'}">
         ${bad.length ? '⚠️' : '🛡️'} <b>Max loss ${'$' + maxLoss}</b> (80% of $${daily} daily) · cost ${'$' + Math.round(cost).toLocaleString('en-US')} ·
-        ${floor > 0 ? `<b>stop no lower than ${px(floor)}</b> (−${pct}% · $${maxLoss} ÷ (${v.qty} × 100) = $${drop.toFixed(2)} drop)` : `<b>whole position ≤ $${maxLoss}</b> — even a total loss stays inside the limit`}
+        ${floor > 0 ? `<b>stop no lower than $${floor.toFixed(2)}</b> (−${pct}% · $${maxLoss} ÷ (${v.qty} × 100) = $${drop.toFixed(2)} drop)` : `<b>whole position ≤ $${maxLoss}</b> — even a total loss stays inside the limit`}
         ${bad.length ? `<div style="color:var(--red);margin-top:3px;font-weight:700;">✗ ${bad.join(' · ')}</div>` : ''}</span>`;
     }
   }
   const zEl = document.getElementById('jr-pe-' + k); if (zEl) zEl.textContent = lv.lo != null ? `${px(lv.lo)} – ${px(lv.hi)}` : v.entry != null ? `at ${px(v.entry)}` : 'enter the entry first';
-  const sEl = document.getElementById('jr-ps-' + k); if (sEl) sEl.textContent = lv.stop != null ? `stop ${px(lv.stop)}` : '—';
+  // Options "must stop": the lowest premium out that keeps the loss within 80% of the daily risk for these contracts
+  const must = e.kind === 'option' && v.entry != null && v.qty ? Math.max(0, Math.round((v.entry - risk.option_limit * 0.8 / (v.qty * 100)) * 100) / 100) : null;
+  const sEl = document.getElementById('jr-ps-' + k);
+  if (sEl) {
+    const low = must != null && lv.stop != null && lv.stop < must;
+    sEl.innerHTML = `${lv.stop != null ? `stop ${px(lv.stop)}` : '—'}${must != null ? ` · <b class="${low ? 'jr-neg' : 'jr-amb'}" title="Lowest stop for ${v.qty} contract${v.qty > 1 ? 's' : ''} at ${px(v.entry)}: max loss $${Math.round(risk.option_limit * 0.8)} = 80% of $${risk.option_limit} daily">must stop ${must > 0 ? '$' + must.toFixed(2) : '— any'}${low ? ' ✗' : ''}</b>` : ''}`;
+    sEl.style.whiteSpace = 'normal';
+  }
   const tEl = document.getElementById('jr-pt-' + k); if (tEl) tEl.textContent = e.target_run || e.plan_target_pct === 'run' ? 'let it run' : lv.target != null ? `target ${px(lv.target)}` : '—';
   const se = document.getElementById('jr-size-' + k);
   if (se) {
@@ -18925,6 +18939,94 @@ function jrStats(ts) {
   return { n: ts.length, net: p.reduce((s, t) => s + t.pnl, 0), win: p.length ? Math.round(W.length / p.length * 100) : null, avgW: W.length ? gw / W.length : null, avgL: L.length ? -gl / L.length : null,
     pf: gl ? gw / gl : (W.length ? Infinity : null), clean: rv.filter(t => t.result === 'clean').length, rev: rv.length };
 }
+
+// ---------- STEP 36: Plan tab — size planned trades before taking them ----------
+// Penny budget = the day's penny risk ($400): max shares = budget left ÷ (price × stop %).
+// Options budget = 80% of the day's options risk ($560 of $700): max contracts = budget left ÷ (premium × 100 × stop %).
+// Plans on the same day share the budget top to bottom: what plan 1 risks at its stop is taken off what plan 2 can use.
+const JR_PLAN_STOP = { penny: [5, 10, 15, 20], option: [10, 15, 20, 25] };
+function jrPlanBudget(kind, d) { const r = jrRiskFor(d); return kind === 'penny' ? Number(r.penny_limit) : Math.round(Number(r.option_limit) * 0.8); }
+function jrPlanCalc(d) {
+  const out = {};
+  for (const kind of ['penny', 'option']) {
+    const budget = jrPlanBudget(kind, d), mult = kind === 'option' ? 100 : 1; let used = 0;
+    (JR.plans || []).filter(p => p.d === d && p.kind === kind).forEach(p => {
+      const px = jrNum(p.price), sp = jrNum(p.stop_pct), q = jrNum(p.qty), left = Math.max(0, budget - used);
+      const per = px != null && sp != null ? px * mult * sp / 100 : null;                  // loss per share / contract at the stop
+      const max = per ? Math.floor(left / per) : null, risk = per && q ? Math.round(per * q * 100) / 100 : null;
+      const stop = px != null && sp != null ? Math.round(px * (1 - sp / 100) * 10000) / 10000 : null;
+      const must = kind === 'option' && px != null && q ? Math.max(0, Math.round((px - left / (q * 100)) * 100) / 100) : null;
+      const scale = kind === 'option' && px != null ? Array.from({ length: Math.min(Math.max(max || 0, 1), 10) }, (_, i) => ({ n: i + 1, must: Math.max(0, Math.round((px - left / ((i + 1) * 100)) * 100) / 100), risk: per ? Math.round(per * (i + 1)) : null })) : [];
+      out[p.id] = { budget, left, per, max, risk, stop, must, scale, over: risk != null && risk > left, ruleSize: kind === 'penny' && per ? Math.floor(budget / 3 / per) : null };
+      if (risk != null) used += Math.min(risk, left);
+    });
+    out[kind] = { budget, used: Math.min(used, budget), left: Math.max(0, budget - used) };
+  }
+  return out;
+}
+function jrPlanHtml() {
+  const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
+  const money = v => v == null ? '—' : '$' + (Math.abs(v) < 1 && v !== 0 ? Number(v).toFixed(2) : Math.round(v).toLocaleString('en-US'));
+  const px = v => v == null ? '—' : '$' + (v < 1 ? Number(v).toFixed(4) : Number(v).toFixed(2));
+  const sel = p => `<select onchange="jrPlanSet(${p.id},'stop_pct',this.value)">${['', ...JR_PLAN_STOP[p.kind]].map(o => `<option value="${o}" ${String(o) === String(jrNum(p.stop_pct) ?? '') ? 'selected' : ''}>${o === '' ? '—' : o + '%'}</option>`).join('')}
+      ${p.stop_pct != null && !JR_PLAN_STOP[p.kind].includes(Number(p.stop_pct)) ? `<option selected>${p.stop_pct}%</option>` : ''}</select>`;
+  const inp = (p, f, ph, w = 80, extra = '') => `<input value="${jrEsc(p[f] ?? '')}" placeholder="${ph}" style="width:${w}px;${extra}" onchange="jrPlanSet(${p.id},'${f}',this.value)">`;
+  const sec = (kind, title, color) => {
+    const rows = ps.filter(p => p.kind === kind), b = c[kind], P = kind === 'penny';
+    const body = rows.map((p, i) => { const x = c[p.id] || {};
+      return `<tr>
+        <td>${i + 1}</td><td>${inp(p, 'symbol', 'TICKER', 80, 'text-transform:uppercase;font-weight:700;')}</td>
+        <td>${inp(p, 'price', P ? '2.00' : '2.21', 70)}</td><td>${sel(p)}</td><td>${px(x.stop)}</td>
+        <td style="font-weight:700;color:var(--cyan);font-size:13px;">${x.max == null ? '—' : x.max.toLocaleString('en-US')}${P && x.ruleSize != null ? `<div style="font-size:10px;color:var(--text3);font-weight:400;">rule ⅓: ${x.ruleSize.toLocaleString('en-US')}</div>` : ''}</td>
+        <td>${inp(p, 'qty', '0', 60)}</td>
+        <td class="${x.over ? 'jr-neg' : ''}">${money(x.risk)}${x.over ? ' ✗' : ''}</td>
+        ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
+        <td>${money(x.left)}</td><td>${inp(p, 'notes', 'setup / why', 160)}</td>
+        <td><button class="jr-btn r sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
+        ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}`; }).join('');
+    return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
+        <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${Math.round(b.budget / 0.8)} daily)`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
+      ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Price' : 'Premium'}</th><th>Stop %</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th>Budget left</th><th>Notes</th><th></th></tr>${body}</table>`
+        : `<div style="color:var(--text3);padding:8px 0;">No ${P ? 'penny' : 'options'} plans for this day — use <b>+ ${P ? 'Penny' : 'Options'} plan</b>.</div>`}</div>`;
+  };
+  return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Plan your trades before you take them. <b>Max</b> = the most you could take with the budget left (plans share the day's budget, top to bottom).
+    ${''}Penny: budget ÷ (price × stop %). Options: budget ÷ (premium × 100 × stop %) · <b>Must stop</b> = the lowest premium out for the planned contracts.</div>
+    ${sec('penny', 'Penny stocks — plan', 'var(--green)')}${sec('option', 'Options — plan', 'var(--cyan)')}`;
+}
+async function jrPlanAdd(kind) {
+  const supa = await getSupabaseAsync();
+  const { data, error } = await supa.from('jr_plans').insert({ d: JR.d, kind, stop_pct: kind === 'penny' ? 15 : 20 }).select();
+  if (error) { showToast('Journal', 'Plan not added: ' + error.message, 'error'); return; }
+  JR.plans = (JR.plans || []).concat(data); jrRender();
+}
+async function jrPlanSet(id, f, v) {
+  const p = (JR.plans || []).find(x => x.id === id); if (!p) return;
+  const val = f === 'symbol' ? (String(v || '').trim().toUpperCase() || null) : f === 'notes' ? (String(v || '').trim() || null) : jrNum(v);
+  p[f] = val; jrRender();
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_plans').update({ [f]: val, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) showToast('Journal', 'Plan not saved: ' + error.message, 'error');
+}
+async function jrPlanDel(id) {
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_plans').delete().eq('id', id);
+  if (error) { showToast('Journal', 'Not removed: ' + error.message, 'error'); return; }
+  JR.plans = JR.plans.filter(p => p.id !== id); jrRender();
+}
+function jrPlanCsv() {
+  const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
+  if (!ps.length) { showToast('Journal', 'No plans on this day yet', 'info'); return; }
+  const q = v => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const lines = [['Date', 'Type', 'Ticker', 'Price / premium', 'Stop %', 'Stop at', 'Max shares / contracts', 'Planned', 'Loss at stop', 'Must stop (options)', 'Budget left', 'Notes'].join(',')];
+  ps.forEach(p => { const x = c[p.id] || {};
+    lines.push([d, p.kind === 'penny' ? 'Penny' : 'Option', p.symbol, p.price, p.stop_pct, x.stop, x.max, p.qty, x.risk, x.must, x.left, p.notes].map(q).join(',')); });
+  lines.push('');
+  lines.push(`Penny budget,${c.penny.budget},planned at stop,${Math.round(c.penny.used)},left,${Math.round(c.penny.left)}`);
+  lines.push(`Options budget (80% of daily),${c.option.budget},planned at stop,${Math.round(c.option.used)},left,${Math.round(c.option.left)}`);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  a.download = `trade-plan-${d}.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
 async function jrPdfChart(cfg, w, h) {   // renders a Chart.js chart off-screen for print and returns a PNG
   const box = document.createElement('div'); box.style.cssText = `position:fixed;left:-20000px;top:0;width:${w}px;height:${h}px;background:#fff;`;
   const cv = document.createElement('canvas'); cv.width = w * 2; cv.height = h * 2; cv.style.width = w + 'px'; cv.style.height = h + 'px'; box.appendChild(cv); document.body.appendChild(box);
@@ -19124,7 +19226,30 @@ async function jrPdf(scope) {
     const typ = t => t.kind === 'penny' ? `Penny${t.session ? ' · ' + ({ pre: 'pre', reg: 'reg', post: 'after' }[t.session]) : ''}` : `${t.strike || ''}${t.opt_type === 'put' ? ' P' : t.opt_type === 'call' ? ' C' : t.opt_type === 'spread' ? ' spread' : ''}${t.expiry ? ' · ' + jrFmtD(t.expiry) : ''}`;
     const stopL = { '10': '10%', '15': '15%', gt15: '>15%', '20': '20%', '25': '25%', none: 'none' };
     const tr = ts.slice().sort((a, b) => a.d > b.d ? -1 : a.d < b.d ? 1 : b.id - a.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', t.exit_date && t.exit_date !== t.d ? jrFmtD(t.exit_date) : '', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
-    if (tr.length && !analyticsOnly) { y = titled(`Trades (${tr.length}, newest first)`, y);
+    if (scope === 'day') {   // printable day sheet: what's filled in + empty lines to fill in by hand
+      const blank = n => Array.from({ length: n }, () => Array(11).fill(''));
+      const rulesTxt = t => { const r = t.rules || {}; return JR_RULES[t.kind].map(([k], i) => (r[k] || (k === 'expiry' && jrExpiryCheck(t)?.ok) ? '[x]' : '[ ]') + (i + 1)).join(' '); };
+      for (const [kind, label] of [['penny', 'Penny stocks'], ['option', 'Options']]) {
+        const P = kind === 'penny', rows = ts.filter(t => t.kind === kind).sort((a, b) => a.id - b.id).map(t => [t.symbol,
+          P ? ({ pre: 'Pre', reg: 'Regular', post: 'After' }[t.session] || '') : `${t.strike || ''}${t.opt_type === 'put' ? ' P' : t.opt_type === 'call' ? ' C' : ''}${t.expiry ? ' · ' + jrShowMD(t.expiry) : ''}`,
+          t.qty ?? '', t.entry ?? '', t.exit ?? '', t.exit_date ? jrShowMD(t.exit_date) : '', t.plan_stop_pct != null ? t.plan_stop_pct + '%' : '', P ? (t.plan_target ?? '') : (t.target_run ? 'run' : t.plan_target_pct != null ? '+' + t.plan_target_pct + '%' : ''),
+          pm(t.pnl), rulesTxt(t) + '  ' + (t.result || '').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
+        const empty = blank(Math.max(3, 6 - rows.length));
+        if (y > H - 230) { doc.addPage(); header(title); y = 74; }
+        y = titled(`${label} — ${rows.length} filled · ${empty.length} empty lines to fill in by hand`, y);
+        doc.autoTable({ ...tblBase, startY: y, head: [['Ticker', P ? 'Session' : 'Strike / exp.', P ? 'Shares' : 'Contracts', P ? 'Entry' : 'Prem. in', P ? 'Exit' : 'Prem. out', 'Exit date', 'Stop %', 'Target', 'P&L',
+          `Rules kept (1-${JR_RULES[kind].length}) / result`, 'Notes']], body: rows.concat(empty),
+          bodyStyles: { minCellHeight: 22, valign: 'middle' }, columnStyles: { 9: { cellWidth: 150 }, 10: { cellWidth: 150 } },
+          didParseCell: colorCells([8], -1), didDrawPage: () => header(title) });
+        y = doc.lastAutoTable.finalY + 18;
+      }
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY);
+      const legend = k => JR_RULES[k].map(([, l], i) => `${i + 1} ${l}`).join(' · ').replace(/→/g, '->').replace(/[–—]/g, '-');
+      if (y > H - 60) { doc.addPage(); header(title); y = 74; }
+      doc.text(doc.splitTextToSize('Penny rules: ' + legend('penny'), W - 2 * M), M, y); y += 22;
+      doc.text(doc.splitTextToSize('Options rules: ' + legend('option'), W - 2 * M), M, y);
+    }
+    if (tr.length && !analyticsOnly && scope !== 'day') { y = titled(`Trades (${tr.length}, newest first)`, y);
       doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'Exit date', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 10: { cellWidth: 160 } },
         didParseCell: colorCells([7], 9), didDrawPage: () => header(title) }); }
     const n = doc.getNumberOfPages();
