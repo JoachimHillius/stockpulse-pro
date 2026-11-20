@@ -18168,6 +18168,18 @@ body.light-mode .jr-d .mk{color:#7a8798;} body.light-mode .jr-d .mk .up{color:#3
 .dot.clean{background:var(--green);} .dot.warning{background:var(--amber);} .dot.fail{background:var(--red);}
 .jr-kp{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
 .jr-kp .jr-card{flex:1;min-width:120px;padding:7px 10px;}
+/* Analytics: raised 3D cards (light top edge, soft drop shadow, lifts on hover) */
+.jr-an .jr-card{position:relative;border-radius:12px;border:1px solid rgba(255,255,255,.07);border-top-color:rgba(255,255,255,.18);
+  background:linear-gradient(180deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,.015) 45%,rgba(0,0,0,.08) 100%),var(--bg2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 2px 3px rgba(0,0,0,.28),0 10px 22px -6px rgba(0,0,0,.45);transition:transform .15s ease,box-shadow .15s ease;}
+.jr-an .jr-card:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 4px 6px rgba(0,0,0,.3),0 16px 30px -8px rgba(0,0,0,.5);}
+.jr-an .jr-kp .jr-card b{text-shadow:0 2px 6px rgba(0,0,0,.35);}
+.jr-an .jr-card h3{text-shadow:0 1px 2px rgba(0,0,0,.4);}
+.jr-an .jr-tbl tr:hover td{background:rgba(0,212,255,.05);}
+body.light-mode .jr-an .jr-card{border-color:rgba(16,40,70,.10);border-top-color:rgba(255,255,255,.9);
+  background:linear-gradient(180deg,#ffffff 0%,var(--bg2) 100%);box-shadow:0 1px 2px rgba(16,40,70,.10),0 10px 22px -8px rgba(16,40,70,.25);}
+body.light-mode .jr-an .jr-card:hover{box-shadow:0 2px 4px rgba(16,40,70,.12),0 16px 30px -10px rgba(16,40,70,.32);}
+body.light-mode .jr-an .jr-kp .jr-card b,body.light-mode .jr-an .jr-card h3{text-shadow:none;}
 .jr-kp span{font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.5px;display:block;} .jr-kp b{font-size:18px;}
 .jr-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;}
 .jr-modal .jr-card{width:330px;}
@@ -18208,7 +18220,7 @@ function jrRender() {
   if (JR.tab === 'today') body = jrTodayHtml();
   else if (JR.tab === 'calendar') body = jrCalHtml();
   else if (JR.tab === 'audit') body = jrAuditHtml();
-  else body = jrAnHtml();
+  else body = `<div class="jr-an">${jrAnHtml()}</div>`;
   root.innerHTML = `<div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
     <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
@@ -18740,22 +18752,24 @@ function jrAnCharts() {
   const r = jrAnRange(), ts = JR.trades.filter(t => t.d >= r.from && t.d <= r.to && (r.filter === 'both' || t.kind === r.filter) && t.pnl != null);
   const css = getComputedStyle(document.body), txt = css.getPropertyValue('--text2').trim() || '#c0cfe0', grid = 'rgba(128,144,160,.15)';
   const G = css.getPropertyValue('--green').trim() || '#00e5b0', R = css.getPropertyValue('--red').trim() || '#ff3d5a', A = css.getPropertyValue('--amber').trim() || '#ffb020', C = css.getPropertyValue('--cyan').trim() || '#00d4ff';
+  const raised = { id: 'jrRaised', beforeDatasetsDraw: c => { const x = c.ctx; x.save(); x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowBlur = 8; x.shadowOffsetX = 2; x.shadowOffsetY = 4; },
+    afterDatasetsDraw: c => c.ctx.restore() };   // bars, slices and the line get a soft drop shadow (3D look)
   const opt = (extra = {}) => ({ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { color: txt } } },
     scales: { x: { ticks: { color: txt, maxRotation: 0, autoSkip: true }, grid: { color: grid } }, y: { ticks: { color: txt, callback: v => '$' + v }, grid: { color: grid } } }, ...extra });
   const byDay = {}; ts.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
   const days = Object.keys(byDay).sort(); let cum = 0;
   const cumV = days.map(d => (cum += byDay[d], Math.round(cum * 100) / 100));
-  JR.charts.push(new Chart(document.getElementById('jr-ch-eq'), { type: 'line', data: { labels: days.map(d => jrFmtD(d)), datasets: [{ label: 'Running P&L', data: cumV, borderColor: C, backgroundColor: 'rgba(0,212,255,.12)', fill: true, pointRadius: days.length > 60 ? 0 : 2, tension: .2 }] }, options: opt({ plugins: { legend: { display: false } } }) }));
+  JR.charts.push(new Chart(document.getElementById('jr-ch-eq'), { plugins: [raised], type: 'line', data: { labels: days.map(d => jrFmtD(d)), datasets: [{ label: 'Running P&L', data: cumV, borderColor: C, backgroundColor: 'rgba(0,212,255,.12)', fill: true, pointRadius: days.length > 60 ? 0 : 2, tension: .2 }] }, options: opt({ plugins: { legend: { display: false } } }) }));
   const perWeek = !(r.scope === 'week' || r.scope === 'month');
   const bucket = {}; ts.forEach(t => { const k = perWeek ? jrMonday(t.d) : t.d; bucket[k] = (bucket[k] || 0) + t.pnl; });
   const bk = Object.keys(bucket).sort();
-  JR.charts.push(new Chart(document.getElementById('jr-ch-bar'), { type: 'bar', data: { labels: bk.map(d => jrFmtD(d)), datasets: [{ data: bk.map(k => Math.round(bucket[k])), backgroundColor: bk.map(k => bucket[k] >= 0 ? G : R) }] }, options: opt({ plugins: { legend: { display: false } } }) }));
+  JR.charts.push(new Chart(document.getElementById('jr-ch-bar'), { plugins: [raised], type: 'bar', data: { labels: bk.map(d => jrFmtD(d)), datasets: [{ data: bk.map(k => Math.round(bucket[k])), backgroundColor: bk.map(k => bucket[k] >= 0 ? G : R) }] }, options: opt({ plugins: { legend: { display: false } } }) }));
   const sliceNums = { id: 'jrSliceNums', afterDatasetsDraw: c => { const x = c.ctx, ds = c.data.datasets[0]; x.save();   // count written on each slice
     x.font = 'bold 13px sans-serif'; x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
     c.getDatasetMeta(0).data.forEach((a, i) => { const v = ds.data[i], tot = ds.data.reduce((s, n) => s + n, 0); if (!v || v / tot < .04) return; const p = a.tooltipPosition(); x.fillText(v.toLocaleString('en-US'), p.x, p.y); });
     x.restore(); } };
   const pie = (id, labels, data, colors, nums) => JR.charts.push(new Chart(document.getElementById(id), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
-    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'right', labels: { color: txt } } } }, plugins: nums ? [sliceNums] : [] }));
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'right', labels: { color: txt } } } }, plugins: nums ? [raised, sliceNums] : [raised] }));
   const w = ts.filter(t => t.pnl > 0).length, l = ts.filter(t => t.pnl < 0).length, e = ts.length - w - l;
   pie('jr-ch-wl', [`Wins ${w}`, `Losses ${l}`, `Even ${e}`], [w, l, e], [G, R, '#8090a8'], true);
   const all = JR.trades.filter(t => t.d >= r.from && t.d <= r.to && (r.filter === 'both' || t.kind === r.filter));
@@ -18763,7 +18777,7 @@ function jrAnCharts() {
   pie('jr-ch-rules', [`Clean ${rc('clean')}`, `Warning ${rc('warning')}`, `Fail ${rc('fail')}`, `Not reviewed ${rc('none')}`], [rc('clean'), rc('warning'), rc('fail'), rc('none')], [G, A, R, '#8090a8']);
   const bySym = {}; ts.forEach(t => bySym[t.symbol] = (bySym[t.symbol] || 0) + t.pnl);
   const top = Object.entries(bySym).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 10).sort((a, b) => b[1] - a[1]);
-  JR.charts.push(new Chart(document.getElementById('jr-ch-sym'), { type: 'bar', data: { labels: top.map(x => x[0]), datasets: [{ data: top.map(x => Math.round(x[1])), backgroundColor: top.map(x => x[1] >= 0 ? G : R) }] },
+  JR.charts.push(new Chart(document.getElementById('jr-ch-sym'), { plugins: [raised], type: 'bar', data: { labels: top.map(x => x[0]), datasets: [{ data: top.map(x => Math.round(x[1])), backgroundColor: top.map(x => x[1] >= 0 ? G : R) }] },
     options: opt({ indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: txt, callback: v => '$' + v }, grid: { color: grid } }, y: { ticks: { color: txt }, grid: { display: false } } } }) }));
 }
 
