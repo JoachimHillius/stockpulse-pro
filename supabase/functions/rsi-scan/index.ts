@@ -544,7 +544,7 @@ function formatTelegramMessage(label: string, crossings: Crossing[], suffixes?: 
   return renderTelegramMessage(label, selectAlertLines(crossings), suffixes);
 }
 
-async function sendTelegram(label: string, crossings: Crossing[]): Promise<string> {
+async function sendTelegram(supa: any, label: string, crossings: Crossing[]): Promise<string> {
   const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
   if (!token || !chatId) { console.error('[telegram] TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set; alert skipped'); return 'skipped_no_secrets'; }
@@ -569,6 +569,10 @@ async function sendTelegram(label: string, crossings: Crossing[]): Promise<strin
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) { console.error('[telegram] HTTP', res.status); return `failed_http_${res.status}`; }
+    // Keep a copy for the Telegram News page. Stored as already sent, so telegram-outbox never sends it again.
+    const now = new Date().toISOString();
+    const { error: logError } = await supa.from('telegram_outbox').insert({ text, status: 'sent', created_at: now, sent_at: now });
+    if (logError) console.error('[telegram] outbox copy failed:', logError.message.slice(0, 120));
     return 'sent';
   } catch (e) {
     // The bot token is part of the URL, so scrub it from anything logged.
@@ -780,7 +784,7 @@ Deno.serve(async (req: Request) => {
 
     // Final chunk: one combined Telegram message for the whole run.
     let telegram = 'none';
-    if (totals.crossings.length) telegram = await sendTelegram(label, totals.crossings);
+    if (totals.crossings.length) telegram = await sendTelegram(supa, label, totals.crossings);
     const elapsedMs = Date.now() - runStartedAt;
     console.log(`[rsi-scan] run ${runId} done: chunks=${totalChunks} symbols=${symbols.length} ok=${totals.ok} failed=${totals.failed} options_checked=${totals.optionsChecked} options_unknown=${totals.optionsUnknown} crossings=${totals.crossings.length} telegram=${telegram} ms=${elapsedMs}`);
     return json({ ran: true, done: true, chunk, total_chunks: totalChunks, symbols: symbols.length, ok: totals.ok,
