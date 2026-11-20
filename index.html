@@ -18073,7 +18073,7 @@ function _rsFlipToTracked(symbol, section) {
 <script>
 // ===== Trading Journal (STEP 20): Today (market + one card per trade) and Calendar =====
 // Tables: jr_days, jr_trades, jr_risk, jr_audit, jr_symbols · ticker search: rpc jr_symbol_search
-const JR = { tab: 'today', d: null, days: {}, trades: [], risk: [], month: null, filter: 'both', sel: null, edit: {}, seq: 0, loaded: false };
+const JR = { tab: 'today', d: null, days: {}, trades: [], risk: [], audit: {}, month: null, filter: 'both', sel: null, edit: {}, seq: 0, loaded: false };
 const JR_RULES = {
   penny: [['plan', 'Plan written before entry'], ['stop', 'Stop placed / mental stop honored'], ['size', 'Sized from the 15% stop'],
           ['trail', 'Stop trailed at +1R (or +1R never reached)'], ['nochase', 'No chase · dilution checked']],
@@ -18177,10 +18177,12 @@ async function jrInit() {
 async function jrLoad() {
   const supa = await getSupabaseAsync();
   if (!supa) { document.getElementById('jr-root').innerHTML = '<div style="color:var(--red);padding:20px;">Database unavailable</div>'; return; }
-  const [t, d, r] = await Promise.all([
+  const [t, d, r, au] = await Promise.all([
     supa.from('jr_trades').select('*').order('d').order('id').limit(5000),
     supa.from('jr_days').select('*').limit(5000),
-    supa.from('jr_risk').select('*').order('week_start').limit(500)]);
+    supa.from('jr_risk').select('*').order('week_start').limit(500),
+    supa.from('jr_audit').select('*').limit(500)]);
+  JR.audit = Object.fromEntries(((au && au.data) || []).map(x => [x.week_start, x]));
   if (t.error || d.error || r.error) { showToast('Journal', 'Load failed: ' + (t.error || d.error || r.error).message, 'error'); return; }
   JR.trades = (t.data || []).map(x => ({ ...x, qty: jrNum(x.qty), entry: jrNum(x.entry), exit: jrNum(x.exit), pnl: jrNum(x.pnl) }));
   JR.days = Object.fromEntries((d.data || []).map(x => [x.d, x]));
@@ -18195,10 +18197,12 @@ function jrRender() {
   let body = '';
   if (JR.tab === 'today') body = jrTodayHtml();
   else if (JR.tab === 'calendar') body = jrCalHtml();
-  else body = `<div class="jr-card" style="padding:30px;text-align:center;color:var(--text3);">${JR.tab === 'audit' ? 'Weekly Audit' : 'Analytics'} — built in the next step.</div>`;
+  else if (JR.tab === 'audit') body = jrAuditHtml();
+  else body = jrAnHtml();
   root.innerHTML = `<div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button>` : ''}</div>${body}`;  if (JR.tab === 'today') Object.keys(JR.edit).forEach(jrRefreshCard);
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn" onclick="jrPdf('day')">⬇ PDF (day)</button>` : ''}</div>${body}`;  if (JR.tab === 'today') Object.keys(JR.edit).forEach(jrRefreshCard);
+  if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
 }
 function jrSetDate(d) {
   if (!d) return;
@@ -18344,6 +18348,7 @@ function jrRefreshCard(k) {
     else { const mx = Math.floor((risk.option_limit / 3) / (px * 100 * 0.25)); const ok = v.qty <= mx; se.textContent = `${v.qty} ${ok ? '≤' : '>'} ${mx} contracts ${ok ? '✓' : '✗'}`; se.className = 'jr-auto ' + (ok ? 'jr-pos' : 'jr-amb'); }
   }
   const re = document.getElementById('jr-res-' + k);
+  if (re && e.id && !e._dirty && e.result) { re.innerHTML = `<span class="jr-tag ${e.result}">${e.result.toUpperCase()}</span>${e._ovr || (e.rules || {})._ovr ? ' <span style="color:var(--text3);">(set by hand)</span>' : ''} <span style="color:var(--text3);font-size:11px;">saved</span>`; return; }
   if (re && e.id && !e._dirty && !e.result) { re.innerHTML = '<span class="jr-tag none">NOT REVIEWED</span> <span style="color:var(--text3);font-size:11px;">tick the rules you kept, then Save</span>'; return; }
   if (re) {
     const miss = JR_RULES[e.kind].map(([rk], i) => !e.rules[rk] ? i + 1 : null).filter(Boolean);
@@ -18498,7 +18503,7 @@ function jrCalHtml() {
   const vixOf = t => { const v = (JR.days[t.d] || {}).vix_close; return v == null ? 'none' : v < 16 ? 'lo' : v <= 18 ? 'mid' : 'hi'; };
   const months = new Date(y, mo - 1, 15).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return `<div class="jr-hd" style="margin-top:-4px;">${[['both', 'Both'], ['penny', 'Penny'], ['option', 'Options']].map(([k, l]) => `<button class="jr-pill ${JR.filter === k ? 'on' : ''}" onclick="jrCalFilter('${k}')">${l}</button>`).join('')}
-    <span class="jr-sp"></span><button class="jr-pill" onclick="jrCalMove(-1)">◀</button><b style="min-width:150px;text-align:center;font-size:15px;color:var(--text);">${months}</b><button class="jr-pill" onclick="jrCalMove(1)">▶</button></div>
+    <span class="jr-sp"></span><button class="jr-pill" onclick="jrCalMove(-1)">◀</button><b style="min-width:150px;text-align:center;font-size:15px;color:var(--text);">${months}</b><button class="jr-pill" onclick="jrCalMove(1)">▶</button><button class="jr-btn" onclick="jrPdf('month')">⬇ PDF for coach (month)</button></div>
     ${kp}
     <div class="jr-row" style="align-items:flex-start;">
       <div style="flex:2.4;min-width:560px;">
@@ -18511,6 +18516,254 @@ function jrCalHtml() {
         <div class="jr-card"><h3>P&amp;L by VIX close</h3>${grp(vixOf, [['lo', '&lt; 16'], ['mid', '16 – 18'], ['hi', '&gt; 18'], ['none', 'not entered']])}</div>
       </div>
     </div>`;
+}
+
+// ---------- STEP 21: Weekly Audit · Analytics · PDF for coach ----------
+const JR_LADDER = { penny: [500, 600, 720, 865, 1035, 1245, 1495, 1795, 2155], option: [800, 960, 1150, 1380, 1660, 1990, 2390, 2870, 3445] };
+const jrLimitKey = k => k === 'penny' ? 'penny_limit' : 'option_limit';
+function jrLevelOf(kind, v) { const L = JR_LADDER[kind]; let best = 0; L.forEach((x, i) => { if (Math.abs(x - v) < Math.abs(L[best] - v)) best = i; }); return best; }
+const jrFmtD = (d, o = { month: 'short', day: 'numeric' }) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', o);
+function jrWeekStats(ws, kind) {
+  const we = jrAddDays(ws, 6), ts = JR.trades.filter(t => t.d >= ws && t.d <= we && (kind === 'both' || t.kind === kind));
+  const limit = kind === 'both' ? null : Number(jrRiskFor(ws)[jrLimitKey(kind)]);
+  const byDay = {}; ts.forEach(t => { byDay[t.d] = (byDay[t.d] || 0) + (t.pnl || 0); });
+  const worst = Math.max(0, ...Object.values(byDay).map(v => -v));
+  const withP = ts.filter(t => t.pnl != null), wins = withP.filter(t => t.pnl > 0).length;
+  const stops = {}; ts.forEach(t => { if (t.stop_used) stops[t.stop_used] = (stops[t.stop_used] || 0) + 1; });
+  const warn = ts.filter(t => t.result === 'warning').length, fail = ts.filter(t => t.result === 'fail').length, unrev = ts.filter(t => !t.result).length;
+  const exceeded = limit != null && worst > limit;
+  let result = null;
+  if (ts.length && unrev < ts.length) result = (fail || exceeded || warn >= 2) ? 'fail' : warn === 1 ? 'warning' : 'clean';
+  return { ts, n: ts.length, net: ts.reduce((s, t) => s + (t.pnl || 0), 0), win: withP.length ? Math.round(wins / withP.length * 100) : null,
+    worst, limit, stops, warn, fail, unrev, exceeded, result, clean: ts.filter(t => t.result === 'clean').length, reviewed: ts.length - unrev };
+}
+function jrSuggest(kind, ws) {
+  const cur = Number(jrRiskFor(ws)[jrLimitKey(kind)]), st = jrWeekStats(ws, kind), lv = jrLevelOf(kind, cur), L = JR_LADDER[kind];
+  if (st.result === 'clean') return { v: L[Math.min(lv + 1, L.length - 1)], why: 'clean week → one level up' };
+  if (st.result === 'fail') return { v: L[Math.max(lv - 1, 0)], why: 'fail → back one level' };
+  if (st.result === 'warning') return { v: cur, why: 'warning → stays the same' };
+  return { v: cur, why: st.n ? 'trades not reviewed yet → stays the same' : 'no trades → stays the same' };
+}
+function jrAuditWeek() { if (!JR.aw) JR.aw = jrMonday(jrToday()); return JR.aw; }
+function jrAuditMove(n) { JR.aw = jrAddDays(jrAuditWeek(), 7 * n); jrRender(); }
+function jrAuditHtml() {
+  const ws = jrAuditWeek(), nws = jrAddDays(ws, 7), P = jrWeekStats(ws, 'penny'), O = jrWeekStats(ws, 'option'), a = JR.audit[ws] || {};
+  const tag = r => r ? `<span class="jr-tag ${r}">${r.toUpperCase()}</span>` : '<span class="jr-tag none">—</span>';
+  const stopTxt = (s, keys) => keys.map(([k, l]) => `${l}: ${s.stops[k] || 0}`).join(' · ');
+  const row = (l, p, o) => `<tr><td><b>${l}</b></td><td>${p}</td><td>${o}</td></tr>`;
+  const money = v => `<span class="${v >= 0 ? 'jr-pos' : 'jr-neg'}">${jrMoney0(v)}</span>`;
+  const worst = s => s.n ? `<span class="${s.exceeded ? 'jr-neg' : ''}">$${Math.round(s.worst)} / $${s.limit.toLocaleString()}</span>${s.exceeded ? ' <b class="jr-neg">over the limit</b>' : ''}` : '—';
+  const sp = jrSuggest('penny', ws), so = jrSuggest('option', ws);
+  const nextRow = JR.risk.filter(r => r.week_start === nws).sort((x, y) => y.id - x.id)[0];
+  const curP = Number(jrRiskFor(ws).penny_limit), curO = Number(jrRiskFor(ws).option_limit);
+  const hist = JR.risk.slice().sort((x, y) => x.week_start < y.week_start ? 1 : x.week_start > y.week_start ? -1 : y.id - x.id).slice(0, 12)
+    .map(r => `<tr><td>${jrFmtD(r.week_start)}</td><td>$${Number(r.penny_limit).toLocaleString()}</td><td>$${Number(r.option_limit).toLocaleString()}</td><td style="white-space:normal;">${jrEsc(r.reason)}</td></tr>`).join('');
+  return `<div class="jr-hd" style="margin-top:-4px;"><button class="jr-pill" onclick="jrAuditMove(-1)">◀</button>
+    <b style="font-size:15px;color:var(--text);">Week of ${jrFmtD(ws)} – ${jrFmtD(jrAddDays(ws, 4))}</b><button class="jr-pill" onclick="jrAuditMove(1)">▶</button>
+    <span class="jr-sp"></span><button class="jr-btn" onclick="jrPdf('week')">⬇ PDF for coach (week)</button></div>
+  <div class="jr-row" style="align-items:flex-start;">
+    <div style="flex:1.2;min-width:460px;display:flex;flex-direction:column;gap:10px;">
+      <div class="jr-card"><h3>Sunday audit</h3>
+        <table class="jr-tbl"><tr><th></th><th>Penny</th><th>Options</th></tr>
+          ${row('Trades', P.n, O.n)}${row('Net P&amp;L', P.n ? money(P.net) : '—', O.n ? money(O.net) : '—')}
+          ${row('Win rate', P.win == null ? '—' : P.win + '%', O.win == null ? '—' : O.win + '%')}
+          ${row('Worst day vs limit', worst(P), worst(O))}
+          ${row('Stop used', stopTxt(P, [['10', '10%'], ['15', '15%'], ['gt15', 'past 15%']]), stopTxt(O, [['20', '20%'], ['25', '25%'], ['none', 'none']]))}
+          ${row('Warnings', P.warn ? `<span class="jr-amb">${P.warn}</span>` : 0, O.warn ? `<span class="jr-amb">${O.warn}</span>` : 0)}
+          ${row('Fails', P.fail ? `<span class="jr-neg">${P.fail}</span>` : 0, O.fail ? `<span class="jr-neg">${O.fail}</span>` : 0)}
+          ${row('Not reviewed', P.unrev, O.unrev)}
+          ${row('Result', tag(P.result), tag(O.result))}</table>
+        <div style="font-size:11px;color:var(--text2);margin-top:6px;">Clean = no fails and at most 1 warning · 2 warnings or any fail or a day over the limit = fail · trades that aren't reviewed don't count.</div></div>
+      <div class="jr-card"><h3>Audit notes<span class="jr-sp" id="jr-aud-st" style="text-transform:none;letter-spacing:0;"></span></h3>
+        <div class="jr-f"><textarea id="jr-aud-notes" style="min-height:90px;" placeholder="What went well, what broke the rules, what changes next week">${jrEsc(a.notes)}</textarea></div>
+        <div style="margin-top:8px;text-align:right;"><button class="jr-btn g sm" onclick="jrSaveAudit()">Save audit</button></div></div>
+    </div>
+    <div style="flex:1;min-width:380px;display:flex;flex-direction:column;gap:10px;">
+      <div class="jr-card"><h3>Risk for next week — ${jrFmtD(nws)}</h3>
+        <table class="jr-tbl"><tr><th></th><th>This week</th><th>Suggested</th><th>Next week</th></tr>
+          <tr><td><b>Penny / day</b></td><td>$${curP.toLocaleString()} <span style="color:var(--text2);">(level ${jrLevelOf('penny', curP) + 1})</span></td><td>$${sp.v.toLocaleString()}<div style="color:var(--text2);font-size:10.5px;">${sp.why}</div></td>
+            <td class="jr-f" style="display:table-cell;"><input id="jr-nr-p" type="number" step="5" value="${nextRow ? nextRow.penny_limit : sp.v}"></td></tr>
+          <tr><td><b>Options / day</b></td><td>$${curO.toLocaleString()} <span style="color:var(--text2);">(level ${jrLevelOf('option', curO) + 1})</span></td><td>$${so.v.toLocaleString()}<div style="color:var(--text2);font-size:10.5px;">${so.why}</div></td>
+            <td class="jr-f" style="display:table-cell;"><input id="jr-nr-o" type="number" step="5" value="${nextRow ? nextRow.option_limit : so.v}"></td></tr></table>
+        <div class="jr-f" style="margin-top:8px;"><label>Reason (required)</label><input id="jr-nr-why" type="text" value="${jrEsc(nextRow ? nextRow.reason : '')}" placeholder="e.g. clean penny week · options fail on 11/19 (no stop)"></div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px;"><span style="color:var(--text2);font-size:11px;">${nextRow ? 'Already set for next week — saving again replaces it.' : 'Nothing set for next week yet — it keeps this week\'s risk until you set it.'}</span>
+          <span class="jr-sp"></span><button class="jr-btn g sm" onclick="jrSetRisk('${nws}')">Set next week's risk</button></div></div>
+      <div class="jr-card"><h3>Risk history</h3><table class="jr-tbl"><tr><th>From week</th><th>Penny</th><th>Options</th><th>Reason</th></tr>${hist}</table></div>
+    </div>
+  </div>`;
+}
+async function jrSaveAudit() {
+  const ws = jrAuditWeek(), notes = document.getElementById('jr-aud-notes').value.trim() || null;
+  const row = { week_start: ws, penny_result: jrWeekStats(ws, 'penny').result, option_result: jrWeekStats(ws, 'option').result, notes, updated_at: new Date().toISOString() };
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_audit').upsert(row, { onConflict: 'week_start' });
+  if (error) { showToast('Journal', 'Audit not saved: ' + error.message, 'error'); return; }
+  JR.audit[ws] = row;
+  const st = document.getElementById('jr-aud-st'); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
+}
+async function jrSetRisk(nws) {
+  const p = jrNum(document.getElementById('jr-nr-p').value), o = jrNum(document.getElementById('jr-nr-o').value), why = document.getElementById('jr-nr-why').value.trim();
+  if (!p || !o || p <= 0 || o <= 0) { showToast('Journal', 'Enter both daily limits', 'error'); return; }
+  if (!why) { showToast('Journal', 'Write the reason for next week\'s risk', 'error'); return; }
+  const supa = await getSupabaseAsync();
+  await supa.from('jr_risk').delete().eq('week_start', nws);
+  const { data, error } = await supa.from('jr_risk').insert({ week_start: nws, penny_limit: p, option_limit: o, reason: why }).select();
+  if (error) { showToast('Journal', 'Risk not saved: ' + error.message, 'error'); return; }
+  JR.risk = JR.risk.filter(r => r.week_start !== nws).concat(data);
+  showToast('Risk', `From ${jrFmtD(nws)}: Penny $${p} · Options $${o}`, 'info');
+  jrRender();
+}
+
+// Analytics
+function jrAnRange() {
+  const r = JR.an || (JR.an = { scope: 'month', anchor: jrToday(), filter: 'both' });
+  const a = r.anchor; let from, to, label;
+  if (r.scope === 'week') { from = jrMonday(a); to = jrAddDays(from, 6); label = `Week of ${jrFmtD(from)}`; }
+  else if (r.scope === 'month') { from = a.slice(0, 7) + '-01'; const [y, m] = a.split('-').map(Number); to = `${a.slice(0, 7)}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; label = jrFmtD(from, { month: 'long', year: 'numeric' }); }
+  else if (r.scope === 'year') { from = a.slice(0, 4) + '-01-01'; to = a.slice(0, 4) + '-12-31'; label = a.slice(0, 4); }
+  else { from = '0000-01-01'; to = '9999-12-31'; label = 'All trades'; }
+  return { ...r, from, to, label };
+}
+function jrAnSet(k, v) { JR.an = { ...jrAnRange(), [k]: v }; jrRender(); }
+function jrAnMove(n) {
+  const r = jrAnRange(); let a = r.anchor;
+  if (r.scope === 'week') a = jrAddDays(a, 7 * n);
+  else if (r.scope === 'month') { const [y, m] = a.split('-').map(Number); const x = new Date(y, m - 1 + n, 15); a = x.toISOString().slice(0, 10); }
+  else if (r.scope === 'year') a = (Number(a.slice(0, 4)) + n) + a.slice(4);
+  JR.an.anchor = a; jrRender();
+}
+function jrAnHtml() {
+  const r = jrAnRange(), ts = JR.trades.filter(t => t.d >= r.from && t.d <= r.to && (r.filter === 'both' || t.kind === r.filter));
+  const withP = ts.filter(t => t.pnl != null), W = withP.filter(t => t.pnl > 0), Lo = withP.filter(t => t.pnl < 0);
+  const net = withP.reduce((s, t) => s + t.pnl, 0), gw = W.reduce((s, t) => s + t.pnl, 0), gl = -Lo.reduce((s, t) => s + t.pnl, 0);
+  const byDay = {}; withP.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
+  const days = Object.entries(byDay).sort(), best = days.reduce((b, x) => !b || x[1] > b[1] ? x : b, null), worst = days.reduce((b, x) => !b || x[1] < b[1] ? x : b, null);
+  const rev = ts.filter(t => t.result), clean = rev.filter(t => t.result === 'clean').length;
+  const kp = (l, v, c = '') => `<div class="jr-card"><span>${l}</span><b class="${c}">${v}</b></div>`;
+  // week-over-week
+  const lastW = jrMonday(r.scope === 'all' ? (JR.trades.length ? JR.trades[JR.trades.length - 1].d : jrToday()) : (r.to > jrToday() ? jrToday() : r.to));
+  const firstW = r.scope === 'week' || r.scope === 'month' ? jrAddDays(lastW, -7 * 7) : jrMonday(r.scope === 'all' ? (JR.trades[0]?.d || jrToday()) : r.from);
+  const weeks = []; for (let w = lastW; w >= firstW && weeks.length < 60; w = jrAddDays(w, -7)) weeks.push(w);
+  const kindF = r.filter === 'both' ? 'both' : r.filter;
+  const wrows = weeks.map(w => ({ w, s: jrWeekStats(w, kindF), p: jrWeekStats(w, 'penny'), o: jrWeekStats(w, 'option') }));
+  let streak = 0; for (const x of wrows) { const rs = [x.p.result, x.o.result].filter(Boolean); if (rs.length && rs.every(v => v === 'clean')) streak++; else if (x.s.n) break; }
+  const wtbl = wrows.map((x, i) => {
+    const prev = wrows[i + 1], d = prev ? x.s.net - prev.s.net : null, risk = jrRiskFor(x.w);
+    const res = kindF === 'both' ? [x.p.result, x.o.result].filter(Boolean).sort((a, b) => JR_RANK[b] - JR_RANK[a])[0] : x.s.result;
+    return `<tr><td>${jrFmtD(x.w)}</td><td>${x.s.n}</td><td class="${x.s.net >= 0 ? 'jr-pos' : 'jr-neg'}">${x.s.n ? jrMoney0(x.s.net) : '—'}</td>
+      <td class="${d == null ? '' : d >= 0 ? 'jr-pos' : 'jr-neg'}">${d == null || !x.s.n ? '—' : (d >= 0 ? '▲ ' : '▼ ') + jrMoney0(Math.abs(d)).replace(/^[+−]/, '')}</td>
+      <td>${x.s.win == null ? '—' : x.s.win + '%'}</td><td>${x.s.reviewed ? Math.round(x.s.clean / x.s.reviewed * 100) + '%' : '—'}</td>
+      <td>${res ? `<span class="jr-tag ${res}">${res.toUpperCase()}</span>` : '—'}</td><td>$${Number(risk.penny_limit).toLocaleString()} · $${Number(risk.option_limit).toLocaleString()}</td></tr>`;
+  }).join('');
+  return `<div class="jr-hd" style="margin-top:-4px;">${[['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['all', 'All']].map(([k, l]) => `<button class="jr-pill ${r.scope === k ? 'on' : ''}" onclick="jrAnSet('scope','${k}')">${l}</button>`).join('')}
+    <span style="width:12px;"></span>${[['both', 'Both'], ['penny', 'Penny'], ['option', 'Options']].map(([k, l]) => `<button class="jr-pill ${r.filter === k ? 'on' : ''}" onclick="jrAnSet('filter','${k}')">${l}</button>`).join('')}
+    <span class="jr-sp"></span>${r.scope !== 'all' ? `<button class="jr-pill" onclick="jrAnMove(-1)">◀</button>` : ''}<b style="min-width:150px;text-align:center;font-size:15px;color:var(--text);">${r.label}</b>${r.scope !== 'all' ? `<button class="jr-pill" onclick="jrAnMove(1)">▶</button>` : ''}<button class="jr-btn" onclick="jrPdf('range')">⬇ PDF (this view)</button></div>
+  <div class="jr-kp">${kp('Net P&amp;L', jrMoney0(net), net >= 0 ? 'jr-pos' : 'jr-neg')}${kp('Trades', ts.length)}${kp('Win rate', withP.length ? Math.round(W.length / withP.length * 100) + '%' : '—')}
+    ${kp('Avg win · avg loss', `<i class="jr-pos" style="font-style:normal;">${W.length ? jrMoney0(gw / W.length) : '—'}</i> · <i class="jr-neg" style="font-style:normal;">${Lo.length ? jrMoney0(-gl / Lo.length) : '—'}</i>`)}
+    ${kp('Profit factor', gl ? (gw / gl).toFixed(2) : W.length ? '∞' : '—')}${kp('Best day', best ? `${jrMoney0(best[1])} <span style="display:inline;">${jrFmtD(best[0])}</span>` : '—', 'jr-pos')}
+    ${kp('Worst day', worst ? `${jrMoney0(worst[1])} <span style="display:inline;">${jrFmtD(worst[0])}</span>` : '—', 'jr-neg')}${kp('Rule-clean', rev.length ? `${Math.round(clean / rev.length * 100)}% <span style="display:inline;">${clean}/${rev.length}</span>` : '—')}</div>
+  ${ts.length ? `<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:10px;">
+    <div class="jr-card"><h3>P&amp;L over time (running total)</h3><div style="height:230px;"><canvas id="jr-ch-eq"></canvas></div></div>
+    <div class="jr-card"><h3>P&amp;L per ${r.scope === 'week' || r.scope === 'month' ? 'day' : 'week'}</h3><div style="height:230px;"><canvas id="jr-ch-bar"></canvas></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="jr-card"><h3>Wins vs losses</h3><div style="height:200px;"><canvas id="jr-ch-wl"></canvas></div></div>
+      <div class="jr-card"><h3>Rules</h3><div style="height:200px;"><canvas id="jr-ch-rules"></canvas></div></div></div>
+    <div class="jr-card"><h3>P&amp;L by ticker (top 10)</h3><div style="height:200px;"><canvas id="jr-ch-sym"></canvas></div></div>
+  </div>` : `<div class="jr-card" style="text-align:center;color:var(--text2);padding:22px;">No trades in this period.</div>`}
+  <div class="jr-card" style="margin-top:10px;"><h3>Week over week<span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text);">Clean weeks in a row: <b class="${streak ? 'jr-pos' : ''}" style="font-size:14px;">${streak}</b></span></h3>
+    <table class="jr-tbl"><tr><th>Week of</th><th>Trades</th><th>P&amp;L</th><th>vs week before</th><th>Win %</th><th>Rule-clean</th><th>Audit</th><th>Risk / day</th></tr>${wtbl}</table></div>`;
+}
+function jrAnCharts() {
+  (JR.charts || []).forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = [];
+  if (!document.getElementById('jr-ch-eq')) return;
+  if (!window.Chart) { setTimeout(() => { if (JR.tab === 'analytics') jrAnCharts(); }, 1200); return; }
+  const r = jrAnRange(), ts = JR.trades.filter(t => t.d >= r.from && t.d <= r.to && (r.filter === 'both' || t.kind === r.filter) && t.pnl != null);
+  const css = getComputedStyle(document.body), txt = css.getPropertyValue('--text2').trim() || '#c0cfe0', grid = 'rgba(128,144,160,.15)';
+  const G = css.getPropertyValue('--green').trim() || '#00e5b0', R = css.getPropertyValue('--red').trim() || '#ff3d5a', A = css.getPropertyValue('--amber').trim() || '#ffb020', C = css.getPropertyValue('--cyan').trim() || '#00d4ff';
+  const opt = (extra = {}) => ({ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { color: txt } } },
+    scales: { x: { ticks: { color: txt, maxRotation: 0, autoSkip: true }, grid: { color: grid } }, y: { ticks: { color: txt, callback: v => '$' + v }, grid: { color: grid } } }, ...extra });
+  const byDay = {}; ts.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
+  const days = Object.keys(byDay).sort(); let cum = 0;
+  const cumV = days.map(d => (cum += byDay[d], Math.round(cum * 100) / 100));
+  JR.charts.push(new Chart(document.getElementById('jr-ch-eq'), { type: 'line', data: { labels: days.map(d => jrFmtD(d)), datasets: [{ label: 'Running P&L', data: cumV, borderColor: C, backgroundColor: 'rgba(0,212,255,.12)', fill: true, pointRadius: days.length > 60 ? 0 : 2, tension: .2 }] }, options: opt({ plugins: { legend: { display: false } } }) }));
+  const perWeek = !(r.scope === 'week' || r.scope === 'month');
+  const bucket = {}; ts.forEach(t => { const k = perWeek ? jrMonday(t.d) : t.d; bucket[k] = (bucket[k] || 0) + t.pnl; });
+  const bk = Object.keys(bucket).sort();
+  JR.charts.push(new Chart(document.getElementById('jr-ch-bar'), { type: 'bar', data: { labels: bk.map(d => jrFmtD(d)), datasets: [{ data: bk.map(k => Math.round(bucket[k])), backgroundColor: bk.map(k => bucket[k] >= 0 ? G : R) }] }, options: opt({ plugins: { legend: { display: false } } }) }));
+  const pie = (id, labels, data, colors) => JR.charts.push(new Chart(document.getElementById(id), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'right', labels: { color: txt } } } } }));
+  const w = ts.filter(t => t.pnl > 0).length, l = ts.filter(t => t.pnl < 0).length, e = ts.length - w - l;
+  pie('jr-ch-wl', [`Wins ${w}`, `Losses ${l}`, `Even ${e}`], [w, l, e], [G, R, '#8090a8']);
+  const all = JR.trades.filter(t => t.d >= r.from && t.d <= r.to && (r.filter === 'both' || t.kind === r.filter));
+  const rc = k => all.filter(t => (t.result || 'none') === k).length;
+  pie('jr-ch-rules', [`Clean ${rc('clean')}`, `Warning ${rc('warning')}`, `Fail ${rc('fail')}`, `Not reviewed ${rc('none')}`], [rc('clean'), rc('warning'), rc('fail'), rc('none')], [G, A, R, '#8090a8']);
+  const bySym = {}; ts.forEach(t => bySym[t.symbol] = (bySym[t.symbol] || 0) + t.pnl);
+  const top = Object.entries(bySym).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 10).sort((a, b) => b[1] - a[1]);
+  JR.charts.push(new Chart(document.getElementById('jr-ch-sym'), { type: 'bar', data: { labels: top.map(x => x[0]), datasets: [{ data: top.map(x => Math.round(x[1])), backgroundColor: top.map(x => x[1] >= 0 ? G : R) }] },
+    options: opt({ indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: txt, callback: v => '$' + v }, grid: { color: grid } }, y: { ticks: { color: txt }, grid: { display: false } } } }) }));
+}
+
+// PDF for the coach: 'week' (Weekly Audit week) or 'month' (Calendar month)
+async function jrPdf(scope) {
+  try {
+    if (!window.jspdf) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    if (!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable)) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+    const pm = v => jrMoney0(v).replace('−', '-');   // the PDF font has no unicode minus
+    let from, to, title;
+    let kindF = 'both';
+    if (scope === 'week') { from = jrAuditWeek(); to = jrAddDays(from, 6); title = `Week of ${jrFmtD(from, { month: 'long', day: 'numeric', year: 'numeric' })} – ${jrFmtD(jrAddDays(from, 4))}`; }
+    else if (scope === 'day') { from = to = JR.d; title = jrFmtD(JR.d, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); }
+    else if (scope === 'range') { const r = jrAnRange(); kindF = r.filter; from = r.from; to = r.to;
+      if (r.scope === 'all') { from = JR.trades[0]?.d || jrToday(); to = JR.trades[JR.trades.length - 1]?.d || jrToday(); }
+      title = `Analytics · ${r.label}${kindF === 'both' ? '' : kindF === 'penny' ? ' · Penny' : ' · Options'}`; }
+    else { from = JR.month + '-01'; const [y, m] = JR.month.split('-').map(Number); to = `${JR.month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; title = jrFmtD(from, { month: 'long', year: 'numeric' }); }
+    const ts = JR.trades.filter(t => t.d >= from && t.d <= to && (kindF === 'both' || t.kind === kindF));
+    const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+    const W = doc.internal.pageSize.getWidth();
+    doc.setFontSize(18); doc.setFont(undefined, 'bold'); doc.text('Trading Journal', 40, 46);
+    doc.setFontSize(11); doc.setFont(undefined, 'normal'); doc.setTextColor(90); doc.text(`${title}  ·  created ${jrFmtD(jrToday(), { month: 'short', day: 'numeric', year: 'numeric' })}`, 40, 64); doc.setTextColor(0);
+    const sum = k => { const x = ts.filter(t => k === 'all' || t.kind === k), p = x.filter(t => t.pnl != null), w = p.filter(t => t.pnl > 0).length, rv = x.filter(t => t.result);
+      return [x.length, pm(p.reduce((s, t) => s + t.pnl, 0)), p.length ? Math.round(w / p.length * 100) + '%' : '—', rv.length ? `${rv.filter(t => t.result === 'clean').length} / ${rv.length}` : '—']; };
+    const pnlColor = (data, col) => { if (data.section === 'body' && data.column.index === col) { const s = String(data.cell.raw || ''); if (s.startsWith('+')) data.cell.styles.textColor = [29, 122, 59]; else if (s.startsWith('-')) data.cell.styles.textColor = [198, 40, 40]; } };
+    const head = { fillColor: [16, 65, 94], textColor: 255, fontStyle: 'bold' };
+    const sumRows = [['Penny', ...sum('penny')], ['Options', ...sum('option')], ['Total', ...sum('all')]];
+    if (scope === 'week') { const P = jrWeekStats(from, 'penny'), O = jrWeekStats(from, 'option'); sumRows[0].push((P.result || '—').toUpperCase()); sumRows[1].push((O.result || '—').toUpperCase()); sumRows[2].push(''); }
+    doc.autoTable({ startY: 78, head: [['', 'Trades', 'P&L', 'Win rate', 'Rule-clean', ...(scope === 'week' ? ['Audit'] : [])]], body: sumRows, theme: 'grid', headStyles: head, styles: { fontSize: 10 }, margin: { left: 40, right: 40 }, didParseCell: d => pnlColor(d, 2) });
+    if (scope === 'range') {   // the charts as shown on the Analytics tab
+      const ids = [['jr-ch-eq', 'P&L over time'], ['jr-ch-bar', 'P&L per period'], ['jr-ch-wl', 'Wins vs losses'], ['jr-ch-rules', 'Rules'], ['jr-ch-sym', 'P&L by ticker']];
+      doc.addPage(); let x = 40, y = 40; const cw = (W - 100) / 2, ch = 150;
+      for (const [id, label] of ids) {
+        const c = document.getElementById(id); if (!c) continue;
+        const tmp = document.createElement('canvas'); tmp.width = c.width; tmp.height = c.height; const g = tmp.getContext('2d');
+        g.fillStyle = '#10415e'; g.fillRect(0, 0, tmp.width, tmp.height); g.drawImage(c, 0, 0);
+        doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.text(label, x, y);
+        const k = Math.min(cw / c.width, ch / c.height); doc.addImage(tmp.toDataURL('image/png'), 'PNG', x, y + 6, c.width * k, c.height * k);
+        if (x > 40) { x = 40; y += ch + 28; } else x += cw + 20;
+      }
+      doc.addPage();
+    }
+    const dset = [...new Set(ts.map(t => t.d).concat(Object.keys(JR.days).filter(d => d >= from && d <= to)))].sort();
+    const dayRows = dset.map(d => { const m = JR.days[d] || {}, x = ts.filter(t => t.d === d), sp = (m.spy_open && m.spy_close != null) ? (m.spy_close / m.spy_open - 1) * 100 : null;
+      const pp = x.filter(t => t.kind === 'penny').reduce((s, t) => s + (t.pnl || 0), 0), op = x.filter(t => t.kind === 'option').reduce((s, t) => s + (t.pnl || 0), 0);
+      return [jrFmtD(d, { weekday: 'short', month: 'short', day: 'numeric' }), { up: 'Up', down: 'Down', side: 'Sideways' }[m.trend] || '', sp == null ? '' : (sp >= 0 ? '+' : '') + sp.toFixed(2) + '%', m.vix_close ?? '',
+        x.some(t => t.kind === 'penny') ? pm(pp) : '', x.some(t => t.kind === 'option') ? pm(op) : '', x.length ? pm(pp + op) : '', m.note || '']; });
+    doc.autoTable({ startY: scope === 'range' ? 40 : doc.lastAutoTable.finalY + 16, head: [['Day', 'Trend', 'SPY', 'VIX close', 'Penny', 'Options', 'Total', 'Market note']], body: dayRows, theme: 'striped', headStyles: head, styles: { fontSize: 9 }, margin: { left: 40, right: 40 },
+      didParseCell: d => { pnlColor(d, 4); pnlColor(d, 5); pnlColor(d, 6); } });
+    const typ = t => t.kind === 'penny' ? 'Penny' : `${t.strike || ''}${t.opt_type === 'put' ? 'P' : t.opt_type === 'call' ? 'C' : t.opt_type === 'spread' ? ' spread' : ''}`;
+    const stopL = { '10': '10%', '15': '15%', gt15: '>15%', '20': '20%', '25': '25%', none: 'none' };
+    const tr = ts.slice().sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed'), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
+    doc.autoTable({ startY: doc.lastAutoTable.finalY + 16, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, theme: 'striped', headStyles: head, styles: { fontSize: 8.5, cellPadding: 3 },
+      columnStyles: { 9: { cellWidth: 200 } }, margin: { left: 40, right: 40 },
+      didParseCell: d => { pnlColor(d, 6); if (d.section === 'body' && d.column.index === 8) { const v = d.cell.raw; d.cell.styles.textColor = v === 'fail' ? [198, 40, 40] : v === 'warning' ? [176, 110, 0] : v === 'clean' ? [29, 122, 59] : [120, 120, 120]; } } });
+    if (scope === 'week') {
+      const a = JR.audit[from] || {}, nr = JR.risk.filter(r => r.week_start === jrAddDays(from, 7)).sort((x, y) => y.id - x.id)[0];
+      let y = doc.lastAutoTable.finalY + 22; if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = 50; }
+      doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text('Audit', 40, y); doc.setFont(undefined, 'normal'); doc.setFontSize(10);
+      const lines = doc.splitTextToSize((a.notes || 'No audit notes.') + (nr ? `\nNext week's risk: Penny $${nr.penny_limit} · Options $${nr.option_limit} — ${nr.reason}` : ''), W - 80);
+      doc.text(lines, 40, y + 16);
+    }
+    doc.save(`journal-${scope === 'range' ? 'analytics' : scope}-${from}${scope === 'range' || scope === 'month' ? '-to-' + to : ''}.pdf`);
+  } catch (e) { showToast('Journal', 'PDF failed: ' + e.message, 'error'); }
 }
 </script>
 </body>
