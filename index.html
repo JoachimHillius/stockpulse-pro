@@ -19164,7 +19164,9 @@ async function jrPdf(scope) {
       doc.setFillColor(...fill); doc.setDrawColor(...rgb); doc.setLineWidth(1.2); doc.roundedRect(x, bandY, bw, bh, 6, 6, 'FD');
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...rgb); doc.text(label, x + 10, bandY + 14);
       doc.setFontSize(18); doc.text(big, x + 10, bandY + 36);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GREY); doc.text(sub, x + bw - 10, bandY + 36, { align: 'right' }); };
+      // the small detail sits on the label line, right side, shrunk to fit — never on top of the big number
+      if (sub) { doc.setFont('helvetica', 'normal'); let fs = 9; doc.setFontSize(fs); const room = bw - 20 - doc.getTextWidth(label) - 10;
+        while (fs > 6 && doc.getTextWidth(sub) > room) doc.setFontSize(--fs); doc.setTextColor(...GREY); doc.text(sub, x + bw - 10, bandY + 14, { align: 'right' }); } };
     band(0, 'WINS', `${R.w} won`, pm(R.won), GREEN, [232, 247, 239]);
     band(1, 'LOSSES', `${R.l} lost`, pm(R.lost), RED, [252, 234, 236]);
     band(2, 'TRADES', `${R.n}`, [R.option && R.penny ? `${R.option} opt · ${R.penny} penny` : '', R.open ? `${R.open} open` : '', R.even ? `${R.even} even` : ''].filter(Boolean).join(' · '), NAVY, [236, 243, 250]);
@@ -19245,8 +19247,10 @@ async function jrPdf(scope) {
           if (m.trend) { const ax = cx + 26, ay = cy + 9; doc.setFillColor(...(m.trend === 'up' ? GREEN : m.trend === 'down' ? RED : GREY));
             if (m.trend === 'up') doc.triangle(ax, ay + 3, ax + 7, ay + 3, ax + 3.5, ay - 3, 'F'); else if (m.trend === 'down') doc.triangle(ax, ay - 3, ax + 7, ay - 3, ax + 3.5, ay + 3, 'F'); else doc.triangle(ax, ay - 3.5, ax, ay + 3.5, ax + 6, ay, 'F'); }
           if (w) { doc.setFillColor(...(w === 'fail' ? RED : w === 'warning' ? AMBER : GREEN)); doc.circle(cx + cw - 8, cy + 9, 3, 'F'); }
-          if (x.length) { doc.setFontSize(12.5); doc.setTextColor(...col(dn)); doc.text(pm(dn), cx + 6, cy + 30);
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY); doc.text(`${x.length} trade${x.length > 1 ? 's' : ''}`, cx + 6, cy + 41); }
+          if (x.length) { doc.setFontSize(12.5); doc.setTextColor(...col(dn)); doc.text(pm(dn), cx + 6, cy + 30); const pw = doc.getTextWidth(pm(dn));
+            // trade count under the P&L when the box is tall enough, otherwise next to it (keeps it clear of the SPY / VIX lines)
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY); const tl = `${x.length} trade${x.length > 1 ? 's' : ''}`;
+            if (ch >= 62 || !(m.spy_open || m.vix_open)) doc.text(tl, cx + 6, cy + 41); else doc.text(tl, cx + 10 + pw, cy + 30); }
           const mline = (l, o, c, pct, yy) => { o = jrNum(o); c = jrNum(c); if (o == null || c == null) return;
             const chg = pct ? (c / o - 1) * 100 : c - o, base = `${l} ${o.toFixed(1)} > ${c.toFixed(1)} `;
             doc.setFont('helvetica', 'normal'); doc.setFontSize(6.6); doc.setTextColor(125, 136, 150); doc.text(base, cx + 6, yy);
