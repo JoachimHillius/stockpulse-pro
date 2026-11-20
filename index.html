@@ -18293,7 +18293,7 @@ async function jrSaveDay(field, val) {
 
 function jrNewCard(kind) {
   const k = 'n' + (++JR.seq);
-  JR.edit[k] = { _k: k, _dirty: true, id: null, d: JR.d, kind, symbol: '', rules: {}, session: kind === 'penny' ? 'reg' : null, opt_type: kind === 'option' ? 'call' : null,
+  JR.edit[k] = { _k: k, _dirty: true, id: null, d: JR.d, kind, symbol: '', rules: {}, session: 'reg', opt_type: kind === 'option' ? 'call' : null,
     setup: kind === 'option' ? 'scalp' : null, stop_used: kind === 'penny' ? '10' : '20' };
   jrRender();
   setTimeout(() => { const el = document.getElementById('jr-sym-' + k); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 30);
@@ -18311,7 +18311,7 @@ function jrCardHtml(k, n) {
   const top = P ? `${sym}
       <div class="jr-f" style="flex:none;"><label>Session</label>${jrSegHtml(k, 'session', [['pre', 'Pre'], ['reg', 'Regular'], ['post', 'After']])}</div>
       ${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${f('exit', 'Exit', 'number', '0.00')}
-      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>${f('exit_date', 'Exit date', 'date')}`
     : `${sym}
       <div class="jr-f" style="flex:none;"><label>Type</label>${jrSegHtml(k, 'opt_type', [['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread']])}</div>
       ${f('expiry', 'Expiration', 'date')}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
@@ -18320,7 +18320,7 @@ function jrCardHtml(k, n) {
   const mid = P ? `${f('plan_entry', 'Planned entry', 'number', '0.00')}${f('plan_stop', 'Stop', 'number', '0.00')}${f('plan_target', 'Target', 'number', '0.00')}
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
       <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
-    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${f('entry_time', 'Time in', 'time')}${f('exit_time', 'Time out', 'time')}
+    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${f('exit_date', 'Exit date', 'date')}
       <div class="jr-f" style="flex:none;"><label>Setup</label>${jrSegHtml(k, 'setup', [['scalp', 'Scalp'], ['power', 'Power hour'], ['spread', 'Spread'], ['other', 'Other']])}</div>
     </div><div class="jr-row" style="margin-top:8px;">
       ${f('plan_entry', 'Planned entry', 'number', '0.00')}${f('plan_stop', 'Stop', 'number', '0.00')}${f('plan_target', 'Target', 'number', '0.00')}
@@ -18388,7 +18388,7 @@ async function jrSaveCard(k) {
   if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
   const n = jrNum;
   const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
-    entry_time: e.entry_time || null, exit_time: e.exit_time || null, plan_entry: n(e.plan_entry), plan_stop: n(e.plan_stop), plan_target: n(e.plan_target),
+    exit_date: e.exit_date || null, plan_entry: n(e.plan_entry), plan_stop: n(e.plan_stop), plan_target: n(e.plan_target),
     stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
     setup: e.setup || null, rules: { ...e.rules, ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: v.res, notes: String(e.notes || '').trim() || null, updated_at: new Date().toISOString() };
   const supa = await getSupabaseAsync();
@@ -18915,10 +18915,10 @@ async function jrPdf(scope) {
         didDrawPage: () => header(title) }); y = doc.lastAutoTable.finalY + 18; }
     const typ = t => t.kind === 'penny' ? `Penny${t.session ? ' · ' + ({ pre: 'pre', reg: 'reg', post: 'after' }[t.session]) : ''}` : `${t.strike || ''}${t.opt_type === 'put' ? ' P' : t.opt_type === 'call' ? ' C' : t.opt_type === 'spread' ? ' spread' : ''}${t.expiry ? ' · ' + jrFmtD(t.expiry) : ''}`;
     const stopL = { '10': '10%', '15': '15%', gt15: '>15%', '20': '20%', '25': '25%', none: 'none' };
-    const tr = ts.slice().sort((a, b) => a.d > b.d ? -1 : a.d < b.d ? 1 : b.id - a.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
+    const tr = ts.slice().sort((a, b) => a.d > b.d ? -1 : a.d < b.d ? 1 : b.id - a.id).map(t => [jrFmtD(t.d), t.symbol, typ(t), t.qty ?? '', t.entry ?? '', t.exit ?? 'open', t.exit_date && t.exit_date !== t.d ? jrFmtD(t.exit_date) : '', pm(t.pnl), stopL[t.stop_used] || '', (t.result || 'not reviewed').toUpperCase(), (t.notes || '').replace(/^sheet row \d+( · )?/, '')]);
     if (tr.length) { y = titled(`Trades (${tr.length}, newest first)`, y);
-      doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 9: { cellWidth: 170 } },
-        didParseCell: colorCells([6], 8), didDrawPage: () => header(title) }); }
+      doc.autoTable({ ...tblBase, startY: y, head: [['Date', 'Ticker', 'Type', 'Qty', 'In', 'Out', 'Exit date', 'P&L', 'Stop', 'Rules', 'Note']], body: tr, columnStyles: { 10: { cellWidth: 160 } },
+        didParseCell: colorCells([7], 9), didDrawPage: () => header(title) }); }
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY); doc.text(`Page ${i} of ${n}`, W - M, H - 14, { align: 'right' }); }
     doc.save(`journal-${scope === 'range' ? 'analytics' : scope}-${from}${scope === 'range' || scope === 'month' ? '-to-' + to : ''}.pdf`);
