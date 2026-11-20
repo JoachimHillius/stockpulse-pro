@@ -18988,7 +18988,7 @@ async function jrPdf(scope) {
 // Reads tg_feed(): every alert that reached Telegram (fast-scan, spike alerts, Single Pattern, RSI scan), grouped by ticker
 // over the last 5 trading days, most alerts on top. Penny = under $10, Large = $10+ (Single Pattern alerts keep their own tier).
 // Auto-updates every minute while the page is open; ↻ Refresh reloads now. Single Pattern uses the same 5-day counts for its order.
-const TG = { rows: null, at: 0, loading: null, tier: 'penny', open: '', timer: null, err: '' };
+const TG = { rows: null, at: 0, loading: null, tier: 'penny', open: '', timer: null, err: '', vol: {}, hist: {} };
 const TG_TYPES = { '🚀': 'Spike up', '🔻': 'Drop', '⚡': 'Jump', '📈': 'New high', '📉': 'New low', '👀': 'Watch', '🟠': 'SP Penny', '🟣': 'SP Large', '📎': 'SP list' };
 const TG_SYM = '[A-Z][A-Z.\\-]{0,6}';
 const tgNum = s => { const m = String(s || '').replace(/,/g, '').match(/^([\d.]+)\s*([KMB])?$/i); return m ? Number(m[1]) * ({ K: 1e3, M: 1e6, B: 1e9 }[(m[2] || '').toUpperCase()] || 1) : null; };
@@ -19019,7 +19019,7 @@ function tgParse(m) {
   }
   const x = first.match(new RegExp(`^\\S+\\s+(?:WATCH\\s+)?(${TG_SYM})(?![\\w])`));
   if (!x) return out;
-  const p = first.match(/\$([\d.,]+)/), c = first.match(/([+-]\d+(?:\.\d+)?)% today/) || first.match(/spiking ([+-]\d+(?:\.\d+)?)%/);
+  const p = first.match(/\$([\d.,]+)/), c = first.match(/([+-]\d+(?:\.\d+)?)% (?:today|vs close)/) || first.match(/spiking ([+-]\d+(?:\.\d+)?)%/);
   out.push({ sym: x[1], price: p ? +p[1].replace(/,/g, '') : null, chg: c ? +c[1] : null, vol: vol(text), volPct: volPct(text), tier, type, line: first });
   return out;
 }
@@ -19037,7 +19037,9 @@ async function tgLoad(force) {
         all.push(...(data || []));
         if (!data || data.length < 1000) break;
       }
-      TG.rows = all; TG.at = Date.now(); TG.err = '';
+      TG.rows = all; TG.at = Date.now(); TG.err = ''; TG.hist = {};
+      const { data: vol, error: ve } = await supa.rpc('tg_vol', { p_days: 9 });   // running volume per ticker (fast-scan)
+      if (ve) console.warn('[tg_vol]', ve); else { TG.vol = {}; (vol || []).forEach(v => { TG.vol[v.symbol] = v; }); }
     } catch (e) { console.warn('[tg_feed]', e); TG.err = 'Could not load the Telegram alerts'; TG.rows = TG.rows || []; }
     TG.loading = null; TG._groups = null;
     return TG.rows;
@@ -19063,14 +19065,22 @@ function tgGroups() {
     g.n = g.ev.length; g.perDay = days.map(d => g.ev.filter(e => e.d === d).length);
     g.last = g.ev[0]; g.lastDay = g.last.d;
     const dayEv = g.ev.filter(e => e.d === g.lastDay);
-    const vols = dayEv.filter(e => e.vol != null);
-    g.volNow = vols.length ? vols[0].vol : null; g.volFirst = vols.length ? vols[vols.length - 1].vol : null; g.volN = vols.length;
+    const vols = dayEv.filter(e => e.vol != null), va = TG.vol[g.sym];
+    g.volNow = vols.length ? vols[0].vol : null; g.volFirst = vols.length ? vols[vols.length - 1].vol : null; g.volN = vols.length; g.volAt = vols.length ? vols[0].at : null;
     const vp = dayEv.find(e => e.volPct != null); g.volPct = vp ? vp.volPct : null;
+    if (va && va.d === g.lastDay && va.today_vol != null) {   // fast-scan's running volume is newer than the message text
+      g.volNow = Number(va.today_vol); g.volAt = va.updated_at; g.volN = Math.max(g.volN, Number(va.readings) || 1);
+      if (va.first_vol != null && (g.volFirst == null || Number(va.first_vol) < g.volFirst)) g.volFirst = Number(va.first_vol);
+      if (g.volFirst == null) g.volFirst = g.volNow;
+      if (va.prev_vol) g.volPct = Math.round(g.volNow / Number(va.prev_vol) * 100);
+      g.volSplit = [['pre', va.pre_vol], ['reg', va.reg_vol], ['after', va.post_vol]].filter(x => Number(x[1]) > 0 && Number(x[1]) !== g.volNow);
+    }
     const ch = dayEv.find(e => e.chg != null); g.chg = ch ? ch.chg : null;
     g.types = {}; g.ev.forEach(e => g.types[e.type] = (g.types[e.type] || 0) + 1);
     return g;
   }).filter(g => g.tier);
-  groups.sort((a, b) => b.n - a.n || (a.last.at < b.last.at ? 1 : -1));
+  const chg = g => g.chg == null ? -1e9 : g.chg;
+  groups.sort((a, b) => (a.lastDay < b.lastDay ? 1 : a.lastDay > b.lastDay ? -1 : 0) || chg(b) - chg(a) || b.n - a.n);   // today first, biggest change on top
   TG._groups = { days, groups };
   return TG._groups;
 }
@@ -19085,7 +19095,13 @@ function initTelegramNews() {
 }
 function tgRefresh() { tgRender(); tgLoad(true).then(tgRender); }
 function tgSetTier(t) { TG.tier = t; TG.open = ''; tgRender(); }
-function tgToggle(sym) { TG.open = TG.open === sym ? '' : sym; tgRender(); }
+function tgToggle(sym) {
+  TG.open = TG.open === sym ? '' : sym; tgRender();
+  if (TG.open && !TG.hist[sym]) (async () => {   // how the volume grew through the day
+    try { const supa = await getSupabaseAsync(); const { data } = await supa.rpc('tg_vol_hist', { p_symbol: sym }); TG.hist[sym] = data || []; } catch (_) { TG.hist[sym] = []; }
+    if (TG.open === sym) tgRender();
+  })();
+}
 
 function tgRender() {
   const page = document.getElementById('page-telegram'); if (!page) return;
@@ -19100,10 +19116,12 @@ function tgRender() {
   const maxN = Math.max(1, ...list.map(g => Math.max(...g.perDay)));
   const body = list.map(g => {
     const bars = g.perDay.map((n, i) => `<td style="padding:6px 4px;text-align:center;border-bottom:1px solid var(--border);"><div title="${dl(days[i])}: ${n} alert${n === 1 ? '' : 's'}" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;"><span style="width:16px;height:${n ? 4 + Math.round(n / maxN * 18) : 2}px;background:${n ? 'var(--cyan)' : 'var(--border2)'};border-radius:2px;"></span><span style="font-size:10px;color:${n ? 'var(--text)' : '#5a708a'};">${n || '·'}</span></div></td>`).join('');
-    const vol = g.volNow == null ? '—' : `${g.volN > 1 && g.volFirst !== g.volNow ? `<span style="color:#8090a0;">${tgVol(g.volFirst)} → </span>` : ''}<b>${tgVol(g.volNow)}</b>${g.volPct != null ? `<div style="font-size:10px;color:${g.volPct >= 100 ? 'var(--green)' : g.volPct >= 50 ? 'var(--amber)' : '#8090a0'};">${g.volPct}% of yesterday</div>` : ''}`;
+    const vol = g.volNow == null ? '—' : `${g.volFirst != null && g.volFirst !== g.volNow ? `<span style="color:#8090a0;">${tgVol(g.volFirst)} → </span>` : ''}<b>${tgVol(g.volNow)}</b>${g.volAt ? ` <span style="font-size:10px;color:#8090a0;">at ${tgTime(g.volAt)}</span>` : ''}${g.volPct != null ? `<div style="font-size:10px;color:${g.volPct >= 100 ? 'var(--green)' : g.volPct >= 50 ? 'var(--amber)' : '#8090a0'};">${g.volPct}% of yesterday</div>` : g.volSplit && g.volSplit.length ? `<div style="font-size:10px;color:#8090a0;">${g.volSplit.map(x => `${x[0]} ${tgVol(Number(x[1]))}`).join(' · ')}</div>` : ''}`;
     const types = Object.entries(g.types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span style="font-size:10px;padding:1px 6px;border:1px solid var(--border2);border-radius:9px;margin-right:3px;">${t} ${n}</span>`).join('');
     const open = TG.open === g.sym;
     const tl = open ? `<tr><td colspan="${9 + days.length}" style="padding:4px 10px 12px 30px;border-bottom:1px solid var(--border2);background:rgba(0,212,255,.04);">
+      ${(() => { const h = TG.hist[g.sym]; if (!h) return '<div style="font-size:11px;color:#8090a0;padding:4px 0;">Loading volume…</div>'; if (!h.length) return '';
+        return `<div style="font-size:11px;padding:6px 0 8px;"><span style="color:#c0c8d4;font-weight:700;letter-spacing:.5px;font-size:10px;">VOLUME BUILD-UP ${dl(tgDate(h[0].at))}:</span> ${h.map((x, i) => `<span style="white-space:nowrap;">${i ? '<span style="color:#5a708a;"> → </span>' : ''}<b>${tgVol(Number(x.today_vol))}</b> <span style="color:#8090a0;">${tgTime(x.at)}</span></span>`).join('')}</div>`; })()}
       <table style="border-collapse:collapse;font-size:11.5px;width:100%;"><tr>${['When', 'Alert', 'Price', 'Chg today', 'Volume today', 'Message'].map((t, i) => th(t, i > 1 && i < 5 ? 'right' : 'left')).join('')}</tr>
       ${g.ev.map(e => `<tr>${td(`${dl(e.d)} · ${tgTime(e.at)}`, 'left')}${td(e.type, 'left')}${td(money(e.price))}${td(pct(e.chg))}${td(e.vol == null ? '—' : tgVol(e.vol) + (e.volPct != null ? ` <span style="color:#8090a0;">(${e.volPct}%)</span>` : ''))}${td(tgEsc(e.line), 'left', 'white-space:normal;color:#a8b8c8;')}</tr>`).join('')}</table></td></tr>` : '';
     return `<tr onclick="tgToggle('${g.sym}')" style="cursor:pointer;${open ? 'background:rgba(0,212,255,.06);' : ''}">
@@ -19121,7 +19139,7 @@ function tgRender() {
       <button class="fbtn" onclick="tgRefresh()" title="Load the newest alerts now (the page also updates every minute)" style="margin-left:8px;">↻ Refresh</button>
       <span style="margin-left:auto;font-size:11px;color:#8090a0;">${TG.err ? `<span style="color:var(--red);">${TG.err}</span> · ` : ''}${TG.rows ? `${list.length} tickers · ${list.reduce((s, g) => s + g.n, 0)} alerts · last 5 trading days${days.length ? ` (${dl(days[0])} – ${dl(days[days.length - 1])})` : ''} · updated ${new Date(TG.at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET` : 'Loading…'}</span>
     </div>
-    <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Every alert sent to your Telegram, one row per ticker — most alerts on top. Click a row for its full alert timeline. Volume today shows the first → latest reading of the ticker's most recent alert day.</div>
+    <div style="font-size:10.5px;color:#8090a0;margin-bottom:8px;">Every alert sent to your Telegram, one row per ticker — today's tickers first, biggest change on top (then earlier days). Click a row for its full alert timeline and volume build-up. Volume today = the scanner's running volume (first → latest reading, with the time of the latest).</div>
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
       <thead><tr>${th('TICKER', 'left')}${th('ALERTS')}${days.map(d => th(dl(d), 'center')).join('')}${th('PRICE')}${th('CHG TODAY')}${th('VOLUME TODAY')}${th('LAST ALERT')}${th('ALERT TYPES', 'left')}</tr></thead>
       <tbody>${body || `<tr><td colspan="${8 + days.length}" style="padding:24px;text-align:center;color:#8090a0;">${TG.rows ? 'No alerts in the last 5 trading days' : 'Loading…'}</td></tr>`}</tbody>
