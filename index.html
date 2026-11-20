@@ -18686,6 +18686,9 @@ function jrAnHtml() {
   const byDay = {}; withP.forEach(t => byDay[t.d] = (byDay[t.d] || 0) + t.pnl);
   const days = Object.entries(byDay).sort(), best = days.reduce((b, x) => !b || x[1] > b[1] ? x : b, null), worst = days.reduce((b, x) => !b || x[1] < b[1] ? x : b, null);
   const rev = ts.filter(t => t.result), clean = rev.filter(t => t.result === 'clean').length;
+  const cost = t => (Number(t.entry) || 0) * (Number(t.qty) || 0) * (t.kind === 'option' ? 100 : 1);   // money put into each trade
+  const spent = ts.reduce((s, t) => s + cost(t), 0), usd = v => '$' + Math.round(v).toLocaleString('en-US');
+  const spentSplit = r.filter === 'both' ? `<span style="display:block;text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">Penny ${usd(ts.filter(t => t.kind === 'penny').reduce((s, t) => s + cost(t), 0))} · Options ${usd(ts.filter(t => t.kind === 'option').reduce((s, t) => s + cost(t), 0))}</span>` : '';
   const kp = (l, v, c = '') => `<div class="jr-card"><span>${l}</span><b class="${c}">${v}</b></div>`;
   // week-over-week
   const lastW = jrMonday(r.scope === 'all' ? (JR.trades.length ? JR.trades[JR.trades.length - 1].d : jrToday()) : (r.to > jrToday() ? jrToday() : r.to));
@@ -18705,7 +18708,7 @@ function jrAnHtml() {
   return `<div class="jr-hd" style="margin-top:-4px;">${[['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['all', 'All']].map(([k, l]) => `<button class="jr-pill ${r.scope === k ? 'on' : ''}" onclick="jrAnSet('scope','${k}')">${l}</button>`).join('')}
     <span style="width:12px;"></span>${[['both', 'Both'], ['penny', 'Penny'], ['option', 'Options']].map(([k, l]) => `<button class="jr-pill ${r.filter === k ? 'on' : ''}" onclick="jrAnSet('filter','${k}')">${l}</button>`).join('')}
     <span class="jr-sp"></span>${r.scope !== 'all' ? `<button class="jr-pill" onclick="jrAnMove(-1)">◀</button>` : ''}<b style="min-width:150px;text-align:center;font-size:15px;color:var(--text);">${r.label}</b>${r.scope !== 'all' ? `<button class="jr-pill" onclick="jrAnMove(1)">▶</button>` : ''}</div>
-  <div class="jr-kp">${kp('Net P&amp;L', jrMoney0(net), net >= 0 ? 'jr-pos' : 'jr-neg')}${kp('Trades', ts.length)}${kp('Win rate', withP.length ? Math.round(W.length / withP.length * 100) + '%' : '—')}
+  <div class="jr-kp">${kp('Net P&amp;L', jrMoney0(net), net >= 0 ? 'jr-pos' : 'jr-neg')}${kp('Trades', ts.length)}${kp('Total spent', usd(spent) + spentSplit)}${kp('Win rate', withP.length ? Math.round(W.length / withP.length * 100) + '%' : '—')}
     ${kp('Avg win · avg loss', `<i class="jr-pos" style="font-style:normal;">${W.length ? jrMoney0(gw / W.length) : '—'}</i> · <i class="jr-neg" style="font-style:normal;">${Lo.length ? jrMoney0(-gl / Lo.length) : '—'}</i>`)}
     ${kp('Profit factor', gl ? (gw / gl).toFixed(2) : W.length ? '∞' : '—')}${kp('Best day', best ? `${jrMoney0(best[1])} <span style="display:inline;">${jrFmtD(best[0])}</span>` : '—', 'jr-pos')}
     ${kp('Worst day', worst ? `${jrMoney0(worst[1])} <span style="display:inline;">${jrFmtD(worst[0])}</span>` : '—', 'jr-neg')}${kp('Rule-clean', rev.length ? `${Math.round(clean / rev.length * 100)}% <span style="display:inline;">${clean}/${rev.length}</span>` : '—')}</div>
@@ -18713,7 +18716,7 @@ function jrAnHtml() {
     <div class="jr-card"><h3>P&amp;L over time (running total)</h3><div style="height:230px;"><canvas id="jr-ch-eq"></canvas></div></div>
     <div class="jr-card"><h3>P&amp;L per ${r.scope === 'week' || r.scope === 'month' ? 'day' : 'week'}</h3><div style="height:230px;"><canvas id="jr-ch-bar"></canvas></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <div class="jr-card"><h3>Wins vs losses</h3><div style="height:200px;"><canvas id="jr-ch-wl"></canvas></div></div>
+      <div class="jr-card"><h3>Wins vs losses · ${ts.length.toLocaleString('en-US')} trades</h3><div style="height:200px;"><canvas id="jr-ch-wl"></canvas></div></div>
       <div class="jr-card"><h3>Rules</h3><div style="height:200px;"><canvas id="jr-ch-rules"></canvas></div></div></div>
     <div class="jr-card"><h3>P&amp;L by ticker (top 10)</h3><div style="height:200px;"><canvas id="jr-ch-sym"></canvas></div></div>
   </div>` : `<div class="jr-card" style="text-align:center;color:var(--text2);padding:22px;">No trades in this period.</div>`}
@@ -18737,10 +18740,14 @@ function jrAnCharts() {
   const bucket = {}; ts.forEach(t => { const k = perWeek ? jrMonday(t.d) : t.d; bucket[k] = (bucket[k] || 0) + t.pnl; });
   const bk = Object.keys(bucket).sort();
   JR.charts.push(new Chart(document.getElementById('jr-ch-bar'), { type: 'bar', data: { labels: bk.map(d => jrFmtD(d)), datasets: [{ data: bk.map(k => Math.round(bucket[k])), backgroundColor: bk.map(k => bucket[k] >= 0 ? G : R) }] }, options: opt({ plugins: { legend: { display: false } } }) }));
-  const pie = (id, labels, data, colors) => JR.charts.push(new Chart(document.getElementById(id), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
-    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'right', labels: { color: txt } } } } }));
+  const sliceNums = { id: 'jrSliceNums', afterDatasetsDraw: c => { const x = c.ctx, ds = c.data.datasets[0]; x.save();   // count written on each slice
+    x.font = 'bold 13px sans-serif'; x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    c.getDatasetMeta(0).data.forEach((a, i) => { const v = ds.data[i], tot = ds.data.reduce((s, n) => s + n, 0); if (!v || v / tot < .04) return; const p = a.tooltipPosition(); x.fillText(v.toLocaleString('en-US'), p.x, p.y); });
+    x.restore(); } };
+  const pie = (id, labels, data, colors, nums) => JR.charts.push(new Chart(document.getElementById(id), { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'right', labels: { color: txt } } } }, plugins: nums ? [sliceNums] : [] }));
   const w = ts.filter(t => t.pnl > 0).length, l = ts.filter(t => t.pnl < 0).length, e = ts.length - w - l;
-  pie('jr-ch-wl', [`Wins ${w}`, `Losses ${l}`, `Even ${e}`], [w, l, e], [G, R, '#8090a8']);
+  pie('jr-ch-wl', [`Wins ${w}`, `Losses ${l}`, `Even ${e}`], [w, l, e], [G, R, '#8090a8'], true);
   const all = JR.trades.filter(t => t.d >= r.from && t.d <= r.to && (r.filter === 'both' || t.kind === r.filter));
   const rc = k => all.filter(t => (t.result || 'none') === k).length;
   pie('jr-ch-rules', [`Clean ${rc('clean')}`, `Warning ${rc('warning')}`, `Fail ${rc('fail')}`, `Not reviewed ${rc('none')}`], [rc('clean'), rc('warning'), rc('fail'), rc('none')], [G, A, R, '#8090a8']);
