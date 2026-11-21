@@ -18219,6 +18219,7 @@ body.light-mode .jr-d .mk{color:#7a8798;} body.light-mode .jr-d .mk .up{color:#3
 @keyframes jrMicPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,.6);}50%{box-shadow:0 0 0 5px rgba(0,212,255,0);}}
 .jr-plan input,.jr-plan select{background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 6px;font-family:inherit;font-size:12px;box-sizing:border-box;}
 .jr-plan select{width:auto;}
+.jr-plan .jr-chk input{width:15px;height:15px;padding:0;margin:1px 0 0;flex:none;background:none;accent-color:var(--green);}
 .jr-sticky{position:sticky;top:var(--hdr-h,141px);z-index:150;background:var(--bg);margin:-16px -20px 0;padding:12px 20px 12px;box-shadow:0 6px 8px -4px rgba(0,0,0,0.45);}
 /* Analytics: raised 3D cards (light top edge, soft drop shadow, lifts on hover) */
 .jr-an .jr-card{position:relative;border-radius:12px;border:1px solid rgba(255,255,255,.07);border-top-color:rgba(255,255,255,.18);
@@ -19215,6 +19216,33 @@ function jrWatchPickTog(s) {
   if (P.sel.has(s)) P.sel.delete(s); else if (P.sel.size < room) P.sel.add(s); else return;
   jrWatchPickRender();
 }
+// The trading rules under every plan (penny or options): open by default so they get filled in while planning; ▸ folds them away (remembered per plan in this browser).
+function jrPlanFolded(id) { try { return (JSON.parse(localStorage.getItem('jr_plan_fold') || '[]')).includes(id); } catch (_) { return false; } }
+function jrPlanFold(id, open) {
+  try { const a = new Set(JSON.parse(localStorage.getItem('jr_plan_fold') || '[]')); if (open) a.delete(id); else a.add(id); localStorage.setItem('jr_plan_fold', JSON.stringify([...a].slice(-500))); } catch (_) {}
+}
+function jrPlanRulesRow(p) {
+  const kind = p.kind === 'penny' ? 'penny' : 'option', list = JR_RULES[kind], r = p.rules || {}, hard = JR_HARD[kind];
+  const done = list.filter(([k]) => r[k]).length, hardMiss = hard.filter(k => !r[k]).length;
+  const items = list.map(([k, l], i) => `<label class="jr-chk" style="align-items:flex-start;margin:3px 0;"><input type="checkbox" ${r[k] ? 'checked' : ''} onchange="jrPlanRule(${p.id},'${k}',this.checked)" style="margin-top:1px;">
+      <span><b style="color:var(--text);">${i + 1}</b> ${l}${hard.includes(k) ? ' <b style="color:var(--red);" title="Hard rule — unchecked on the trade = FAIL">★</b>' : ''}</span></label>`).join('');
+  return `<tr><td></td><td colspan="11" style="padding:2px 0 10px;white-space:normal;">
+    <details ${jrPlanFolded(p.id) ? '' : 'open'} ontoggle="jrPlanFold(${p.id},this.open)" style="border:1px solid var(--border2);border-radius:7px;padding:6px 10px;background:rgba(0,212,255,.03);">
+      <summary style="cursor:pointer;font-size:11px;letter-spacing:.5px;color:var(--text2);user-select:none;">
+        <b style="color:${kind === 'penny' ? 'var(--green)' : 'var(--cyan)'};">${kind === 'penny' ? 'PENNY' : 'OPTIONS'} RULES</b> for ${jrEsc(p.symbol || 'this plan')} ·
+        <b style="color:${done === list.length ? 'var(--green)' : 'var(--text)'};">${done} / ${list.length} checked</b>${hardMiss ? ` · <span style="color:var(--red);">${hardMiss} hard rule${hardMiss === 1 ? '' : 's'} (★) open</span>` : ''}
+        <span style="color:var(--text3);"> — click to fold / unfold</span></summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:0 18px;margin-top:6px;">${items}</div>
+      ${kind === 'penny' ? '<div style="font-size:10.5px;color:var(--text3);margin-top:4px;">Stop: tick 2 for pre-market / after-hours (mental stop) or 3 for the regular session (hard stop order) — one of the two.</div>' : ''}</details></td></tr>`;
+}
+async function jrPlanRule(id, k, on) {
+  const p = (JR.plans || []).find(x => x.id === id); if (!p) return;
+  p.rules = { ...(p.rules || {}), [k]: !!on }; if (!on) delete p.rules[k];
+  jrRender();
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_plans').update({ rules: p.rules, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) showToast('Journal', 'Rules not saved: ' + error.message, 'error');
+}
 function jrPlanHtml() {
   const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
   const money = v => v == null ? '—' : '$' + (Math.abs(v) < 1 && v !== 0 ? Number(v).toFixed(2) : Math.round(v).toLocaleString('en-US'));
@@ -19234,7 +19262,7 @@ function jrPlanHtml() {
         ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
         <td>${money(x.left)}</td><td><div class="jr-micw">${inp(p, 'notes', 'setup / why', 170)}${jrMicBtn()}</div></td>
         <td><button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
-        ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}`; }).join('');
+        ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${jrPlanRulesRow(p)}`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
         <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${b.lost && b.budget < b.cap ? `Budget $${b.budget} (only this much left today — already −$${b.lost} of $${b.limit})` : P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${b.limit} daily${b.lost ? ` · −$${b.lost} lost today` : ''})`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
       ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Price' : 'Premium'}</th><th>Stop %</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th>Budget left</th><th>Notes</th><th></th></tr>${body}</table>`
