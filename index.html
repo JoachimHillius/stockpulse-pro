@@ -20176,7 +20176,7 @@ async function jcDraw(el, sym, tf, yrs, big) {
   // moving averages
   JC_MA.forEach(([n, c]) => {
     const s = ch.addLineSeries({ color: jcMaColor(c), lineWidth: big ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: !!JC.ma[n],
-      autoscaleInfoProvider: orig => JC.pz && JC.pz !== 1 ? null : orig() });   // zoomed in: the candles set the scale, not a far-away average
+      autoscaleInfoProvider: orig => JC.pbox || (JC.pz && JC.pz !== 1) ? null : orig() });   // zoomed in: the candles set the scale, not a far-away average
     s.setData(jcSma(all, n, start)); H.ma[n] = s;
   });
   if (!big) top.insertAdjacentHTML('beforeend', `<div style="position:absolute;left:6px;top:4px;z-index:3;font-size:9.5px;pointer-events:none;display:flex;gap:6px;">${JC_MA.filter(([n]) => JC.ma[n]).map(([n, c]) => `<b style="color:${jcMaColor(c)}">${n}</b>`).join('')}<span style="color:#8090a0;">MA</span></div>`);
@@ -20255,8 +20255,11 @@ const JC_PAT = {
   invhammer: { n: 'Inverted hammer', d: 'bull', what: 'Small body at the bottom, long upper wick, little or no lower wick.', mean: 'After a fall, buyers tried to push it up for the first time — a possible turn, weaker than a hammer.' },
   hangman: { n: 'Hanging man', d: 'bear', what: 'Hammer shape (long lower wick, small body on top) — but after a run up.', mean: 'After a run up, sellers could push it down hard during the day — a warning the run is tiring.' },
   shooting: { n: 'Shooting star', d: 'bear', what: 'Small body at the bottom, long upper wick (2× the body or more) — after a run up.', mean: 'After a run up, buyers pushed it up but sellers slammed it back down — a possible top.' },
-  doji: { n: 'Doji', d: 'neutral', what: 'Open and close almost the same (tiny body), wicks on one or both sides.', mean: 'Buyers and sellers ended even — indecision. After a long run it can mean the run is pausing.' },
-  spin: { n: 'Spinning top / long-legged doji', d: 'neutral', what: 'Small body in the middle, long wicks on both sides.', mean: 'Big swings both ways, but it closed about where it opened — indecision; after a run it is usually a pause.' },
+  doji: { n: 'Doji', d: 'neutral', what: 'Open and close almost the same (tiny body), short wicks.', mean: 'Buyers and sellers ended even — indecision. After a long run it can mean the run is pausing.' },
+  longdoji: { n: 'Long-legged doji', d: 'neutral', what: 'Open and close almost the same, with long wicks both above and below.', mean: 'Big swings both ways and it ended where it started — strong indecision; often comes near a turn.' },
+  dragonfly: { n: 'Dragonfly doji', d: 'bull', what: 'Open and close at the top of the day with a long lower wick and almost no upper wick — a hammer with no body.', mean: 'Sellers pushed it down hard, buyers took it all back by the close. After a fall: a possible bottom. After a run up it is a warning, like a hanging man.' },
+  gravestone: { n: 'Gravestone doji', d: 'bear', what: 'Open and close at the bottom of the day with a long upper wick and almost no lower wick — an upside-down hammer with no body.', mean: 'Buyers pushed it up but were rejected all the way back down. After a run up or at resistance: a possible top. After a fall it is a first try up that failed — wait for the next candle.' },
+  spin: { n: 'Spinning top', d: 'neutral', what: 'Small body with wicks of similar size above and below, each at least as big as the body.', mean: 'Neither side won the day — indecision; after a run it is usually a pause.' },
   bullengulf: { n: 'Bullish engulfing', d: 'bull', what: 'A green body that completely covers the previous red body.', mean: 'Buyers fully took over from the day before — one of the stronger turn signals after a fall.' },
   bearengulf: { n: 'Bearish engulfing', d: 'bear', what: 'A red body that completely covers the previous green body.', mean: 'Sellers fully took over from the day before — one of the stronger top signals after a run up.' },
   piercing: { n: 'Piercing line', d: 'bull', what: 'After a long red candle: opens lower, then closes above the middle of that red body.', mean: 'Buyers won back more than half of the drop — a possible turn up.' },
@@ -20291,17 +20294,17 @@ function jcPatterns(all, start, lv) {
     else if (G(p1) && B(p1) > 0.6 * R(p1) && Rd(c) && c.open > p1.close && c.close < (p1.open + p1.close) / 2 && c.close > p1.open) k = 'darkcloud';
     else if (lo_ >= 2 * Math.max(body, 0.02 * rng) && up_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? 'hangman' : down ? 'hammer' : null;
     else if (up_ >= 2 * Math.max(body, 0.02 * rng) && lo_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? 'shooting' : down ? 'invhammer' : null;
-    else if (body <= 0.1 * rng && rng > 0) k = 'doji';
-    else if (body <= 0.3 * rng && up_ >= 0.25 * rng && lo_ >= 0.25 * rng) k = 'spin';
+    else if (body <= 0.1 * rng && rng > 0) k = lo_ >= 0.6 * rng && up_ <= 0.15 * rng ? 'dragonfly' : up_ >= 0.6 * rng && lo_ <= 0.15 * rng ? 'gravestone' : up_ >= 0.3 * rng && lo_ >= 0.3 * rng ? 'longdoji' : 'doji';
+    else if (body <= 0.3 * rng && up_ >= body && lo_ >= body && up_ >= 0.2 * rng && lo_ >= 0.2 * rng) k = 'spin';
     // 3–5 down closes, then a reversal
-    let streak = 0; for (let j = i - 1; j > 0 && all[j].close < all[j - 1].close && streak < 6; j--) streak++;
+    const k0 = k; let streak = 0; for (let j = i - 1; j > 0 && all[j].close < all[j - 1].close && streak < 6; j--) streak++;
     if (streak >= 3 && streak <= 5 && (k === 'hammer' || k === 'bullengulf' || k === 'piercing' || k === 'mstar' || (G(c) && c.close > p1.high))) k = 'downrev';
     if (!k) continue;
     const P = JC_PAT[k], va = vAvg(i), vx = va ? (c.value || 0) / va : 0;
     const near = levels.find(l => Math.abs((P.d === 'bull' ? c.low : P.d === 'bear' ? c.high : c.close) - l) <= l * 0.03);
     const fits = P.d === 'bull' ? (down || k === 'downrev' || near != null) : P.d === 'bear' ? (up || near != null) : (up || down);
     const strong = fits && (vx >= 1 || near != null) && (P.d !== 'neutral' || vx >= 1.5);
-    out.push({ i, time: c.time, k, strong, vx, near, ctx: up ? 'after a run up' : down ? 'after a fall' : 'no clear trend before it', streak });
+    out.push({ i, time: c.time, k, strong, vx, near, ctx: up ? 'after a run up' : down ? 'after a fall' : 'with no clear trend before it', streak, base: k === 'downrev' && k0 && k0 !== 'downrev' ? k0 : null });
   }
   // how this ticker moved over the next 3 candles after the same pattern (all occurrences in the loaded data)
   const st = {};
@@ -20311,7 +20314,8 @@ function jcPatterns(all, start, lv) {
 }
 function jcPatApply(H) {
   if (!H || !H.big) return;
-  H.pats = JC.pat === 'off' ? [] : jcPatterns(H.all, H.start, H.lv).filter(o => JC.pat === 'all' || o.strong);
+  H.allPats = jcPatterns(H.all, H.start, H.lv);
+  H.pats = JC.pat === 'off' ? [] : H.allPats.filter(o => JC.pat === 'all' || o.strong);
   H.patBy = new Map(H.pats.map(o => [typeof o.time === 'object' ? JSON.stringify(o.time) : o.time, o]));
   try { H.cs.setMarkers(H.pats.map(o => { const d = JC_PAT[o.k].d;
     return { time: o.time, position: d === 'bull' ? 'belowBar' : 'aboveBar', shape: d === 'bull' ? 'arrowUp' : d === 'bear' ? 'arrowDown' : 'circle',
@@ -20323,18 +20327,44 @@ function jcPatCard(H, o, x) {
   const P = JC_PAT[o.k], c = H.all[o.i], f = v => v < 1 ? v.toFixed(4) : v.toFixed(2), col = P.d === 'bull' ? '#22c55e' : P.d === 'bear' ? '#ef4444' : '#facc15';
   const dt = typeof c.time === 'string' ? new Date(c.time + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
     : new Date(c.time * 1000).toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  const next = P.d === 'bull' ? `<b>Confirmed</b> if a later candle closes above <b>${f(c.high)}</b> (this candle's high). <b>Fails</b> on a close below <b>${f(c.low)}</b> (its low) — a natural stop area.`
-    : P.d === 'bear' ? `<b>Confirmed</b> if a later candle closes below <b>${f(c.low)}</b> (this candle's low). <b>Fails</b> on a close above <b>${f(c.high)}</b> (its high).`
-    : `Wait for the break: a close above <b>${f(c.high)}</b> = the ${o.ctx === 'after a fall' ? 'bounce' : 'move up'} goes on; a close below <b>${f(c.low)}</b> = it turns down.`;
+  const md = t => typeof t === 'string' ? `${+t.slice(5, 7)}/${+t.slice(8, 10)}` : new Date(t * 1000).toLocaleString('en-US', { timeZone: 'UTC', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  // shape in numbers
+  const rng = Math.max(1e-9, c.high - c.low), pct = v => Math.round(v / rng * 100);
+  const shape = `Body ${pct(Math.abs(c.close - c.open))}% of the range · upper wick ${pct(c.high - Math.max(c.open, c.close))}% · lower wick ${pct(Math.min(c.open, c.close) - c.low)}%`;
+  // volume vs the day before and vs normal
+  const pv = o.i > 0 ? H.all[o.i - 1].value || 0 : 0, cv = c.value || 0, dv = pv ? (cv / pv - 1) * 100 : null;
+  const vRead = o.vx >= 1.5 && dv != null && dv > 0 ? 'heavy and rising — strong interest' : o.vx >= 1.5 ? 'still heavy — interest is holding' : o.vx >= 1 && dv != null && dv < 0 ? 'lower than the day before but still above normal — interest is holding' : o.vx >= 1 ? 'above normal' : o.vx >= 0.8 ? 'about normal' : 'light — little conviction behind it';
+  const vTxt = `<b>${_spFmtVol(cv)}</b>${dv != null ? ` — ${dv >= 0 ? 'up' : 'down'} ${Math.abs(dv).toFixed(0)}% vs the candle before (${_spFmtVol(pv)})` : ''}, ${o.vx ? o.vx.toFixed(1) + '× the 20-candle average' : ''}: ${vRead}.`;
+  // signals in a row: same-direction patterns in the 4 candles before this one → one group, levels from the whole group
+  const grp = P.d === 'neutral' ? [] : (H.allPats || []).filter(q => q.i < o.i && q.i >= o.i - 4 && JC_PAT[q.k].d === P.d);
+  const gi = [o.i, ...grp.map(q => q.i)], gHi = Math.max(...gi.map(i => H.all[i].high)), gLo = Math.min(...gi.map(i => H.all[i].low));
+  const hi = grp.length ? gHi : c.high, lo = grp.length ? gLo : c.low;
+  const row = grp.length ? `<div style="margin-top:4px;"><b style="color:var(--text);">Signals in a row:</b> ${P.d === 'bull' ? 'bullish' : 'bearish'} signal no. <b>${grp.length + 1}</b> in ${o.i - Math.min(...gi) + 1} candles (${grp.map(q => `${md(H.all[q.i].time)} ${JC_PAT[q.k].n.toLowerCase()} ${P.d === 'bull' ? '▲' : '▼'}`).join(', ')}) — ${P.d === 'bull' ? `buyers keep defending the <b>${f(gLo)}–${f(Math.min(...gi.map(i => Math.min(H.all[i].open, H.all[i].close))))}</b> area` : `sellers keep pressing below <b>${f(gHi)}</b>`}. The levels below are for the whole group.</div>` : '';
+  const next = P.d === 'bull' ? `<b>Confirmed</b> if a later candle closes above <b>${f(hi)}</b> (${grp.length ? 'the high of the group' : "this candle's high"}). <b>Fails</b> on a close below <b>${f(lo)}</b> (${grp.length ? 'the low of the group' : 'its low'}) — a natural stop area.`
+    : P.d === 'bear' ? `<b>Confirmed</b> if a later candle closes below <b>${f(lo)}</b> (${grp.length ? 'the low of the group' : "this candle's low"}). <b>Fails</b> on a close above <b>${f(hi)}</b> (${grp.length ? 'the high of the group' : 'its high'}).`
+    : `Wait for the break: a close above <b>${f(hi)}</b> = ${o.ctx === 'after a fall' ? 'the bounce goes on' : 'it moves up'}; a close below <b>${f(lo)}</b> = it turns down.`;
+  // what happened next (past patterns): first close beyond either level within 15 candles
+  let out = null;
+  for (let j = o.i + 1; j < H.all.length && j <= o.i + 15; j++) {
+    const cl = H.all[j].close;
+    if (cl > hi) { out = { up: true, j }; break; } if (cl < lo) { out = { up: false, j }; break; }
+  }
+  const good = out && (P.d === 'bear' ? !out.up : out.up);
+  const outTxt = !out ? (o.i + 1 >= H.all.length ? 'this is the latest candle — not decided yet.' : `not decided yet — no close above ${f(hi)} or below ${f(lo)} in the ${Math.min(15, H.all.length - 1 - o.i)} candles after it.`)
+    : P.d === 'neutral' ? `broke <b class="${out.up ? 'jr-pos' : 'jr-neg'}">${out.up ? 'up' : 'down'}</b> on ${md(H.all[out.j].time)} (closed ${out.up ? 'above ' + f(hi) : 'below ' + f(lo)}).`
+    : `<b class="${good ? 'jr-pos' : 'jr-neg'}">${good ? '✓ confirmed' : '✗ failed'}</b> on ${md(H.all[out.j].time)} — closed ${out.up ? 'above ' + f(hi) : 'below ' + f(lo)}.`;
   const h = o.hist, hTxt = h.n ? `On ${H.sym} this pattern showed up <b>${h.n}×</b> in this chart: the next 3 candles closed <b>higher ${h.up} of ${h.n}</b> times (average ${h.avg >= 0 ? '+' : ''}${(h.avg * 100).toFixed(1)}%).` : 'Not enough history on this chart to count how it went before.';
   const el = document.createElement('div'); el.id = 'jc-patcard';
   el.style.cssText = `position:absolute;top:8px;left:${Math.max(8, Math.min(x + 14, H.top.clientWidth - 420))}px;width:380px;z-index:8;background:var(--bg2);border:1px solid ${col};border-radius:9px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:12px;line-height:1.55;color:var(--text2);`;
-  el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><b style="color:${col};font-size:14px;">${P.d === 'bull' ? '▲' : P.d === 'bear' ? '▼' : '●'} ${P.n}</b>
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><b style="color:${col};font-size:14px;">${P.d === 'bull' ? '▲' : P.d === 'bear' ? '▼' : '●'} ${P.n}${o.base ? ` <span style="font-weight:400;font-size:12px;">(${JC_PAT[o.base].n.toLowerCase()})</span>` : ''}</b>
       <span style="color:var(--text3);">${dt}</span><button class="fbtn" onclick="document.getElementById('jc-patcard').remove()" style="margin-left:auto;padding:0 7px;">✕</button></div>
-    <div style="color:var(--text3);margin-bottom:6px;">O ${f(c.open)} · H ${f(c.high)} · L ${f(c.low)} · C ${f(c.close)} · Vol ${_spFmtVol(c.value || 0)}${o.vx ? ` (${o.vx.toFixed(1)}× the 20-candle average)` : ''}</div>
+    <div style="color:var(--text3);">O ${f(c.open)} · H ${f(c.high)} · L ${f(c.low)} · C ${f(c.close)}</div>
+    <div style="color:var(--text3);margin-bottom:6px;">${shape}</div>
     <div><b style="color:var(--text);">What it is:</b> ${P.what}</div>
     <div><b style="color:var(--text);">What it means here:</b> ${P.mean} It came <b>${o.ctx}</b>${o.k === 'downrev' ? ` (${o.streak} lower closes before it)` : ''}${o.near != null ? `, right at the <b>${f(o.near)}</b> support / resistance line` : ''}. ${o.strong ? '<b style="color:var(--text);">Strong setup</b> — it fits its place' + (o.vx >= 1 ? ' and came on above-average volume.' : '.') : 'Weaker setup — it doesn\'t fully fit its place or the volume is light.'}</div>
+    <div style="margin-top:4px;"><b style="color:var(--text);">Volume:</b> ${vTxt}</div>${row}
     <div style="margin-top:4px;"><b style="color:var(--text);">What to watch next:</b> ${next}</div>
+    <div style="margin-top:4px;"><b style="color:var(--text);">What happened:</b> ${outTxt}</div>
     <div style="margin-top:4px;"><b style="color:var(--text);">How it went before:</b> ${hTxt}</div>
     <div style="margin-top:6px;font-size:10.5px;color:var(--text3);">A pattern is a probability, not a signal — always wait for the confirmation and keep your stop.</div>`;
   H.top.appendChild(el);
@@ -20363,9 +20393,10 @@ function jcDrawInit(H) {
   H.top.appendChild(cv); H.canvas = cv;
   const loop = () => { if (!H.alive) return; jcPaint(H); requestAnimationFrame(loop); }; requestAnimationFrame(loop);
   const pos = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
-  cv.addEventListener('pointermove', e => { const [x, y] = pos(e); H.mouse = jcPt(H, x, y); });
+  cv.addEventListener('pointermove', e => { const [x, y] = pos(e); H.mouse = jcPt(H, x, y); if (H.zb) { H.zb.x1 = x; H.zb.y1 = y; } });
   cv.addEventListener('pointerdown', e => {
     if (!JC.tool) return; e.preventDefault();
+    if (JC.tool === 'zoom') { const [x, y] = pos(e); H.zb = { x0: x, y0: y, x1: x, y1: y }; cv.setPointerCapture(e.pointerId); return; }
     const [x, y] = pos(e), pt = jcPt(H, x, y); if (!pt) return;
     const items = JC.draw[H.sym] || (JC.draw[H.sym] = []);
     if (JC.tool === 'erase') { const i = jcHit(H, items, x, y); if (i >= 0) { items.splice(i, 1); jcDrawSave(H.sym); } return; }
@@ -20373,6 +20404,19 @@ function jcDrawInit(H) {
     if (JC.tool === 'text' || JC.tool === 'bubble') return;   // placed on click (below) so the text box keeps the focus
     if (!H.first) { H.first = pt; return; }
     items.push({ type: JC.tool, a: H.first, b: pt }); H.first = null; jcDrawSave(H.sym);
+  });
+  cv.addEventListener('pointerup', () => {
+    const z = H.zb; if (!z) return; H.zb = null;
+    if (Math.abs(z.x1 - z.x0) < 8 || Math.abs(z.y1 - z.y0) < 8) return;   // too small: ignore (a plain click)
+    const ts = H.ch.timeScale(), l0 = ts.coordinateToLogical(Math.min(z.x0, z.x1)), l1 = ts.coordinateToLogical(Math.max(z.x0, z.x1));
+    const p0 = H.cs.coordinateToPrice(Math.max(z.y0, z.y1)), p1 = H.cs.coordinateToPrice(Math.min(z.y0, z.y1));
+    if (l0 == null || l1 == null || p0 == null || p1 == null) return;
+    JC.pbox = { min: Math.max(0, p0), max: p1 }; JC.pz = 1;
+    ts.setVisibleLogicalRange({ from: l0, to: l1 });
+    H.cs.applyOptions({ autoscaleInfoProvider: jcPriceZoom });
+    Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pbox || (JC.pz && JC.pz !== 1) ? null : orig() }));
+    H.ch.priceScale('right').applyOptions({ autoScale: true });
+    jcTool('zoom');   // back to scroll / zoom; Default undoes it
   });
   cv.addEventListener('click', e => { if (JC.tool !== 'text' && JC.tool !== 'bubble') return; const [x, y] = pos(e), pt = jcPt(H, x, y); if (pt) jcTextInput(H, x, y, pt, JC.tool); });
   jcToolApply();
@@ -20397,6 +20441,8 @@ function jcPaint(H) {
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, Ht); ctx.clip();
   const light = document.body.classList.contains('light-mode'), items = (JC.draw[H.sym] || []).slice();
   if (H.first && H.mouse && (JC.tool === 'trend' || JC.tool === 'zone')) items.push({ type: JC.tool, a: H.first, b: H.mouse, preview: true });
+  if (H.zb) { const z = H.zb; ctx.setLineDash([5, 4]); ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.5; ctx.fillStyle = 'rgba(0,212,255,.10)';
+    ctx.fillRect(Math.min(z.x0, z.x1), Math.min(z.y0, z.y1), Math.abs(z.x1 - z.x0), Math.abs(z.y1 - z.y0)); ctx.strokeRect(Math.min(z.x0, z.x1), Math.min(z.y0, z.y1), Math.abs(z.x1 - z.x0), Math.abs(z.y1 - z.y0)); ctx.setLineDash([]); }
   items.forEach(d => {
     ctx.globalAlpha = d.preview ? 0.6 : 1; ctx.setLineDash([]);
     if (d.type === 'hline') { const y = H.cs.priceToCoordinate(d.p); if (y == null) return;
@@ -20450,7 +20496,7 @@ function jcToolApply() {
   const cv = JC.full && JC.full.canvas; if (!cv) return;
   cv.style.pointerEvents = JC.tool ? 'auto' : 'none'; cv.style.cursor = JC.tool === 'erase' ? 'not-allowed' : JC.tool ? 'crosshair' : '';
   const hint = document.getElementById('jc-hint');
-  if (hint) hint.textContent = { trend: 'Click the start, then the end of the line', hline: 'Click a price to draw a level', zone: 'Click one corner, then the opposite corner', text: 'Click where the text goes, type, Enter', bubble: 'Click the point the bubble points to, type, Enter', erase: 'Click a drawing to delete it' }[JC.tool] || 'Pick a tool to draw · click it again to go back to scroll / zoom';
+  if (hint) hint.textContent = { trend: 'Click the start, then the end of the line', hline: 'Click a price to draw a level', zone: 'Click one corner, then the opposite corner', text: 'Click where the text goes, type, Enter', bubble: 'Click the point the bubble points to, type, Enter', erase: 'Click a drawing to delete it', zoom: 'Press and drag a box over the area to zoom into — Default goes back' }[JC.tool] || 'Pick a tool to draw · click it again to go back to scroll / zoom';
 }
 function jcClearDraw() {
   const n = (JC.draw[JC.sym] || []).length; if (!n) return;
@@ -20514,7 +20560,7 @@ async function jcPop(sym, tf, yrs) {
 }
 // ---- full view: covers the page below the top banner ----
 async function jcOpenFull(sym) {
-  await jcDrawLoad(sym); JC.vmax = 0; JC.pz = 1;
+  await jcDrawLoad(sym); JC.vmax = 0; JC.pz = 1; JC.pbox = null;
   JC.sym = sym; JC.tf = _jcPopTf || 'D'; JC.yrs = _jcPopY || 1; JC.help = false;
   let ov = document.getElementById('jc-full');
   if (!ov) { ov = document.createElement('div'); ov.id = 'jc-full'; document.body.appendChild(ov);
@@ -20543,7 +20589,8 @@ function jcFullRender() {
       <span style="margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
         <span style="font-size:10px;letter-spacing:1px;color:#8090a0;" title="Price scale: zoom in / out on the candles (0 never goes off the bottom) · Default = price and volume back to Auto (also after dragging the price scale)">PRICE</span>
         <button class="fbtn" onclick="jcPz(1.4)" title="Zoom in on the price" style="padding:3px 8px;">＋</button><button class="fbtn" onclick="jcPz(1/1.4)" title="Zoom out on the price" style="padding:3px 8px;">−</button>
-        <button class="fbtn" onclick="jcPz(0)" title="Price and volume scales back to the default (Auto)" style="padding:3px 8px;">Default</button>
+        <button class="fbtn jc-tool" data-t="zoom" onclick="jcTool('zoom')" title="Zoom box: press and drag a rectangle over the area you want to see bigger — Default goes back" style="padding:3px 8px;">🔍 Zoom box</button>
+        <button class="fbtn" onclick="jcPz(0)" title="Back to the view you get when you open the chart: full time range, price and volume on Auto" style="padding:3px 8px;">Default</button>
         <span style="width:6px"></span>
         <span style="font-size:10px;letter-spacing:1px;color:#8090a0;">MA</span>
         ${JC_MA.map(([n, c]) => `<button class="fbtn jc-ma" data-n="${n}" onclick="jcMaToggle(${n})" title="${n}-period moving average — click to show / hide" style="color:${jcMaColor(c)};border-color:${jcMaColor(c)};font-weight:700;padding:3px 7px;">${n}</button>`).join('')}
@@ -20558,6 +20605,7 @@ function jcFullRender() {
       • <b>Opens on 1 year · Day.</b> In the pop-up: 1Y / 2Y and Day / Week / Month. Click the small chart (or ⤢ Full chart) to open this full view.<br>
       • <b>Timeframes:</b> 1 min · 5 min · 15 min · 30 min · 1 hour · Day · Week · Month. Day / Week / Month show 1 or 2 years from your price history.<br>
       • <b>How far back:</b> 1 min ≈ last 7 days · 5 / 15 / 30 min ≈ last 60 days · 1 hour ≈ last 2 years (that's what the data source keeps). Minute charts include pre-market and after-hours; they open on the latest day — zoom out or drag to go back.<br>
+      • <b>🔍 Zoom box:</b> click it, then press and drag a rectangle over the candles you want to see — that time and price range fills the chart. <b>Default</b> goes back to the opening view. (Mouse wheel / two-finger pinch still zoom the time axis.)<br>
       • <b>Price scale:</b> PRICE ＋ / − zooms in / out on the candles (never below 0); you can also drag the price scale on the right up / down. <b>Default</b> puts price and volume back to Auto.<br>
       • <b>Zoom:</b> ＋ / − buttons, mouse wheel or trackpad pinch · <b>Move:</b> drag left / right · <b>Reset</b> shows the whole range · hover a candle to see open, high, low, close and volume.<br>
       • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered. <b>VOL MAX</b> sets the top of the volume scale: Auto = the highest bar in view; pick a lower max (or ▲), or drag the volume scale on the right, to see small volume — bars above it are cut off, and 0 always stays at the bottom (double-click the scale = Auto). Hover a candle: the date at the bottom shows its volume.<br>
@@ -20578,6 +20626,7 @@ function jcVisMax(H) {   // highest volume bar in view
 }
 // price zoom (＋ / − / Default next to the averages): zooms around the middle of the candles in view; never below 0
 function jcPriceZoom(orig) {
+  if (JC.pbox) { const o = orig(); return { priceRange: { minValue: JC.pbox.min, maxValue: JC.pbox.max }, margins: o && o.margins }; }
   const o = orig(); if (!o || !o.priceRange || !JC.pz || JC.pz === 1) return o;
   const lo = o.priceRange.minValue, hi = o.priceRange.maxValue, mid = (lo + hi) / 2, half = (hi - lo) / 2 / JC.pz;
   let a = mid - half, b = mid + half; if (a < 0) { b -= a; a = 0; }
@@ -20585,13 +20634,14 @@ function jcPriceZoom(orig) {
 }
 function jcPz(f) {
   const H = JC.full; if (!H) return;
-  JC.pz = f ? Math.min(20, Math.max(0.25, (JC.pz || 1) * f)) : 1;
-  if (!f) jcVmax(0);   // Default: price and volume back to Auto
+  if (!f) { JC.pz = 1; JC.vmax = 0; JC.pbox = null; jcFullRender(); return; }
+  JC.pbox = null;   // Default = exactly the view you get when you open the chart (time range, price and volume on Auto)
+  JC.pz = Math.min(20, Math.max(0.25, (JC.pz || 1) * f));
   H.cs.applyOptions({ autoscaleInfoProvider: jcPriceZoom });
-  Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pz && JC.pz !== 1 ? null : orig() }));
+  Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pbox || (JC.pz && JC.pz !== 1) ? null : orig() }));
   H.ch.priceScale('right').applyOptions({ autoScale: true });
 }
-function jcSet(tf) { JC.tf = tf; JC.vmax = 0; JC.pz = 1; jcFullRender(); }
+function jcSet(tf) { JC.tf = tf; JC.vmax = 0; JC.pz = 1; JC.pbox = null; jcFullRender(); }
 // volume scale: Auto (highest bar in view) or a fixed max; ▲ halves the max, ▼ doubles it
 function jcVmax(v) { JC.vmax = +v || 0; const H = JC.full; if (!H) return;
   H.vs.applyOptions({ autoscaleInfoProvider: orig => JC.vmax ? { priceRange: { minValue: 0, maxValue: JC.vmax } } : orig() });
@@ -20603,7 +20653,7 @@ function jcVstep(f) {
   const v = Math.max(1000, cur * f), mag = Math.pow(10, Math.floor(Math.log10(v)) - 1);   // round to 2 significant digits
   jcVmax(Math.round(v / mag) * mag);
 }
-function jcSetY(y) { JC.yrs = y; JC.vmax = 0; JC.pz = 1; jcFullRender(); }
+function jcSetY(y) { JC.yrs = y; JC.vmax = 0; JC.pz = 1; JC.pbox = null; jcFullRender(); }
 function jcZoom(f) {
   const ts = JC.full && JC.full.timeScale(); if (!ts) return;
   if (!f) { ts.fitContent(); return; }
@@ -20612,7 +20662,7 @@ function jcZoom(f) {
   ts.setVisibleLogicalRange({ from: mid - half, to: mid + half });
 }
 function jcCloseFull() {
-  JC.tool = null; JC.pz = 1; JC.vmax = 0;
+  JC.tool = null; JC.pz = 1; JC.vmax = 0; JC.pbox = null;
   if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
   const ov = document.getElementById('jc-full'); if (ov) { ov.style.display = 'none'; ov.innerHTML = ''; }
 }
