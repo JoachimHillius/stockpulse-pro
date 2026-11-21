@@ -20147,11 +20147,12 @@ async function jcDraw(el, sym, tf, yrs, big) {
     crosshair: { mode: LC.CrosshairMode.Normal }, handleScroll: big, handleScale: big };
   const ch = LC.createChart(top, { ...base, layout: { ...base.layout, attributionLogo: false }, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.06, bottom: 0.04 } },
     timeScale: { visible: false, rightOffset: 3 } });
-  const vc = LC.createChart(vol, { ...base, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.12, bottom: 0.04 } },
+  const vc = LC.createChart(vol, { ...base,   // volume: no free axis drag (it could push 0 off the bottom) — the axis drag below changes VOL MAX instead, always anchored at 0
+    handleScale: big ? { axisPressedMouseMove: { time: true, price: false }, axisDoubleClickReset: { time: true, price: false }, mouseWheel: true, pinch: true } : false, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.12, bottom: 0.04 } },
     timeScale: { borderVisible: false, timeVisible: !!JC_INTRA[tf], secondsVisible: false, rightOffset: 3 } });
   const f = p => p < 0 ? '' : (px ? p.toFixed(4) : p.toFixed(2));
   const cs = ch.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderUpColor: '#22c55e', borderDownColor: '#ef4444', wickUpColor: '#22c55e', wickDownColor: '#ef4444',
-    priceFormat: { type: 'custom', formatter: f, minMove: px ? 0.0001 : 0.01 } });
+    priceFormat: { type: 'custom', formatter: f, minMove: px ? 0.0001 : 0.01 }, autoscaleInfoProvider: jcPriceZoom });
   cs.setData(rows.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
   const vfmt = v => v < 0 ? '' : _spFmtVol(v);
   const vs = vc.addHistogramSeries({ priceFormat: { type: 'custom', formatter: vfmt, minMove: 1 }, priceLineVisible: false,
@@ -20162,7 +20163,8 @@ async function jcDraw(el, sym, tf, yrs, big) {
     remove() { this.alive = false; try { ch.remove(); } catch (_) {} try { vc.remove(); } catch (_) {} } };
   // moving averages
   JC_MA.forEach(([n, c]) => {
-    const s = ch.addLineSeries({ color: jcMaColor(c), lineWidth: big ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: !!JC.ma[n] });
+    const s = ch.addLineSeries({ color: jcMaColor(c), lineWidth: big ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: !!JC.ma[n],
+      autoscaleInfoProvider: orig => JC.pz && JC.pz !== 1 ? null : orig() });   // zoomed in: the candles set the scale, not a far-away average
     s.setData(jcSma(all, n, start)); H.ma[n] = s;
   });
   if (!big) top.insertAdjacentHTML('beforeend', `<div style="position:absolute;left:6px;top:4px;z-index:3;font-size:9.5px;pointer-events:none;display:flex;gap:6px;">${JC_MA.filter(([n]) => JC.ma[n]).map(([n, c]) => `<b style="color:${jcMaColor(c)}">${n}</b>`).join('')}<span style="color:#8090a0;">MA</span></div>`);
@@ -20214,6 +20216,19 @@ async function jcDraw(el, sym, tf, yrs, big) {
         ${JC.vmax && ![1e5, 2.5e5, 5e5, 1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8, 2.5e8].includes(JC.vmax) ? `<option value="${JC.vmax}" selected>${_spFmtVol(JC.vmax)}</option>` : ''}</select>
       <button class="fbtn" onclick="jcVstep(0.5)" title="Lower the max — small bars get taller" style="padding:0 6px;font-size:11px;line-height:16px;">▲</button>
       <button class="fbtn" onclick="jcVstep(2)" title="Raise the max — bars get shorter" style="padding:0 6px;font-size:11px;line-height:16px;">▼</button></div>`);
+    // drag on the volume scale (right side): up = taller bars, down = shorter; 0 always stays at the bottom. Double-click = Auto.
+    const ax = document.createElement('div');
+    ax.title = 'Drag up / down to stretch the volume — 0 stays at the bottom · double-click = Auto';
+    ax.style.cssText = 'position:absolute;right:0;top:0;bottom:28px;width:84px;z-index:4;cursor:ns-resize;touch-action:none;';
+    vol.appendChild(ax);
+    ax.addEventListener('dblclick', () => jcVmax(0));
+    ax.addEventListener('pointerdown', e => {
+      e.preventDefault(); ax.setPointerCapture(e.pointerId);
+      const y0 = e.clientY, v0 = JC.vmax || jcVisMax(H);
+      const mv = ev => { const v = Math.max(1000, v0 * Math.exp((ev.clientY - y0) / 90)), mag = Math.pow(10, Math.floor(Math.log10(v)) - 1); jcVmax(Math.round(v / mag) * mag); };
+      const up = () => { ax.removeEventListener('pointermove', mv); ax.removeEventListener('pointerup', up); };
+      ax.addEventListener('pointermove', mv); ax.addEventListener('pointerup', up);
+    });
   }
   return H;
 }
@@ -20391,7 +20406,7 @@ async function jcPop(sym, tf, yrs) {
 }
 // ---- full view: covers the page below the top banner ----
 async function jcOpenFull(sym) {
-  await jcDrawLoad(sym); JC.vmax = 0;
+  await jcDrawLoad(sym); JC.vmax = 0; JC.pz = 1;
   JC.sym = sym; JC.tf = _jcPopTf || 'D'; JC.yrs = _jcPopY || 1; JC.help = false;
   let ov = document.getElementById('jc-full');
   if (!ov) { ov = document.createElement('div'); ov.id = 'jc-full'; document.body.appendChild(ov);
@@ -20418,6 +20433,10 @@ function jcFullRender() {
       <button class="fbtn" onclick="jcClearDraw()" title="Delete every drawing on this ticker">Clear all</button>
       <span id="jc-hint" style="font-size:10.5px;color:#8090a0;margin-left:4px;"></span>
       <span style="margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:10px;letter-spacing:1px;color:#8090a0;" title="Price scale: zoom in / out on the candles (0 never goes off the bottom) · Default = price and volume back to Auto (also after dragging the price scale)">PRICE</span>
+        <button class="fbtn" onclick="jcPz(1.4)" title="Zoom in on the price" style="padding:3px 8px;">＋</button><button class="fbtn" onclick="jcPz(1/1.4)" title="Zoom out on the price" style="padding:3px 8px;">−</button>
+        <button class="fbtn" onclick="jcPz(0)" title="Price and volume scales back to the default (Auto)" style="padding:3px 8px;">Default</button>
+        <span style="width:6px"></span>
         <span style="font-size:10px;letter-spacing:1px;color:#8090a0;">MA</span>
         ${JC_MA.map(([n, c]) => `<button class="fbtn jc-ma" data-n="${n}" onclick="jcMaToggle(${n})" title="${n}-period moving average — click to show / hide" style="color:${jcMaColor(c)};border-color:${jcMaColor(c)};font-weight:700;padding:3px 7px;">${n}</button>`).join('')}
         <button id="jc-sr-btn" class="fbtn" onclick="jcSrToggle()" title="Support (green), resistance (magenta) and the major long-term level (thick orange) from 2 years of daily candles"></button>
@@ -20429,8 +20448,9 @@ function jcFullRender() {
       • <b>Opens on 1 year · Day.</b> In the pop-up: 1Y / 2Y and Day / Week / Month. Click the small chart (or ⤢ Full chart) to open this full view.<br>
       • <b>Timeframes:</b> 1 min · 5 min · 15 min · 30 min · 1 hour · Day · Week · Month. Day / Week / Month show 1 or 2 years from your price history.<br>
       • <b>How far back:</b> 1 min ≈ last 7 days · 5 / 15 / 30 min ≈ last 60 days · 1 hour ≈ last 2 years (that's what the data source keeps). Minute charts include pre-market and after-hours; they open on the latest day — zoom out or drag to go back.<br>
+      • <b>Price scale:</b> PRICE ＋ / − zooms in / out on the candles (never below 0); you can also drag the price scale on the right up / down. <b>Default</b> puts price and volume back to Auto.<br>
       • <b>Zoom:</b> ＋ / − buttons, mouse wheel or trackpad pinch · <b>Move:</b> drag left / right · <b>Reset</b> shows the whole range · hover a candle to see open, high, low, close and volume.<br>
-      • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered. <b>VOL MAX</b> sets the top of the volume scale: Auto = the highest bar in view; pick a lower max (or ▲) to see small volume — bars above it are cut off. Hover a candle: the date at the bottom shows its volume.<br>
+      • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered. <b>VOL MAX</b> sets the top of the volume scale: Auto = the highest bar in view; pick a lower max (or ▲), or drag the volume scale on the right, to see small volume — bars above it are cut off, and 0 always stays at the bottom (double-click the scale = Auto). Hover a candle: the date at the bottom shows its volume.<br>
       • <b>Moving averages:</b> 3 yellow · 8 purple · 15 green · 50 blue · 100 white (black in light mode) · 200 red (simple averages of the close). Click a number to show / hide it.<br>
       • <b>Support / resistance:</b> levels where price turned at least twice in the last 2 years of daily candles — green = support below the price, magenta = resistance above, <b style="color:#ff8c00;">thick orange = the major level</b> (most turns over the longest time). The label shows how many times it turned there. Same levels on every timeframe; turn them on / off with the button.<br>
       • <b>Drawing:</b> pick Trend line, Horizontal, Zone, Text or Bubble and click on the chart (lines and zones: two clicks). Erase = click a drawing to delete it. Click the tool again or press Esc to go back to scroll / zoom. Drawings are saved per ticker and show on every timeframe.<br>
@@ -20441,7 +20461,26 @@ function jcFullRender() {
   jcBarRefresh(); jcToolApply();
   jcDraw(document.getElementById('jc-full-box'), JC.sym, JC.tf, JC.yrs, true).then(c => { JC.full = c; jcToolApply(); });
 }
-function jcSet(tf) { JC.tf = tf; JC.vmax = 0; jcFullRender(); }
+function jcVisMax(H) {   // highest volume bar in view
+  const r = H.vc.timeScale().getVisibleLogicalRange(); const a = Math.max(0, Math.floor(r ? r.from : 0)), b = Math.min(H.rows.length - 1, Math.ceil(r ? r.to : H.rows.length - 1));
+  let m = 0; for (let i = a; i <= b; i++) m = Math.max(m, H.rows[i].value || 0); return m || 1000;
+}
+// price zoom (＋ / − / Default next to the averages): zooms around the middle of the candles in view; never below 0
+function jcPriceZoom(orig) {
+  const o = orig(); if (!o || !o.priceRange || !JC.pz || JC.pz === 1) return o;
+  const lo = o.priceRange.minValue, hi = o.priceRange.maxValue, mid = (lo + hi) / 2, half = (hi - lo) / 2 / JC.pz;
+  let a = mid - half, b = mid + half; if (a < 0) { b -= a; a = 0; }
+  return { priceRange: { minValue: a, maxValue: b }, margins: o.margins };
+}
+function jcPz(f) {
+  const H = JC.full; if (!H) return;
+  JC.pz = f ? Math.min(20, Math.max(0.25, (JC.pz || 1) * f)) : 1;
+  if (!f) jcVmax(0);   // Default: price and volume back to Auto
+  H.cs.applyOptions({ autoscaleInfoProvider: jcPriceZoom });
+  Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pz && JC.pz !== 1 ? null : orig() }));
+  H.ch.priceScale('right').applyOptions({ autoScale: true });
+}
+function jcSet(tf) { JC.tf = tf; JC.vmax = 0; JC.pz = 1; jcFullRender(); }
 // volume scale: Auto (highest bar in view) or a fixed max; ▲ halves the max, ▼ doubles it
 function jcVmax(v) { JC.vmax = +v || 0; const H = JC.full; if (!H) return;
   H.vs.applyOptions({ autoscaleInfoProvider: orig => JC.vmax ? { priceRange: { minValue: 0, maxValue: JC.vmax } } : orig() });
@@ -20449,12 +20488,11 @@ function jcVmax(v) { JC.vmax = +v || 0; const H = JC.full; if (!H) return;
   const sel = document.getElementById('jc-vmax'); if (sel) { if (![...sel.options].some(o => +o.value === JC.vmax)) sel.insertAdjacentHTML('beforeend', `<option value="${JC.vmax}">${_spFmtVol(JC.vmax)}</option>`); sel.value = String(JC.vmax); } }
 function jcVstep(f) {
   const H = JC.full; if (!H) return; let cur = JC.vmax;
-  if (!cur) { const r = H.vc.timeScale().getVisibleLogicalRange(); const a = Math.max(0, Math.floor(r ? r.from : 0)), b = Math.min(H.rows.length - 1, Math.ceil(r ? r.to : H.rows.length - 1));
-    cur = 0; for (let i = a; i <= b; i++) cur = Math.max(cur, H.rows[i].value || 0); }
+  if (!cur) cur = jcVisMax(H);
   const v = Math.max(1000, cur * f), mag = Math.pow(10, Math.floor(Math.log10(v)) - 1);   // round to 2 significant digits
   jcVmax(Math.round(v / mag) * mag);
 }
-function jcSetY(y) { JC.yrs = y; JC.vmax = 0; jcFullRender(); }
+function jcSetY(y) { JC.yrs = y; JC.vmax = 0; JC.pz = 1; jcFullRender(); }
 function jcZoom(f) {
   const ts = JC.full && JC.full.timeScale(); if (!ts) return;
   if (!f) { ts.fitContent(); return; }
@@ -20463,7 +20501,7 @@ function jcZoom(f) {
   ts.setVisibleLogicalRange({ from: mid - half, to: mid + half });
 }
 function jcCloseFull() {
-  JC.tool = null;
+  JC.tool = null; JC.pz = 1; JC.vmax = 0;
   if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
   const ov = document.getElementById('jc-full'); if (ov) { ov.style.display = 'none'; ov.innerHTML = ''; }
 }
