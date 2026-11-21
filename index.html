@@ -19061,6 +19061,14 @@ async function jrWatchLoad(force) {
   try { const supa = await getSupabaseAsync(); const { data, error } = await supa.from('jr_watch').select('*').order('d').order('id').limit(2000); if (error) throw error; JR.watch = data || []; }
   catch (e) { console.warn('[watch]', e); JR.watch = JR.watch || []; }
 }
+async function jrLast5(syms) {   // last 5 daily candles per ticker: { SYM: [{n:1 = last day … 5, d, close, chg, vol}] } (rpc jr_last5)
+  JR.h5 ||= {}; const need = [...new Set(syms)].filter(s => s && !JR.h5[s]); if (!need.length) return JR.h5;
+  try { const supa = await getSupabaseAsync(); const { data, error } = await supa.rpc('jr_last5', { p_syms: need }); if (error) throw error;
+    need.forEach(s => { JR.h5[s] = []; });
+    (data || []).forEach(r => JR.h5[r.symbol].push({ n: r.n, d: r.d, close: jrNum(r.close), chg: jrNum(r.chg_pct), vol: jrNum(r.volume) }));
+  } catch (e) { console.warn('[last5]', e); need.forEach(s => { JR.h5[s] ||= []; }); }
+  return JR.h5;
+}
 async function jrQuotes(syms) {   // { SYM: {close, chg_pct, volume, d} } — cached 10 min
   JR.q ||= {}; const need = [...new Set(syms)].filter(s => s && !(JR.q[s] && Date.now() - JR.q[s].at < 600e3));
   for (let i = 0; i < need.length; i += 800) {
@@ -19075,6 +19083,9 @@ function jrWatchHtml() {
   if (!JR.watch) { jrWatchLoad().then(() => { if (JR.tab === 'watch') jrRender(); }); return '<div style="color:var(--text3);padding:20px;">Loading…</div>'; }
   const rows = JR.watch.filter(w => w.d === JR.d), q = JR.q || {};
   const missing = rows.map(w => w.symbol).filter(s => !q[s]); if (missing.length) jrQuotes(missing).then(() => { if (JR.tab === 'watch') jrRender(); });
+  JR.h5 ||= {}; const miss5 = rows.map(w => w.symbol).filter(s => !JR.h5[s]); if (miss5.length) jrLast5(miss5).then(() => { if (JR.tab === 'watch') jrRender(); });
+  const dOf = k => { const ds = rows.map(w => (JR.h5[w.symbol] || []).find(x => x.n === k + 1)?.d).filter(Boolean).sort(); return ds.length ? ds[ds.length - 1] : null; };
+  const pc = v => v == null ? '<span style="color:var(--text3);">—</span>' : `<b class="${v > 0 ? 'jr-pos' : v < 0 ? 'jr-neg' : ''}">${v > 0 ? '+' : ''}${v.toFixed(1)}%</b>`;
   const px = v => v == null ? '—' : '$' + (v < 1 ? v.toFixed(4) : v.toFixed(2));
   const sec = (kind, title, color) => {
     const list = rows.filter(w => w.kind === kind), cap = JR_WCAP[kind], full = list.length >= cap;
@@ -19083,7 +19094,8 @@ function jrWatchHtml() {
         <td><a href="#" onclick="jcOpenFull('${jrEsc(w.symbol)}');return false;" title="Open the full chart" style="color:var(--text);font-weight:700;text-decoration:none;font-size:13px;">${jrEsc(w.symbol)}</a></td>
         <td>${px(x.close)}</td><td class="${x.chg > 0 ? 'jr-pos' : x.chg < 0 ? 'jr-neg' : ''}">${x.chg == null ? '—' : (x.chg > 0 ? '+' : '') + x.chg.toFixed(2) + '%'}</td>
         <td>${x.vol == null ? '—' : _spFmtVol(x.vol)}</td>
-        <td style="width:40%;"><div class="jr-micw"><input value="${jrEsc(w.note || '')}" placeholder="why I'm watching it" onchange="jrWatchNote(${w.id},this.value)">${jrMicBtn()}</div></td>
+        ${[1, 2, 3, 4].map(k => { const h = (JR.h5[w.symbol] || []).find(y => y.n === k + 1); return `<td style="text-align:right;white-space:nowrap;line-height:1.25;">${pc(h ? h.chg : null)}<div style="font-size:10px;color:var(--text3);">${h && h.vol != null ? _spFmtVol(h.vol) : ''}</div></td>`; }).join('')}
+        <td style="width:30%;"><div class="jr-micw"><input value="${jrEsc(w.note || '')}" placeholder="why I'm watching it" onchange="jrWatchNote(${w.id},this.value)">${jrMicBtn()}</div></td>
         <td style="white-space:nowrap;"><button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(w.symbol)}')" title="Full chart with your drawings">📈 Chart</button>
           <button class="jr-btn sm g" onclick="jrWatchToPlan(${w.id})" title="Make a ${kind === 'penny' ? 'penny' : 'options'} plan for this ticker on the Plan tab">→ Plan</button>
           <button class="jr-btn del sm" onclick="jrWatchDel(${w.id})" title="Take it off today's list">✕</button></td></tr>`; }).join('');
@@ -19094,10 +19106,10 @@ function jrWatchHtml() {
             oninput="jrWatchSearch('${kind}',this.value)" onkeydown="jrWatchKey(event,'${kind}')" onblur="setTimeout(()=>{const d=document.getElementById('jr-wdd-${kind}');if(d)d.style.display='none'},200)">
           <div id="jr-wdd-${kind}" class="jr-dd" style="display:none;position:absolute;top:100%;left:0;z-index:50;min-width:240px;"></div></span>
         <button class="jr-btn sm" onclick="jrWatchPick('${kind}')" ${full ? 'disabled' : ''} title="Pick from your Watchlist page — biggest movers and volume on top">+ Add from Watchlist</button></h3>
-      ${list.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>Last close</th><th>Change</th><th>Volume</th><th>Note</th><th></th></tr>${body}</table>`
+      ${list.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>Last close</th><th>Change</th><th>Volume</th>${[1, 2, 3, 4].map(k => { const d = dOf(k); return `<th style="text-align:right;" title="Change and volume ${k} trading day${k > 1 ? 's' : ''} before the last close">${k}d ago${d ? `<div style="font-weight:400;color:var(--text3);letter-spacing:0;">${jrShowMD(d)}</div>` : ''}</th>`; }).join('')}<th>Note</th><th></th></tr>${body}</table>`
         : `<div style="color:var(--text3);padding:8px 0;">Nothing on the ${kind === 'penny' ? 'penny' : 'large-cap'} list for this day yet — type a ticker or use <b>+ Add from Watchlist</b>.</div>`}</div>`;
   };
-  return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Your short list for the day — up to <b>20 large caps</b> and <b>10 penny stocks</b>. It starts empty every day (or <b>Copy previous day</b>); lists older than 30 days are deleted automatically. Price, change and volume = the latest daily close. <b>→ Plan</b> puts the ticker on the Plan tab; 📈 opens the chart.</div>
+  return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Your short list for the day — up to <b>20 large caps</b> and <b>10 penny stocks</b>. It starts empty every day (or <b>Copy previous day</b>); lists older than 30 days are deleted automatically. Price, change and volume = the latest daily close; <b>1d–4d ago</b> = the change (green up / red down) and volume of each of the 4 trading days before it. <b>→ Plan</b> puts the ticker on the Plan tab; 📈 opens the chart.</div>
     ${sec('large', 'Large caps — watch list (options)', 'var(--cyan)')}${sec('penny', 'Penny stocks — watch list', 'var(--green)')}`;
 }
 let _jrWT = null;
