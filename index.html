@@ -19144,13 +19144,14 @@ async function jrPlanBlankPdf(kind) {
     let y = 70; doc.setFontSize(9); doc.setTextColor(40, 55, 70); doc.setFont('helvetica', 'bold');
     const lab = (t, x) => { doc.text(t, x, y + 12); return x + doc.getTextWidth(t) + 4; };
     const box = (x, w) => { doc.setDrawColor(150, 165, 180); doc.setLineWidth(0.6); doc.rect(x, y, w, 17); };
-    let x = lab('Date', M); box(x, 70); field('hdr_date', x, y, 70, 17); x += 84;
+    let x = lab('Name', M); box(x, 120); field('hdr_name', x, y, 120, 17); x += 134;
+    x = lab('Date', x); box(x, 62); field('hdr_date', x, y, 62, 17); x += 76;
     const r = jrRiskFor(JR.d); x = lab(`Daily risk: $${kind === 'penny' ? r.penny_limit : r.option_limit}`, x) + 10;
     for (const [k, l, w] of [['hdr_spy', 'SPY', 70], ['hdr_vix', 'VIX', 50], ['hdr_trend', 'Trend', 60], ['hdr_note', 'Market note', 0]]) {
       x = lab(l, x); const ww = w || (W - M - x); box(x, ww); field(k, x, y, ww, 17); x += ww + 12;
     }
     // table
-    y = 100; const cols = T.cols.map(c => [...c]); const fixed = cols.reduce((s, c) => s + c[2], 0); cols[cols.length - 1][2] = W - 2 * M - fixed;
+    y = 100; const tTop = y; const cols = T.cols.map(c => [...c]); const fixed = cols.reduce((s, c) => s + c[2], 0); cols[cols.length - 1][2] = W - 2 * M - fixed;
     const xs = []; let cx = M; cols.forEach(c => { xs.push(cx); cx += c[2]; });
     if (T.groups) { T.groups.forEach(([a, b, l], gi) => { const gx = xs[a], gw = xs[b] + cols[b][2] - gx; doc.setFillColor(...(gi === 2 ? [90, 110, 130] : [0, 150, 190])); doc.rect(gx, y, gw, 14, 'F'); doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.text(l, gx + gw / 2, y + 10, { align: 'center' }); }); y += 14; }
     const hh = 26; doc.setFillColor(...NAVY); doc.rect(M, y, W - 2 * M, hh, 'F'); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255);
@@ -19161,25 +19162,45 @@ async function jrPlanBlankPdf(kind) {
       cols.forEach((c, i) => { doc.setDrawColor(190, 202, 214); doc.setLineWidth(0.5); doc.rect(xs[i], y, c[2], rh); field(`${kind}_r${rI}_${c[0]}`, xs[i], y, c[2], rh, 9); });
       y += rh;
     }
+    if (T.groups) {   // thick separators: before Position 1, between Position 1 and Position 2, before Plan
+      doc.setDrawColor(...NAVY); doc.setLineWidth(2.4);
+      T.groups.forEach(([a]) => doc.line(xs[a], tTop, xs[a], y));
+      const gEnd = T.groups[T.groups.length - 1][1]; doc.line(xs[gEnd] + cols[gEnd][2], tTop, xs[gEnd] + cols[gEnd][2], y);
+    }
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 75, 90);
     doc.text(doc.splitTextToSize(jrTplHint(kind).replace(/[–—−]/g, '-').replace(/⅓/g, '1/3').replace(/→/g, '->'), W - 2 * M), M, y + 16);
     doc.save(`${kind === 'penny' ? 'penny' : 'options'}-trade-plan-blank.pdf`);
   } catch (e) { console.error('[plan pdf]', e); showToast('Journal', 'Could not make the plan PDF: ' + e.message, 'error'); }
 }
 async function jrXlsx() { if (!window.XLSX) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'); return window.XLSX; }
-async function jrPlanBlankXlsx(kind) {
+async function jrPlanBlankXlsx(kind) {   // styled template (ExcelJS: borders, colors, thick section lines); the upload reads it back by column order
   try {
-    const X = await jrXlsx(), T = JR_TPL[kind], r = jrRiskFor(JR.d);
-    const aoa = [[T.title], ['Date', '', '', `Daily risk: $${kind === 'penny' ? r.penny_limit : r.option_limit}`, 'SPY', '', 'VIX', '', 'Trend', '', 'Market note'], []];
-    if (T.groups) { const g = Array(T.cols.length).fill(''); T.groups.forEach(([a, , l]) => { g[a] = l; }); aoa.push(g); } else aoa.push([]);
-    aoa.push(T.cols.map(c => c[1]));
-    for (let i = 0; i < T.rows; i++) aoa.push(Array(T.cols.length).fill(''));
-    aoa.push([]); aoa.push([jrTplHint(kind)]);
-    const ws = X.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = T.cols.map(c => ({ wch: Math.max(9, Math.round((c[2] || 200) / 5.5)) }));
-    if (T.groups) ws['!merges'] = T.groups.map(([a, b]) => ({ s: { r: 3, c: a }, e: { r: 3, c: b } }));
-    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, kind === 'penny' ? 'Penny plan' : 'Options plan');
-    X.writeFile(wb, `${kind === 'penny' ? 'penny' : 'options'}-trade-plan-blank.xlsx`);
+    if (!window.ExcelJS) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js');
+    const T = JR_TPL[kind], r = jrRiskFor(JR.d), nC = T.cols.length, wb = new window.ExcelJS.Workbook();
+    const ws = wb.addWorksheet(kind === 'penny' ? 'Penny plan' : 'Options plan', { pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+    ws.columns = T.cols.map(c => ({ width: Math.max(9, Math.round((c[2] || 200) / 5.2)) }));
+    const NAVY = 'FF10415E', thin = { style: 'thin', color: { argb: 'FFBECAD6' } }, thick = { style: 'thick', color: { argb: NAVY } };
+    const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+    ws.getRow(1).values = [T.title, '', '', '', 'Name', '']; ws.getCell('A1').font = { bold: true, size: 15, color: { argb: NAVY } };
+    ws.getCell('E1').font = { bold: true }; ws.getCell('F1').border = { bottom: { style: 'thin' } }; ws.mergeCells(1, 6, 1, 8);
+    ws.getRow(2).values = ['Date', '', '', `Daily risk: $${kind === 'penny' ? r.penny_limit : r.option_limit}`, 'SPY', '', 'VIX', '', 'Trend', '', 'Market note'];
+    ['A2', 'D2', 'E2', 'G2', 'I2', 'K2'].forEach(k => { ws.getCell(k).font = { bold: true }; });
+    ['B2', 'F2', 'H2', 'J2', 'L2'].forEach(k => { ws.getCell(k).border = { bottom: { style: 'thin' } }; });
+    if (T.groups) { ws.getRow(4).values = Array(nC).fill(''); T.groups.forEach(([a, b, l], gi) => { ws.mergeCells(4, a + 1, 4, b + 1); const c = ws.getCell(4, a + 1); c.value = l;
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.alignment = { horizontal: 'center' }; c.fill = fill(gi === 2 ? 'FF5A6E82' : 'FF0096BE'); }); }
+    const hr = ws.getRow(5); hr.values = T.cols.map(c => c[1]); hr.height = 30;
+    hr.eachCell(c => { c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }; c.fill = fill(NAVY); c.alignment = { wrapText: true, vertical: 'middle' }; });
+    for (let i = 0; i < T.rows; i++) { const row = ws.getRow(6 + i); row.height = 20; for (let c = 1; c <= nC; c++) { const cell = row.getCell(c); cell.border = { top: thin, bottom: thin, left: thin, right: thin }; if (i % 2) cell.fill = fill('FFF4F8FB'); } }
+    if (T.groups) {   // thick separators: before Position 1, between Position 1 and Position 2, before Plan, and after Plan
+      const last = 5 + T.rows, edges = T.groups.map(([a]) => a + 1);
+      for (let rr = T.groups ? 4 : 5; rr <= last; rr++) {
+        edges.forEach(c => { const cell = ws.getCell(rr, c); cell.border = { ...(cell.border || {}), left: thick }; });
+        const cell = ws.getCell(rr, nC); cell.border = { ...(cell.border || {}), right: thick };
+      }
+    }
+    const hint = ws.getCell(7 + T.rows, 1); hint.value = jrTplHint(kind); hint.font = { italic: true, size: 9, color: { argb: 'FF3C4B5A' } };
+    const buf = await wb.xlsx.writeBuffer(), url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const l = document.createElement('a'); l.href = url; l.download = `${kind === 'penny' ? 'penny' : 'options'}-trade-plan-blank.xlsx`; document.body.appendChild(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
   } catch (e) { console.error('[plan xlsx]', e); showToast('Journal', 'Could not make the spreadsheet: ' + e.message, 'error'); }
 }
 // ---- upload: filled PDF (form fields) or spreadsheet → preview → Import into the Plan tab ----
@@ -19742,20 +19763,39 @@ function jcEt(t) {
   const g = k => +p.find(x => x.type === k).value;
   return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute')) / 1000;
 }
+// prefs (remembered in this browser): moving averages on/off, support/resistance on/off, volume panel height
+function jcPref(k, d) { try { const v = localStorage.getItem('jc_' + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } }
+function jcSave(k, v) { try { localStorage.setItem('jc_' + k, JSON.stringify(v)); } catch (_) {} }
+// moving averages (simple): 3 yellow · 8 purple · 15 green · 50 blue · 100 white (black in light mode) · 200 red
+const JC_MA = [[3, '#facc15'], [8, '#a855f7'], [15, '#22c55e'], [50, '#3b82f6'], [100, null], [200, '#ef4444']];
+const jcMaColor = (c) => c || (document.body.classList.contains('light-mode') ? '#111111' : '#ffffff');
+JC.ma = jcPref('ma', { 3: 1, 8: 1, 15: 1, 50: 1, 100: 1, 200: 1 }); JC.sr = jcPref('sr', true); JC.vsplit = jcPref('vsplit', 0.24);
+JC.tool = null; JC.draw = {};
+const jcSec = t => typeof t === 'string' ? Date.UTC(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10)) / 1000 : t;
+async function jcDaily(supa, sym, from) {
+  let out = [];
+  for (let o = 0; o < 6000; o += 1000) {
+    const { data, error } = await supa.from('price_history').select('trading_date,open,high,low,close,volume').eq('symbol', sym).gte('trading_date', from).order('trading_date').range(o, o + 999);
+    if (error) throw error; out = out.concat(data || []); if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+// returns { rows, start }: rows include extra bars before `start` so the 50 / 100 / 200 averages are right from the first visible candle
 async function jcData(sym, tf, yrs) {
   const key = `${sym}|${tf}|${tf.length > 1 ? '' : yrs}`;
-  if (JC.cache[key] && Date.now() - JC.cache[key].at < (tf.length > 1 ? 60e3 : 600e3)) return JC.cache[key].rows;
+  if (JC.cache[key] && Date.now() - JC.cache[key].at < (tf.length > 1 ? 60e3 : 600e3)) return JC.cache[key].v;
   const supa = await getSupabaseAsync();
-  let rows = [];
+  let rows = [], start = 0;
   if (JC_INTRA[tf]) {
     const { data, error } = await supa.functions.invoke('chart-data', { body: { symbol: sym, interval: tf } });
     if (error) throw error;
     rows = (data?.candles || []).map(c => ({ time: jcEt(c.t), open: c.o, high: c.h, low: c.l, close: c.c, value: c.v }));
   } else {
-    const from = new Date(Date.now() - (tf === 'D' ? yrs : Math.max(yrs, 2)) * 366 * 864e5).toISOString().slice(0, 10);
-    const { data, error } = await supa.from('price_history').select('trading_date,open,high,low,close,volume').eq('symbol', sym).gte('trading_date', from).order('trading_date').range(0, 999);
-    if (error) throw error;
-    const day = (data || []).filter(r => r.open != null && r.close != null).map(r => ({ time: r.trading_date, open: +r.open, high: +r.high, low: +r.low, close: +r.close, value: +r.volume || 0 }));
+    const showY = tf === 'D' ? yrs : Math.max(yrs, 2);
+    const warm = { D: 440, W: 1440, M: 6200 }[tf];
+    const from = new Date(Date.now() - (showY * 366 + warm) * 864e5).toISOString().slice(0, 10);
+    const shown = new Date(Date.now() - showY * 366 * 864e5).toISOString().slice(0, 10);
+    const day = (await jcDaily(supa, sym, from)).filter(r => r.open != null && r.close != null).map(r => ({ time: r.trading_date, open: +r.open, high: +r.high, low: +r.low, close: +r.close, value: +r.volume || 0 }));
     if (tf === 'D') rows = day;
     else {   // roll days up into weeks (starting Monday) or months
       const out = new Map();
@@ -19767,45 +19807,273 @@ async function jcData(sym, tf, yrs) {
       });
       rows = [...out.values()];
     }
+    start = Math.max(0, rows.findIndex(r => r.time >= shown));
   }
-  JC.cache[key] = { at: Date.now(), rows };
-  return rows;
+  const v = { rows, start };
+  JC.cache[key] = { at: Date.now(), v };
+  return v;
+}
+// ---- support / resistance from 2 years of daily candles: swing highs / lows that price turned at more than once ----
+async function jcLevels(sym) {
+  const k = 'lv|' + sym; if (JC.cache[k] && Date.now() - JC.cache[k].at < 600e3) return JC.cache[k].v;
+  const { rows: all, start } = await jcData(sym, 'D', 2), d = all.slice(start), n = d.length, K = 5;
+  const piv = [];
+  for (let i = K; i < n - K; i++) {
+    let hi = true, lo = true;
+    for (let j = i - K; j <= i + K; j++) { if (d[j].high > d[i].high) hi = false; if (d[j].low < d[i].low) lo = false; }
+    if (hi) piv.push({ p: d[i].high, i }); if (lo) piv.push({ p: d[i].low, i });
+  }
+  piv.sort((a, b) => a.p - b.p);
+  const cl = [];
+  piv.forEach(x => { const c = cl[cl.length - 1]; if (c && Math.abs(x.p - c.p) <= c.p * 0.015) { c.list.push(x); c.p = c.list.reduce((s, y) => s + y.p, 0) / c.list.length; } else cl.push({ p: x.p, list: [x] }); });
+  const last = n ? d[n - 1].close : 0;
+  const lv = cl.map(c => { const ix = c.list.map(x => x.i); return { p: c.p, touches: c.list.length, span: (Math.max(...ix) - Math.min(...ix)) / Math.max(1, n) }; }).filter(c => c.touches >= 2);
+  const score = c => c.touches * (1 + c.span);
+  const major = lv.filter(c => c.touches >= 3).sort((a, b) => score(b) - score(a))[0] || lv.sort((a, b) => score(b) - score(a))[0] || null;
+  const near = (arr) => arr.filter(c => c !== major).sort((a, b) => Math.abs(a.p - last) - Math.abs(b.p - last)).slice(0, 3);
+  const v = { major, sup: near(lv.filter(c => c.p < last)), res: near(lv.filter(c => c.p >= last)) };
+  JC.cache[k] = { at: Date.now(), v };
+  return v;
+}
+function jcSrApply(H) {
+  H.lines.forEach(l => { try { H.cs.removePriceLine(l); } catch (_) {} }); H.lines = [];
+  if (!JC.sr || !H.lv) return;
+  const fmt = p => p < 1 ? p.toFixed(4) : p.toFixed(2), add = (c, color, w, title) => H.lines.push(H.cs.createPriceLine({ price: c.p, color, lineWidth: w, lineStyle: 0, axisLabelVisible: true, title: H.big ? `${title} ${c.touches}×` : '' }));
+  H.lv.sup.forEach(c => add(c, '#22c55e', 1, 'S'));
+  H.lv.res.forEach(c => add(c, '#e83fae', 1, 'R'));
+  if (H.lv.major) add(H.lv.major, '#ff8c00', 3, 'MAJOR');
+}
+function jcSma(rows, n, start) {
+  const out = []; let s = 0;
+  for (let i = 0; i < rows.length; i++) { s += rows[i].close; if (i >= n) s -= rows[i - n].close; if (i >= n - 1 && i >= start) out.push({ time: rows[i].time, value: s / n }); }
+  return out;
 }
 async function jcDraw(el, sym, tf, yrs, big) {
   if (!el) return null;
   el.innerHTML = '<div style="padding:30px;text-align:center;color:#8090a0;font-size:11px;">Loading chart…</div>';
   try { await jcLib(); } catch (e) { el.innerHTML = '<div style="padding:20px;color:var(--red);font-size:11px;">Chart library could not load</div>'; return null; }
-  let rows;
-  try { rows = await jcData(sym, tf, yrs); } catch (e) { console.warn('[chart]', e); el.innerHTML = '<div style="padding:20px;color:var(--red);font-size:11px;">No chart data right now — try again</div>'; return null; }
+  let all, start;
+  try { ({ rows: all, start } = await jcData(sym, tf, yrs)); } catch (e) { console.warn('[chart]', e); el.innerHTML = '<div style="padding:20px;color:var(--red);font-size:11px;">No chart data right now — try again</div>'; return null; }
+  const rows = all.slice(start);
   if (!rows.length) { el.innerHTML = `<div style="padding:24px;text-align:center;color:#8090a0;font-size:11px;">No ${tf.length > 1 ? 'intraday' : 'price'} history for ${sym}</div>`; return null; }
-  el.innerHTML = '';
   const light = document.body.classList.contains('light-mode');
-  const LC = window.LightweightCharts;
-  const ch = LC.createChart(el, { autoSize: true,
+  const split = big ? Math.min(0.6, Math.max(0.08, JC.vsplit)) : 0.26;
+  el.innerHTML = `<div class="jc-wrap" style="position:relative;height:100%;display:flex;flex-direction:column;">
+      <div class="jc-top" style="position:relative;flex:1 1 auto;min-height:60px;"></div>
+      <div class="jc-sep" title="${big ? 'Drag up or down to make the volume taller or shorter' : ''}" style="flex:0 0 ${big ? 12 : 6}px;position:relative;${big ? 'cursor:row-resize;touch-action:none;' : ''}">
+        <div style="position:absolute;left:0;right:0;top:50%;height:2px;margin-top:-1px;background:${light ? 'rgba(0,0,0,.25)' : 'rgba(0,212,255,.35)'};"></div>
+        ${big ? `<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:0 8px;font-size:10px;line-height:10px;border-radius:6px;background:${light ? '#dfe7ee' : '#183a57'};color:${light ? '#33475b' : '#9fd8ec'};border:1px solid ${light ? 'rgba(0,0,0,.2)' : 'rgba(0,212,255,.45)'};">⇕ volume</div>` : ''}</div>
+      <div class="jc-vol" style="flex:0 0 ${(split * 100).toFixed(1)}%;min-height:40px;position:relative;"></div></div>`;
+  const wrap = el.querySelector('.jc-wrap'), top = el.querySelector('.jc-top'), vol = el.querySelector('.jc-vol'), sep = el.querySelector('.jc-sep');
+  const LC = window.LightweightCharts, px = rows[rows.length - 1].close < 1;
+  const base = {
+    autoSize: true,
     layout: { background: { type: 'solid', color: 'transparent' }, textColor: light ? '#33475b' : '#9fb0c2', fontSize: big ? 12 : 10 },
     grid: { vertLines: { color: light ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.05)' }, horzLines: { color: light ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.06)' } },
-    crosshair: { mode: LC.CrosshairMode.Normal },
-    rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, timeVisible: !!JC_INTRA[tf], secondsVisible: false, rightOffset: 3 },
-    handleScroll: big, handleScale: big });
+    crosshair: { mode: LC.CrosshairMode.Normal }, handleScroll: big, handleScale: big };
+  const ch = LC.createChart(top, { ...base, layout: { ...base.layout, attributionLogo: false }, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.06, bottom: 0.04 } },
+    timeScale: { visible: false, rightOffset: 3 } });
+  const vc = LC.createChart(vol, { ...base, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.12, bottom: 0.04 } },
+    timeScale: { borderVisible: false, timeVisible: !!JC_INTRA[tf], secondsVisible: false, rightOffset: 3 } });
+  const f = p => p < 0 ? '' : (px ? p.toFixed(4) : p.toFixed(2));
   const cs = ch.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderUpColor: '#22c55e', borderDownColor: '#ef4444', wickUpColor: '#22c55e', wickDownColor: '#ef4444',
-    priceFormat: { type: 'price', precision: rows[rows.length - 1].close < 1 ? 4 : 2, minMove: rows[rows.length - 1].close < 1 ? 0.0001 : 0.01 } });
+    priceFormat: { type: 'custom', formatter: f, minMove: px ? 0.0001 : 0.01 } });
   cs.setData(rows.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
-  const vs = ch.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
-  vs.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-  vs.setData(rows.map(r => ({ time: r.time, value: r.value, color: r.close >= r.open ? 'rgba(34,197,94,.35)' : 'rgba(239,68,68,.35)' })));
+  const vs = vc.addHistogramSeries({ priceFormat: { type: 'volume' }, priceLineVisible: false });
+  vs.setData(rows.map(r => ({ time: r.time, value: r.value, color: r.close >= r.open ? (light ? '#16a34a' : '#34e37a') : (light ? '#dc2626' : '#ff5a5a') })));
+  const H = { ch, vc, cs, vs, rows, big, sym, tf, top, lines: [], ma: {}, alive: true, lv: null,
+    timeScale: () => ch.timeScale(),
+    remove() { this.alive = false; try { ch.remove(); } catch (_) {} try { vc.remove(); } catch (_) {} } };
+  // moving averages
+  JC_MA.forEach(([n, c]) => {
+    const s = ch.addLineSeries({ color: jcMaColor(c), lineWidth: big ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: !!JC.ma[n] });
+    s.setData(jcSma(all, n, start)); H.ma[n] = s;
+  });
+  if (!big) top.insertAdjacentHTML('beforeend', `<div style="position:absolute;left:6px;top:4px;z-index:3;font-size:9.5px;pointer-events:none;display:flex;gap:6px;">${JC_MA.filter(([n]) => JC.ma[n]).map(([n, c]) => `<b style="color:${jcMaColor(c)}">${n}</b>`).join('')}<span style="color:#8090a0;">MA</span></div>`);
+  // keep the two panels scrolled / zoomed together, crosshair on both
+  let lock = false;
+  const sync = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange(r => { if (lock || !r) return; lock = true; try { b.timeScale().setVisibleLogicalRange(r); } catch (_) {} lock = false; });
+  sync(ch, vc); sync(vc, ch);
+  const byTime = new Map(rows.map(r => [typeof r.time === 'object' ? JSON.stringify(r.time) : r.time, r]));
+  const xh = (src, dst, ser, val) => src.subscribeCrosshairMove(p => { try {
+    if (p && p.time != null && p.point) { const r = byTime.get(p.time); if (r && dst.setCrosshairPosition) dst.setCrosshairPosition(val(r), p.time, ser); }
+    else if (dst.clearCrosshairPosition) dst.clearCrosshairPosition(); } catch (_) {} });
+  xh(ch, vc, vs, r => r.value); xh(vc, ch, cs, r => r.close);
   // intraday: start on the latest ~1 day of bars so candles are readable; Day/Week/Month: the whole range
   const show = { '1m': 390, '5m': 160, '15m': 110, '30m': 80, '1h': 120 }[tf];
   if (show && rows.length > show) ch.timeScale().setVisibleLogicalRange({ from: rows.length - show, to: rows.length + 2 }); else ch.timeScale().fitContent();
-  if (big) {   // hover read-out
+  // support / resistance
+  jcLevels(sym).then(v => { H.lv = v; if (H.alive) jcSrApply(H); }).catch(e => console.warn('[chart s/r]', e));
+  if (big) {
+    // hover read-out
     const info = document.getElementById('jc-ohlc');
     const fmt = v => v == null ? '' : (v < 1 ? v.toFixed(4) : v.toFixed(2));
     const put = r => { if (!info || !r) return; const chg = r.close - r.open, c = chg >= 0 ? '#22c55e' : '#ef4444';
       info.innerHTML = `O <b>${fmt(r.open)}</b> H <b>${fmt(r.high)}</b> L <b>${fmt(r.low)}</b> C <b style="color:${c}">${fmt(r.close)}</b> <span style="color:${c}">${chg >= 0 ? '+' : ''}${(chg / r.open * 100).toFixed(2)}%</span> · Vol <b>${typeof _spFmtVol === 'function' ? _spFmtVol(r.value) : r.value}</b>`; };
-    const byTime = new Map(rows.map(r => [typeof r.time === 'object' ? JSON.stringify(r.time) : r.time, r]));
     put(rows[rows.length - 1]);
-    ch.subscribeCrosshairMove(p => put(p && p.time != null ? byTime.get(typeof p.time === 'object' ? JSON.stringify(p.time) : p.time) : rows[rows.length - 1]));
+    const hov = p => put(p && p.time != null ? byTime.get(typeof p.time === 'object' ? JSON.stringify(p.time) : p.time) : rows[rows.length - 1]);
+    ch.subscribeCrosshairMove(hov); vc.subscribeCrosshairMove(hov);
+    // volume slider: drag the separator
+    sep.addEventListener('pointerdown', e => {
+      e.preventDefault(); sep.setPointerCapture(e.pointerId);
+      const mv = ev => { const b = wrap.getBoundingClientRect(); const s = Math.min(0.6, Math.max(0.08, (b.bottom - ev.clientY) / b.height)); JC.vsplit = s; vol.style.flexBasis = (s * 100).toFixed(1) + '%'; };
+      const up = () => { sep.removeEventListener('pointermove', mv); sep.removeEventListener('pointerup', up); jcSave('vsplit', JC.vsplit); };
+      sep.addEventListener('pointermove', mv); sep.addEventListener('pointerup', up);
+    });
+    jcDrawInit(H);
   }
-  return ch;
+  return H;
+}
+// ══ DRAWING: trend line · horizontal line · zone · text · bubble — saved per ticker (public.jc_drawings), shown on every timeframe ══
+function jcT2L(H, t) {   // unix seconds → (fractional) bar index; extends past the first / last bar with the bar spacing
+  const ts = H.times, n = ts.length; if (n < 2) return 0;
+  if (t <= ts[0]) return (t - ts[0]) / (ts[1] - ts[0]);
+  if (t >= ts[n - 1]) return n - 1 + (t - ts[n - 1]) / (ts[n - 1] - ts[n - 2]);
+  let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (ts[m] <= t) lo = m; else hi = m; }
+  return lo + (t - ts[lo]) / (ts[hi] - ts[lo]);
+}
+function jcL2T(H, l) {
+  const ts = H.times, n = ts.length; if (n < 2) return ts[0] || 0;
+  if (l <= 0) return ts[0] + l * (ts[1] - ts[0]);
+  if (l >= n - 1) return ts[n - 1] + (l - n + 1) * (ts[n - 1] - ts[n - 2]);
+  const i = Math.floor(l); return ts[i] + (l - i) * (ts[i + 1] - ts[i]);
+}
+function jcXY(H, pt) { const x = H.ch.timeScale().logicalToCoordinate(jcT2L(H, pt.t)), y = H.cs.priceToCoordinate(pt.p); return x == null || y == null ? null : { x, y }; }
+function jcPt(H, x, y) { const l = H.ch.timeScale().coordinateToLogical(x), p = H.cs.coordinateToPrice(y); return l == null || p == null ? null : { t: Math.round(jcL2T(H, l)), p: +p.toFixed(p < 1 ? 5 : 3) }; }
+function jcDrawInit(H) {
+  H.times = H.rows.map(r => jcSec(r.time));
+  const cv = document.createElement('canvas'); cv.className = 'jc-draw';
+  cv.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;z-index:4;pointer-events:none;';
+  H.top.appendChild(cv); H.canvas = cv;
+  const loop = () => { if (!H.alive) return; jcPaint(H); requestAnimationFrame(loop); }; requestAnimationFrame(loop);
+  const pos = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+  cv.addEventListener('pointermove', e => { const [x, y] = pos(e); H.mouse = jcPt(H, x, y); });
+  cv.addEventListener('pointerdown', e => {
+    if (!JC.tool) return; e.preventDefault();
+    const [x, y] = pos(e), pt = jcPt(H, x, y); if (!pt) return;
+    const items = JC.draw[H.sym] || (JC.draw[H.sym] = []);
+    if (JC.tool === 'erase') { const i = jcHit(H, items, x, y); if (i >= 0) { items.splice(i, 1); jcDrawSave(H.sym); } return; }
+    if (JC.tool === 'hline') { items.push({ type: 'hline', p: pt.p }); jcDrawSave(H.sym); return; }
+    if (JC.tool === 'text' || JC.tool === 'bubble') return;   // placed on click (below) so the text box keeps the focus
+    if (!H.first) { H.first = pt; return; }
+    items.push({ type: JC.tool, a: H.first, b: pt }); H.first = null; jcDrawSave(H.sym);
+  });
+  cv.addEventListener('click', e => { if (JC.tool !== 'text' && JC.tool !== 'bubble') return; const [x, y] = pos(e), pt = jcPt(H, x, y); if (pt) jcTextInput(H, x, y, pt, JC.tool); });
+  jcToolApply();
+}
+function jcTextInput(H, x, y, pt, type) {
+  const inp = document.createElement('input'); inp.className = 'wl-price-in';
+  inp.placeholder = type === 'bubble' ? 'Bubble text — Enter to place' : 'Text — Enter to place';
+  inp.style.cssText = `position:absolute;left:${Math.min(x, H.top.clientWidth - 230)}px;top:${Math.max(0, y - 30)}px;width:220px;z-index:6;`;
+  H.top.appendChild(inp); inp.focus();
+  let done = false;
+  const fin = ok => { if (done) return; done = true; const t = inp.value.trim(); inp.remove();
+    if (ok && t) { (JC.draw[H.sym] ||= []).push({ type, a: pt, text: t.slice(0, 120) }); jcDrawSave(H.sym); } };
+  inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); });
+  inp.addEventListener('blur', () => fin(true));
+}
+function jcBubbleBox(ctx, p, text) { ctx.font = 'bold 12px sans-serif'; const w = ctx.measureText(text).width + 16, h = 22; return { x: p.x + 14, y: p.y - 14 - h, w, h }; }
+function jcPaint(H) {
+  const cv = H.canvas, dpr = window.devicePixelRatio || 1, W = H.top.clientWidth, Ht = H.top.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(Ht * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(Ht * dpr); }
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, Ht);
+  const plotW = W - (H.ch.priceScale('right').width() || 0);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, Ht); ctx.clip();
+  const light = document.body.classList.contains('light-mode'), items = (JC.draw[H.sym] || []).slice();
+  if (H.first && H.mouse && (JC.tool === 'trend' || JC.tool === 'zone')) items.push({ type: JC.tool, a: H.first, b: H.mouse, preview: true });
+  items.forEach(d => {
+    ctx.globalAlpha = d.preview ? 0.6 : 1; ctx.setLineDash([]);
+    if (d.type === 'hline') { const y = H.cs.priceToCoordinate(d.p); if (y == null) return;
+      ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke();
+      ctx.font = 'bold 11px sans-serif'; const s = d.p < 1 ? d.p.toFixed(4) : d.p.toFixed(2), tw = ctx.measureText(s).width;
+      ctx.fillStyle = '#00d4ff'; ctx.fillRect(plotW - tw - 10, y - 9, tw + 8, 18); ctx.fillStyle = '#002233'; ctx.fillText(s, plotW - tw - 6, y + 4); return; }
+    const a = jcXY(H, d.a); if (!a) return;
+    if (d.type === 'trend' || d.type === 'zone') { const b = jcXY(H, d.b); if (!b) return;
+      if (d.type === 'trend') { ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        [a, b].forEach(q => { ctx.fillStyle = '#00d4ff'; ctx.beginPath(); ctx.arc(q.x, q.y, 3, 0, 7); ctx.fill(); }); }
+      else { ctx.fillStyle = 'rgba(250,204,21,.16)'; ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1.5; const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        ctx.fillRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.strokeRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y)); }
+      return; }
+    if (d.type === 'text') { ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = light ? '#0f172a' : '#ffffff'; ctx.fillText(d.text, a.x, a.y); return; }
+    if (d.type === 'bubble') { const r = jcBubbleBox(ctx, a, d.text);
+      ctx.fillStyle = '#00d4ff'; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(r.x + 6, r.y + r.h); ctx.lineTo(r.x + 18, r.y + r.h); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(r.x, r.y, r.w, r.h, 6); else ctx.rect(r.x, r.y, r.w, r.h); ctx.fill();
+      ctx.fillStyle = '#002233'; ctx.fillText(d.text, r.x + 8, r.y + 15); }
+  });
+  ctx.restore();
+}
+function jcHit(H, items, x, y) {   // index of the drawing under the cursor (for Erase), or -1
+  const ctx = H.canvas.getContext('2d');
+  for (let i = items.length - 1; i >= 0; i--) {
+    const d = items[i];
+    if (d.type === 'hline') { const yy = H.cs.priceToCoordinate(d.p); if (yy != null && Math.abs(yy - y) < 7) return i; continue; }
+    const a = jcXY(H, d.a); if (!a) continue;
+    if (d.type === 'trend') { const b = jcXY(H, d.b); if (!b) continue; const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L)); if (Math.hypot(a.x + t * dx - x, a.y + t * dy - y) < 7) return i; }
+    else if (d.type === 'zone') { const b = jcXY(H, d.b); if (b && x >= Math.min(a.x, b.x) - 4 && x <= Math.max(a.x, b.x) + 4 && y >= Math.min(a.y, b.y) - 4 && y <= Math.max(a.y, b.y) + 4) return i; }
+    else if (d.type === 'text') { ctx.font = 'bold 13px sans-serif'; if (x >= a.x - 4 && x <= a.x + ctx.measureText(d.text).width + 4 && y >= a.y - 16 && y <= a.y + 6) return i; }
+    else if (d.type === 'bubble') { const r = jcBubbleBox(ctx, a, d.text); if ((x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) || Math.hypot(x - a.x, y - a.y) < 8) return i; }
+  }
+  return -1;
+}
+let _jcSaveT = null;
+function jcDrawSave(sym) {
+  clearTimeout(_jcSaveT);
+  _jcSaveT = setTimeout(async () => { try { const supa = await getSupabaseAsync();
+    const { error } = await supa.from('jc_drawings').upsert({ symbol: sym, items: JC.draw[sym] || [], updated_at: new Date().toISOString() });
+    if (error) throw error; } catch (e) { console.warn('[chart drawings]', e); showToast('Chart', 'Drawing could not be saved: ' + (e.message || e), 'error'); } }, 400);
+}
+async function jcDrawLoad(sym) {
+  if (JC.draw[sym]) return;
+  try { const supa = await getSupabaseAsync(); const { data } = await supa.from('jc_drawings').select('items').eq('symbol', sym).maybeSingle();
+    JC.draw[sym] = Array.isArray(data?.items) ? data.items : []; } catch (_) { JC.draw[sym] = []; }
+}
+function jcTool(t) { JC.tool = JC.tool === t ? null : t; if (JC.full) JC.full.first = null; jcToolApply(); }
+function jcToolApply() {
+  document.querySelectorAll('#jc-full .jc-tool').forEach(b => b.classList.toggle('active', b.dataset.t === JC.tool));
+  const cv = JC.full && JC.full.canvas; if (!cv) return;
+  cv.style.pointerEvents = JC.tool ? 'auto' : 'none'; cv.style.cursor = JC.tool === 'erase' ? 'not-allowed' : JC.tool ? 'crosshair' : '';
+  const hint = document.getElementById('jc-hint');
+  if (hint) hint.textContent = { trend: 'Click the start, then the end of the line', hline: 'Click a price to draw a level', zone: 'Click one corner, then the opposite corner', text: 'Click where the text goes, type, Enter', bubble: 'Click the point the bubble points to, type, Enter', erase: 'Click a drawing to delete it' }[JC.tool] || 'Pick a tool to draw · click it again to go back to scroll / zoom';
+}
+function jcClearDraw() {
+  const n = (JC.draw[JC.sym] || []).length; if (!n) return;
+  if (!confirm(`Delete all ${n} drawing${n === 1 ? '' : 's'} on ${JC.sym}?`)) return;
+  JC.draw[JC.sym] = []; jcDrawSave(JC.sym);
+}
+function jcMaToggle(n) { JC.ma[n] = JC.ma[n] ? 0 : 1; jcSave('ma', JC.ma); if (JC.full && JC.full.ma[n]) JC.full.ma[n].applyOptions({ visible: !!JC.ma[n] }); jcBarRefresh(); }
+function jcSrToggle() { JC.sr = !JC.sr; jcSave('sr', JC.sr); if (JC.full) jcSrApply(JC.full); jcBarRefresh(); }
+function jcBarRefresh() {
+  document.querySelectorAll('#jc-full .jc-ma').forEach(b => { const on = !!JC.ma[b.dataset.n]; b.style.opacity = on ? 1 : 0.35; b.style.textDecoration = on ? 'none' : 'line-through'; });
+  const s = document.getElementById('jc-sr-btn'); if (s) { s.classList.toggle('active', JC.sr); s.textContent = JC.sr ? '◉ Support / resistance' : '○ Support / resistance'; }
+}
+// ---- print: PNG or PDF of the chart with your drawings, S/R and averages ----
+async function jcExport(fmt) {
+  const H = JC.full; if (!H) return;
+  try {
+    const a = H.ch.takeScreenshot(), b = H.vc.takeScreenshot(), k = a.width / H.top.clientWidth;
+    const light = document.body.classList.contains('light-mode'), bg = light ? '#ffffff' : '#0d2238', fg = light ? '#0f172a' : '#e6eef5';
+    const hdr = Math.round(44 * k), gap = Math.round(10 * k), c = document.createElement('canvas');
+    c.width = a.width; c.height = hdr + a.height + gap + b.height;
+    const x = c.getContext('2d'); x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
+    x.drawImage(a, 0, hdr); if (H.canvas) x.drawImage(H.canvas, 0, hdr, a.width, a.height);
+    x.fillStyle = light ? 'rgba(0,0,0,.3)' : 'rgba(0,212,255,.45)'; x.fillRect(0, hdr + a.height + gap / 2 - k, c.width, 2 * k);
+    x.drawImage(b, 0, hdr + a.height + gap);
+    const tfl = (JC_TF.find(t => t[0] === JC.tf) || [])[1] || JC.tf, now = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    x.fillStyle = fg; x.font = `bold ${Math.round(18 * k)}px sans-serif`; x.fillText(JC.sym, 12 * k, 27 * k);
+    let cx = 12 * k + x.measureText(JC.sym).width + 14 * k;
+    x.font = `${Math.round(12 * k)}px sans-serif`; const sub = `${tfl}${JC_INTRA[JC.tf] ? '' : ' · ' + JC.yrs + ' year' + (JC.yrs > 1 ? 's' : '')} · ${now} ET${JC.sr ? ' · S/R on' : ''}`;
+    x.fillStyle = light ? '#475569' : '#9fb0c2'; x.fillText(sub, cx, 26 * k); cx += x.measureText(sub).width + 16 * k;
+    x.font = `bold ${Math.round(12 * k)}px sans-serif`;
+    JC_MA.filter(([n]) => JC.ma[n]).forEach(([n, col]) => { x.fillStyle = jcMaColor(col); const t = `MA ${n}`; x.fillText(t, cx, 26 * k); cx += x.measureText(t).width + 10 * k; });
+    const name = `${JC.sym}-${JC.tf}-${new Date().toISOString().slice(0, 10)}`;
+    if (fmt === 'png') { const l = document.createElement('a'); l.href = c.toDataURL('image/png'); l.download = name + '.png'; document.body.appendChild(l); l.click(); l.remove(); return; }
+    if (!window.jspdf) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' }), W = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight();
+    const s = Math.min((W - 40) / c.width, (PH - 40) / c.height);
+    doc.addImage(c.toDataURL('image/png'), 'PNG', (W - c.width * s) / 2, 20, c.width * s, c.height * s);
+    doc.save(name + '.pdf');
+  } catch (e) { console.error('[chart export]', e); showToast('Chart', 'Could not save the chart: ' + e.message, 'error'); }
 }
 // ---- small chart at the bottom of the ticker pop-up ----
 function jcPopupHtml(sym) {
@@ -19829,11 +20097,12 @@ async function jcPop(sym, tf, yrs) {
   JC.chart = await jcDraw(document.getElementById('jc-pop-box'), sym, _jcPopTf, _jcPopY, false);
 }
 // ---- full view: covers the page below the top banner ----
-function jcOpenFull(sym) {
+async function jcOpenFull(sym) {
+  await jcDrawLoad(sym);
   JC.sym = sym; JC.tf = _jcPopTf || 'D'; JC.yrs = _jcPopY || 1; JC.help = false;
   let ov = document.getElementById('jc-full');
   if (!ov) { ov = document.createElement('div'); ov.id = 'jc-full'; document.body.appendChild(ov);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('jc-full')?.style.display === 'flex') jcCloseFull(); }); }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('jc-full')?.style.display === 'flex') { if (JC.tool) jcTool(JC.tool); else jcCloseFull(); } }); }
   ov.style.cssText = 'position:fixed;left:0;right:0;bottom:0;top:var(--hdr-h,141px);z-index:9500;background:var(--bg);display:flex;flex-direction:column;border-top:2px solid var(--cyan);box-shadow:0 -6px 18px rgba(0,0,0,.4);';
   jcFullRender();
 }
@@ -19850,6 +20119,17 @@ function jcFullRender() {
         <button class="fbtn" onclick="jcZoom(0)" title="Show the whole range">Reset</button>
         <button class="fbtn${JC.help ? ' active' : ''}" onclick="JC.help=!JC.help;jcFullRender()" title="How the chart works">ⓘ How it works</button>
         <button class="fbtn" onclick="jcCloseFull()" title="Close (Esc)" style="border-color:var(--cyan);color:var(--cyan);font-weight:700;">✕ Close</button></span></div>
+    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:6px 16px;border-bottom:1px solid var(--border2);">
+      <span style="font-size:10px;letter-spacing:1px;color:#8090a0;margin-right:2px;">DRAW</span>
+      ${[['trend', '╱ Trend line'], ['hline', '─ Horizontal'], ['zone', '▭ Zone'], ['text', 'T Text'], ['bubble', '💬 Bubble'], ['erase', '⌫ Erase']].map(([t, l]) => `<button class="fbtn jc-tool" data-t="${t}" onclick="jcTool('${t}')">${l}</button>`).join('')}
+      <button class="fbtn" onclick="jcClearDraw()" title="Delete every drawing on this ticker">Clear all</button>
+      <span id="jc-hint" style="font-size:10.5px;color:#8090a0;margin-left:4px;"></span>
+      <span style="margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:10px;letter-spacing:1px;color:#8090a0;">MA</span>
+        ${JC_MA.map(([n, c]) => `<button class="fbtn jc-ma" data-n="${n}" onclick="jcMaToggle(${n})" title="${n}-period moving average — click to show / hide" style="color:${jcMaColor(c)};border-color:${jcMaColor(c)};font-weight:700;padding:3px 7px;">${n}</button>`).join('')}
+        <button id="jc-sr-btn" class="fbtn" onclick="jcSrToggle()" title="Support (green), resistance (magenta) and the major long-term level (thick orange) from 2 years of daily candles"></button>
+        <button class="fbtn" onclick="jcExport('png')" title="Save the chart as a picture">⬇ PNG</button>
+        <button class="fbtn" onclick="jcExport('pdf')" title="Save the chart as a one-page PDF to print">⬇ PDF</button></span></div>
     <div id="jc-ohlc" style="padding:6px 16px;font-size:12px;color:#c0c8d4;min-height:18px;"></div>
     ${JC.help ? `<div style="margin:0 16px 8px;padding:10px 14px;border:1px solid var(--border2);border-radius:8px;background:rgba(0,212,255,.05);font-size:12px;line-height:1.6;color:var(--text2);">
       <b style="color:var(--text);">How the chart works</b><br>
@@ -19857,10 +20137,16 @@ function jcFullRender() {
       • <b>Timeframes:</b> 1 min · 5 min · 15 min · 30 min · 1 hour · Day · Week · Month. Day / Week / Month show 1 or 2 years from your price history.<br>
       • <b>How far back:</b> 1 min ≈ last 7 days · 5 / 15 / 30 min ≈ last 60 days · 1 hour ≈ last 2 years (that's what the data source keeps). Minute charts include pre-market and after-hours; they open on the latest day — zoom out or drag to go back.<br>
       • <b>Zoom:</b> ＋ / − buttons, mouse wheel or trackpad pinch · <b>Move:</b> drag left / right · <b>Reset</b> shows the whole range · hover a candle to see open, high, low, close and volume.<br>
-      • <b>Close:</b> ✕ or the Esc key. Times are New York time. Green candle = closed higher than it opened, red = lower; bars at the bottom = volume.</div>` : ''}
+      • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered.<br>
+      • <b>Moving averages:</b> 3 yellow · 8 purple · 15 green · 50 blue · 100 white (black in light mode) · 200 red (simple averages of the close). Click a number to show / hide it.<br>
+      • <b>Support / resistance:</b> levels where price turned at least twice in the last 2 years of daily candles — green = support below the price, magenta = resistance above, <b style="color:#ff8c00;">thick orange = the major level</b> (most turns over the longest time). The label shows how many times it turned there. Same levels on every timeframe; turn them on / off with the button.<br>
+      • <b>Drawing:</b> pick Trend line, Horizontal, Zone, Text or Bubble and click on the chart (lines and zones: two clicks). Erase = click a drawing to delete it. Click the tool again or press Esc to go back to scroll / zoom. Drawings are saved per ticker and show on every timeframe.<br>
+      • <b>⬇ PNG / ⬇ PDF:</b> saves the chart as you see it — drawings, levels and averages included — with the ticker, timeframe and date on top.<br>
+      • <b>Close:</b> ✕ or the Esc key. Times are New York time. Green candle = closed higher than it opened, red = lower.</div>` : ''}
     <div id="jc-full-box" style="flex:1;min-height:200px;margin:0 8px 8px;"></div>`;
   if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
-  jcDraw(document.getElementById('jc-full-box'), JC.sym, JC.tf, JC.yrs, true).then(c => { JC.full = c; });
+  jcBarRefresh(); jcToolApply();
+  jcDraw(document.getElementById('jc-full-box'), JC.sym, JC.tf, JC.yrs, true).then(c => { JC.full = c; jcToolApply(); });
 }
 function jcSet(tf) { JC.tf = tf; jcFullRender(); }
 function jcSetY(y) { JC.yrs = y; jcFullRender(); }
@@ -19872,6 +20158,7 @@ function jcZoom(f) {
   ts.setVisibleLogicalRange({ from: mid - half, to: mid + half });
 }
 function jcCloseFull() {
+  JC.tool = null;
   if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
   const ov = document.getElementById('jc-full'); if (ov) { ov.style.display = 'none'; ov.innerHTML = ''; }
 }
