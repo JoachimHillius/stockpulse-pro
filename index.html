@@ -18267,11 +18267,12 @@ async function jrLoad() {
 function jrTab(t) { JR.tab = t; jrRender(); }
 function jrRender() {
   const root = document.getElementById('jr-root'); if (!root) return;
-  const tabs = [['today', 'Today'], ['plan', 'Plan'], ['calendar', 'Calendar'], ['audit', 'Weekly Audit'], ['analytics', 'Analytics']]
+  const tabs = [['today', 'Today'], ['watch', 'Watchlist'], ['plan', 'Plan'], ['calendar', 'Calendar'], ['audit', 'Weekly Audit'], ['analytics', 'Analytics']]
     .map(([k, l]) => `<button class="jr-pill ${JR.tab === k ? 'on' : ''}" onclick="jrTab('${k}')">${l}</button>`).join('');
   let body = '';
   if (JR.tab === 'today') body = jrTodayHtml();
   else if (JR.tab === 'plan') body = jrPlanHtml();
+  else if (JR.tab === 'watch') body = jrWatchHtml();
   else if (JR.tab === 'calendar') body = jrCalHtml();
   else if (JR.tab === 'audit') body = jrAuditHtml();
   else body = `<div class="jr-an">${jrAnHtml()}</div>`;
@@ -18282,9 +18283,11 @@ function jrRender() {
     <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
     <button class="jr-btn g" onclick="jrPlanAdd('penny')">+ Penny plan</button><button class="jr-btn" onclick="jrPlanAdd('option')">+ Options plan</button>
     <button class="jr-btn" onclick="jrPlanCsv()" title="Download this day's plan as a spreadsheet (opens in Excel / Numbers / Google Sheets)">⬇ Spreadsheet</button>
-    <button class="jr-btn" onclick="jrPlanUploadPick()" title="Upload a filled-in plan: the fillable PDF or the spreadsheet from Download PDF → Empty trade plans">⬆ Upload filled plan</button>` : ''}${JR.tab === 'today' ? `<span class="jr-sp"></span>
+    <button class="jr-btn" onclick="jrPlanUploadPick()" title="Upload a filled-in plan: the fillable PDF or the spreadsheet from Download PDF → Empty trade plans">⬆ Upload filled plan</button>` : ''}${JR.tab === 'watch' ? `<span class="jr-sp"></span>
+    <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
+    <button class="jr-btn" onclick="jrWatchCopy()" title="Copy the most recent earlier list to this day (keeps your notes; stays within 20 / 10)">⧉ Copy previous day</button>` : ''}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : JR.tab === 'plan' ? '' : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : JR.tab === 'plan' || JR.tab === 'watch' ? '' : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
   if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
 }
 function jrSetDate(d) {
@@ -19048,6 +19051,169 @@ function jrPlanCalc(d) {
   }
   return out;
 }
+// ══ DAILY WATCH LIST (Journal → Watchlist) ══════════════════════════════
+// public.jr_watch: one short list per day — up to 20 large caps and 10 penny stocks (a DB trigger enforces it; lists older than 30 days are deleted nightly).
+// Source: the main Watchlist page (user_watchlist). Prices: rpc jr_quotes (latest daily close, change, volume from price_history).
+const JR_WCAP = { large: 20, penny: 10 };
+async function jrWatchLoad(force) {
+  if (JR.watch && !force) return;
+  try { const supa = await getSupabaseAsync(); const { data, error } = await supa.from('jr_watch').select('*').order('d').order('id').limit(2000); if (error) throw error; JR.watch = data || []; }
+  catch (e) { console.warn('[watch]', e); JR.watch = JR.watch || []; }
+}
+async function jrQuotes(syms) {   // { SYM: {close, chg_pct, volume, d} } — cached 10 min
+  JR.q ||= {}; const need = [...new Set(syms)].filter(s => s && !(JR.q[s] && Date.now() - JR.q[s].at < 600e3));
+  for (let i = 0; i < need.length; i += 800) {
+    try { const supa = await getSupabaseAsync(); const { data, error } = await supa.rpc('jr_quotes', { p_syms: need.slice(i, i + 800) }); if (error) throw error;
+      const got = new Set(); (data || []).forEach(r => { got.add(r.symbol); JR.q[r.symbol] = { at: Date.now(), close: jrNum(r.close), chg: jrNum(r.chg_pct), vol: jrNum(r.volume), d: r.d }; });
+      need.slice(i, i + 800).forEach(s => { if (!got.has(s)) JR.q[s] = { at: Date.now(), close: null, chg: null, vol: null }; });
+    } catch (e) { console.warn('[quotes]', e); }
+  }
+  return JR.q;
+}
+function jrWatchHtml() {
+  if (!JR.watch) { jrWatchLoad().then(() => { if (JR.tab === 'watch') jrRender(); }); return '<div style="color:var(--text3);padding:20px;">Loading…</div>'; }
+  const rows = JR.watch.filter(w => w.d === JR.d), q = JR.q || {};
+  const missing = rows.map(w => w.symbol).filter(s => !q[s]); if (missing.length) jrQuotes(missing).then(() => { if (JR.tab === 'watch') jrRender(); });
+  const px = v => v == null ? '—' : '$' + (v < 1 ? v.toFixed(4) : v.toFixed(2));
+  const sec = (kind, title, color) => {
+    const list = rows.filter(w => w.kind === kind), cap = JR_WCAP[kind], full = list.length >= cap;
+    const body = list.map((w, i) => { const x = q[w.symbol] || {};
+      return `<tr><td>${i + 1}</td>
+        <td><a href="#" onclick="jcOpenFull('${jrEsc(w.symbol)}');return false;" title="Open the full chart" style="color:var(--text);font-weight:700;text-decoration:none;font-size:13px;">${jrEsc(w.symbol)}</a></td>
+        <td>${px(x.close)}</td><td class="${x.chg > 0 ? 'jr-pos' : x.chg < 0 ? 'jr-neg' : ''}">${x.chg == null ? '—' : (x.chg > 0 ? '+' : '') + x.chg.toFixed(2) + '%'}</td>
+        <td>${x.vol == null ? '—' : _spFmtVol(x.vol)}</td>
+        <td style="width:40%;"><div class="jr-micw"><input value="${jrEsc(w.note || '')}" placeholder="why I'm watching it" onchange="jrWatchNote(${w.id},this.value)">${jrMicBtn()}</div></td>
+        <td style="white-space:nowrap;"><button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(w.symbol)}')" title="Full chart with your drawings">📈 Chart</button>
+          <button class="jr-btn sm g" onclick="jrWatchToPlan(${w.id})" title="Make a ${kind === 'penny' ? 'penny' : 'options'} plan for this ticker on the Plan tab">→ Plan</button>
+          <button class="jr-btn del sm" onclick="jrWatchDel(${w.id})" title="Take it off today's list">✕</button></td></tr>`; }).join('');
+    return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title} <span style="color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0;">${list.length} / ${cap}</span>
+        <span class="jr-sp"></span>
+        <span style="position:relative;display:inline-flex;text-transform:none;letter-spacing:0;font-weight:400;">
+          <input id="jr-wq-${kind}" class="wl-price-in" style="width:150px;text-transform:uppercase;" placeholder="${full ? 'List is full' : '+ Add ticker'}" ${full ? 'disabled' : ''}
+            oninput="jrWatchSearch('${kind}',this.value)" onkeydown="jrWatchKey(event,'${kind}')" onblur="setTimeout(()=>{const d=document.getElementById('jr-wdd-${kind}');if(d)d.style.display='none'},200)">
+          <div id="jr-wdd-${kind}" class="jr-dd" style="display:none;position:absolute;top:100%;left:0;z-index:50;min-width:240px;"></div></span>
+        <button class="jr-btn sm" onclick="jrWatchPick('${kind}')" ${full ? 'disabled' : ''} title="Pick from your Watchlist page — biggest movers and volume on top">+ Add from Watchlist</button></h3>
+      ${list.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>Last close</th><th>Change</th><th>Volume</th><th>Note</th><th></th></tr>${body}</table>`
+        : `<div style="color:var(--text3);padding:8px 0;">Nothing on the ${kind === 'penny' ? 'penny' : 'large-cap'} list for this day yet — type a ticker or use <b>+ Add from Watchlist</b>.</div>`}</div>`;
+  };
+  return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Your short list for the day — up to <b>20 large caps</b> and <b>10 penny stocks</b>. It starts empty every day (or <b>Copy previous day</b>); lists older than 30 days are deleted automatically. Price, change and volume = the latest daily close. <b>→ Plan</b> puts the ticker on the Plan tab; 📈 opens the chart.</div>
+    ${sec('large', 'Large caps — watch list (options)', 'var(--cyan)')}${sec('penny', 'Penny stocks — watch list', 'var(--green)')}`;
+}
+let _jrWT = null;
+function jrWatchSearch(kind, val) {
+  clearTimeout(_jrWT); const q = val.trim().toUpperCase().replace(/^\$/, ''), dd = document.getElementById('jr-wdd-' + kind);
+  if (!q) { if (dd) dd.style.display = 'none'; return; }
+  _jrWT = setTimeout(async () => {
+    const supa = await getSupabaseAsync(); const { data } = await supa.rpc('jr_symbol_search', { q });
+    const dd = document.getElementById('jr-wdd-' + kind); if (!dd) return;
+    const list = (data || []).slice(0, 8), exact = list.some(r => r.symbol === q);
+    dd.innerHTML = list.map((r, i) => `<div class="${i === 0 ? 'hi' : ''}" onmousedown="jrWatchAdd('${kind}',['${jrEsc(r.symbol)}'])"><b>${jrEsc(r.symbol)}</b> ${jrEsc(r.name || '')}</div>`).join('')
+      + (exact || !/^[A-Z][A-Z0-9.\-]{0,9}$/.test(q) ? '' : `<div onmousedown="jrWatchAdd('${kind}',['${jrEsc(q)}'],true)" style="color:var(--green);font-weight:700;">+ Add new ticker “${jrEsc(q)}” (also to your Watchlist page)</div>`);
+    dd.style.display = 'block';
+  }, 180);
+}
+function jrWatchKey(ev, kind) {
+  const dd = document.getElementById('jr-wdd-' + kind); if (!dd || dd.style.display === 'none') return;
+  const items = [...dd.children]; if (!items.length) return; let i = items.findIndex(x => x.classList.contains('hi'));
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); items[i]?.classList.remove('hi'); i = (i + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; items[i].classList.add('hi'); }
+  else if (ev.key === 'Enter') { ev.preventDefault(); (items[i] || items[0]).dispatchEvent(new MouseEvent('mousedown')); }
+  else if (ev.key === 'Escape') dd.style.display = 'none';
+}
+async function jrWatchAdd(kind, syms, isNew) {
+  const have = new Set(JR.watch.filter(w => w.d === JR.d).map(w => w.symbol)), room = JR_WCAP[kind] - JR.watch.filter(w => w.d === JR.d && w.kind === kind).length;
+  const add = [...new Set(syms)].filter(s => !have.has(s));
+  if (!add.length) { showToast('Watchlist', 'Already on this day\'s list', 'info'); return; }
+  if (add.length > room) { showToast('Watchlist', `Only ${room} more ${kind === 'penny' ? 'penny stock' : 'large cap'}${room === 1 ? '' : 's'} fit (max ${JR_WCAP[kind]})`, 'error'); return; }
+  const supa = await getSupabaseAsync();
+  // tickers not yet in the library / on the Watchlist page get added there too
+  try {
+    await supa.from('jr_symbols').upsert(add.map(symbol => ({ symbol })), { onConflict: 'symbol', ignoreDuplicates: true });
+    const { data: onWl } = await supa.from('user_watchlist').select('symbol').in('symbol', add);
+    const nw = add.filter(s => !(onWl || []).some(r => r.symbol === s));
+    if (nw.length) { const { error } = await supa.from('user_watchlist').insert(nw.map(symbol => ({ symbol, sector: 'Custom' }))); if (!error && isNew) showToast(nw.join(', '), 'Added to your Watchlist page too ✓', 'info'); }
+  } catch (e) { console.warn('[watch library]', e); }
+  const { data, error } = await supa.from('jr_watch').insert(add.map(symbol => ({ d: JR.d, kind, symbol }))).select();
+  if (error) { showToast('Watchlist', 'Not added: ' + error.message, 'error'); return; }
+  JR.watch = JR.watch.concat(data || []); document.getElementById('jr-wpick')?.remove(); jrRender();
+}
+async function jrWatchNote(id, v) {
+  const w = JR.watch.find(x => x.id === id); if (!w) return; w.note = String(v || '').trim() || null;
+  const supa = await getSupabaseAsync(); const { error } = await supa.from('jr_watch').update({ note: w.note }).eq('id', id);
+  if (error) showToast('Watchlist', 'Note not saved: ' + error.message, 'error');
+}
+async function jrWatchDel(id) {
+  const supa = await getSupabaseAsync(); const { error } = await supa.from('jr_watch').delete().eq('id', id);
+  if (error) { showToast('Watchlist', 'Not removed: ' + error.message, 'error'); return; }
+  JR.watch = JR.watch.filter(w => w.id !== id); jrRender();
+}
+async function jrWatchCopy() {
+  const prev = [...new Set(JR.watch.filter(w => w.d < JR.d).map(w => w.d))].sort().pop();
+  if (!prev) { showToast('Watchlist', 'No earlier list to copy', 'info'); return; }
+  const have = new Set(JR.watch.filter(w => w.d === JR.d).map(w => w.symbol)), rows = [];
+  for (const kind of ['large', 'penny']) {
+    let room = JR_WCAP[kind] - JR.watch.filter(w => w.d === JR.d && w.kind === kind).length;
+    JR.watch.filter(w => w.d === prev && w.kind === kind && !have.has(w.symbol)).forEach(w => { if (room-- > 0) rows.push({ d: JR.d, kind, symbol: w.symbol, note: w.note }); });
+  }
+  if (!rows.length) { showToast('Watchlist', 'Nothing new to copy from ' + jrShowMD(prev), 'info'); return; }
+  const supa = await getSupabaseAsync(); const { data, error } = await supa.from('jr_watch').insert(rows).select();
+  if (error) { showToast('Watchlist', 'Copy failed: ' + error.message, 'error'); return; }
+  JR.watch = JR.watch.concat(data || []); jrRender(); showToast('Watchlist', `${rows.length} copied from ${jrShowMD(prev)} ✓`, 'info');
+}
+async function jrWatchToPlan(id) {
+  const w = JR.watch.find(x => x.id === id); if (!w) return; const x = (JR.q || {})[w.symbol] || {}, kind = w.kind === 'penny' ? 'penny' : 'option';
+  if ((JR.plans || []).some(p => p.d === JR.d && p.kind === kind && p.symbol === w.symbol)) { JR.tab = 'plan'; jrRender(); showToast(w.symbol, 'Already on the Plan tab', 'info'); return; }
+  const supa = await getSupabaseAsync();
+  const { data, error } = await supa.from('jr_plans').insert({ d: JR.d, kind, symbol: w.symbol, stop_pct: kind === 'penny' ? 15 : 20, price: kind === 'penny' ? x.close : null, stock_price: kind === 'option' ? x.close : null, notes: w.note }).select();
+  if (error) { showToast('Journal', 'Plan not added: ' + error.message, 'error'); return; }
+  JR.plans = (JR.plans || []).concat(data || []); JR.tab = 'plan'; jrRender();
+  showToast(w.symbol, kind === 'option' ? 'Options plan added — fill in strike, expiry and premium' : 'Penny plan added with the last close as price', 'info');
+}
+// ---- pick from the Watchlist page: movers and volume on top, split by price ----
+async function jrWatchPick(kind) {
+  document.getElementById('jr-wpick')?.remove();
+  const m = document.createElement('div'); m.id = 'jr-wpick';
+  m.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;';
+  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--cyan);border-radius:10px;padding:20px;color:var(--text2);">Loading your Watchlist prices…</div>`;
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  document.body.appendChild(m);
+  if (!JR.wl || Date.now() - JR.wl.at > 600e3) {
+    try { const supa = await getSupabaseAsync(); let all = [];
+      for (let f = 0; f < 10000; f += 1000) { const { data, error } = await supa.from('user_watchlist').select('symbol').range(f, f + 999); if (error) throw error; all = all.concat(data || []); if (!data || data.length < 1000) break; }
+      JR.wl = { at: Date.now(), syms: [...new Set(all.map(r => r.symbol))] }; await jrQuotes(JR.wl.syms);
+    } catch (e) { m.remove(); showToast('Watchlist', 'Could not load the Watchlist: ' + e.message, 'error'); return; }
+  }
+  JR.wp = { kind, sort: JR.wp?.sort || 'chg', f: '', sel: new Set() }; jrWatchPickRender();
+}
+function jrWatchPickRender() {
+  const m = document.getElementById('jr-wpick'); if (!m) return;
+  const P = JR.wp, q = JR.q, have = new Set(JR.watch.filter(w => w.d === JR.d).map(w => w.symbol));
+  const room = JR_WCAP[P.kind] - JR.watch.filter(w => w.d === JR.d && w.kind === P.kind).length;
+  let list = JR.wl.syms.map(s => ({ s, ...(q[s] || {}) })).filter(r => r.close != null && (P.kind === 'penny' ? r.close < 10 : r.close >= 10) && !have.has(r.s));
+  if (P.f) list = list.filter(r => r.s.includes(P.f));
+  list.sort(P.sort === 'vol' ? (a, b) => (b.vol || 0) - (a.vol || 0) : (a, b) => Math.abs(b.chg || 0) - Math.abs(a.chg || 0));
+  const shown = list.slice(0, 150), last = Object.values(q).map(x => x.d).filter(Boolean).sort().pop();
+  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--cyan);border-radius:10px;max-width:760px;width:94%;max-height:82vh;display:flex;flex-direction:column;padding:16px 18px;">
+    <h3 style="margin:0 0 4px;color:var(--cyan);letter-spacing:1px;">ADD FROM WATCHLIST · ${P.kind === 'penny' ? 'PENNY STOCKS (under $10)' : 'LARGE CAPS ($10+)'}</h3>
+    <div style="font-size:11.5px;color:var(--text2);margin-bottom:8px;">${list.length} tickers from your Watchlist page · close of ${last ? jrShowMD(last) : '—'} · room for <b>${room - P.sel.size}</b> more today (max ${JR_WCAP[P.kind]}).</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <button class="fbtn${P.sort !== 'vol' ? ' active' : ''}" onclick="JR.wp.sort='chg';jrWatchPickRender()">▲▼ Biggest move</button>
+      <button class="fbtn${P.sort === 'vol' ? ' active' : ''}" onclick="JR.wp.sort='vol';jrWatchPickRender()">📊 Highest volume</button>
+      <input class="wl-price-in" id="jr-wp-f" style="width:140px;text-transform:uppercase;margin-left:auto;" placeholder="🔍 Filter" value="${jrEsc(P.f)}" oninput="JR.wp.f=this.value.trim().toUpperCase();jrWatchPickRender();const e=document.getElementById('jr-wp-f');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+    <div style="overflow:auto;flex:1;"><table class="jr-tbl" style="width:100%;"><tr><th></th><th>Ticker</th><th>Last close</th><th>Change</th><th>Volume</th></tr>
+      ${shown.map(r => { const on = P.sel.has(r.s), dis = !on && P.sel.size >= room;
+        return `<tr style="cursor:${dis ? 'not-allowed' : 'pointer'};${on ? 'background:rgba(0,212,255,.1);' : ''}${dis ? 'opacity:.45;' : ''}" onclick="jrWatchPickTog('${r.s}')">
+          <td><input type="checkbox" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''} style="pointer-events:none;"></td><td><b>${r.s}</b></td>
+          <td>$${r.close < 1 ? r.close.toFixed(4) : r.close.toFixed(2)}</td><td class="${r.chg > 0 ? 'jr-pos' : r.chg < 0 ? 'jr-neg' : ''}">${r.chg == null ? '—' : (r.chg > 0 ? '+' : '') + r.chg.toFixed(2) + '%'}</td><td>${r.vol == null ? '—' : _spFmtVol(r.vol)}</td></tr>`; }).join('')}
+      ${list.length > shown.length ? `<tr><td colspan="5" style="color:var(--text3);">… ${list.length - shown.length} more — use the filter</td></tr>` : ''}</table></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+      <button class="jr-btn" onclick="document.getElementById('jr-wpick').remove()">Cancel</button>
+      <button class="jr-btn g" ${P.sel.size ? '' : 'disabled'} onclick="jrWatchAdd('${P.kind}',[...JR.wp.sel])">Add ${P.sel.size || ''} to today's list</button></div></div>`;
+}
+function jrWatchPickTog(s) {
+  const P = JR.wp, room = JR_WCAP[P.kind] - JR.watch.filter(w => w.d === JR.d && w.kind === P.kind).length;
+  if (P.sel.has(s)) P.sel.delete(s); else if (P.sel.size < room) P.sel.add(s); else return;
+  jrWatchPickRender();
+}
 function jrPlanHtml() {
   const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
   const money = v => v == null ? '—' : '$' + (Math.abs(v) < 1 && v !== 0 ? Number(v).toFixed(2) : Math.round(v).toLocaleString('en-US'));
@@ -19151,7 +19317,13 @@ async function jrPlanBlankPdf(kind) {
       x = lab(l, x); const ww = w || (W - M - x); box(x, ww); field(k, x, y, ww, 17); x += ww + 12;
     }
     // table
-    y = 100; const tTop = y; const cols = T.cols.map(c => [...c]); const fixed = cols.reduce((s, c) => s + c[2], 0); cols[cols.length - 1][2] = W - 2 * M - fixed;
+    // moving-average color key (same colors as the chart)
+    y = 98; doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(40, 55, 70);
+    let lx = M; doc.text('Moving averages:', lx, y + 4); lx += doc.getTextWidth('Moving averages:') + 10;
+    [['3', [250, 204, 21]], ['8', [168, 85, 247]], ['15', [34, 197, 94]], ['50', [59, 130, 246]], ['100 (white / black)', [17, 17, 17]], ['200', [239, 68, 68]]].forEach(([l, c]) => {
+      doc.setDrawColor(...c); doc.setLineWidth(3); doc.line(lx, y + 1, lx + 18, y + 1); lx += 22;
+      doc.setTextColor(40, 55, 70); doc.text('MA ' + l, lx, y + 4); lx += doc.getTextWidth('MA ' + l) + 14; });
+    y = 112; const tTop = y; const cols = T.cols.map(c => [...c]); const fixed = cols.reduce((s, c) => s + c[2], 0); cols[cols.length - 1][2] = W - 2 * M - fixed;
     const xs = []; let cx = M; cols.forEach(c => { xs.push(cx); cx += c[2]; });
     if (T.groups) { T.groups.forEach(([a, b, l], gi) => { const gx = xs[a], gw = xs[b] + cols[b][2] - gx; doc.setFillColor(...(gi === 2 ? [90, 110, 130] : [0, 150, 190])); doc.rect(gx, y, gw, 14, 'F'); doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.text(l, gx + gw / 2, y + 10, { align: 'center' }); }); y += 14; }
     const hh = 26; doc.setFillColor(...NAVY); doc.rect(M, y, W - 2 * M, hh, 'F'); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255);
@@ -19186,6 +19358,9 @@ async function jrPlanBlankXlsx(kind) {   // styled template (ExcelJS: borders, c
     ws.getRow(2).values = ['Date', '', '', `Daily risk: $${kind === 'penny' ? r.penny_limit : r.option_limit}`, 'SPY', '', 'VIX', '', 'Trend', '', 'Market note'];
     ['A2', 'D2', 'E2', 'G2', 'I2', 'K2'].forEach(k => { ws.getCell(k).font = { bold: true }; });
     ['B2', 'F2', 'H2', 'J2', 'L2'].forEach(k => { ws.getCell(k).border = { bottom: { style: 'thin' } }; });
+    ws.getCell(3, 1).value = 'Moving averages:'; ws.getCell(3, 1).font = { bold: true, size: 9 };   // same colors as the chart
+    [['MA 3', 'FFFACC15', 'FF111111'], ['MA 8', 'FFA855F7', 'FFFFFFFF'], ['MA 15', 'FF22C55E', 'FFFFFFFF'], ['MA 50', 'FF3B82F6', 'FFFFFFFF'], ['MA 100 white/black', 'FF111111', 'FFFFFFFF'], ['MA 200', 'FFEF4444', 'FFFFFFFF']].forEach(([l, bg, fg], i) => {
+      const c = ws.getCell(3, i + 2); c.value = l; c.fill = fill(bg); c.font = { bold: true, size: 9, color: { argb: fg } }; c.alignment = { horizontal: 'center' }; });
     if (T.groups) { ws.getRow(4).values = Array(nC).fill(''); T.groups.forEach(([a, b, l], gi) => { ws.mergeCells(4, a + 1, 4, b + 1); const c = ws.getCell(4, a + 1); c.value = l;
       c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.alignment = { horizontal: 'center' }; c.fill = fill(gi === 2 ? 'FF5A6E82' : 'FF0096BE'); }); }
     const hr = ws.getRow(5); hr.values = T.cols.map(c => c[1]); hr.height = 30;
@@ -19519,6 +19694,18 @@ async function jrPdf(scope) {
           `Rules kept (1-${JR_RULES[kind].length}) / result`, 'Notes']], body: rows.concat(empty),
           bodyStyles: { minCellHeight: 22, valign: 'middle' }, columnStyles: { 9: { cellWidth: 150 }, 10: { cellWidth: 150 } },
           didParseCell: d => { colorCells([8], -1)(d); openCell(d, [4, 7, 8], 8); }, didDrawPage: () => header(title) });
+        y = doc.lastAutoTable.finalY + 18;
+      }
+      // the day's watch list (Journal → Watchlist)
+      await jrWatchLoad(); const wl = (JR.watch || []).filter(w => w.d === JR.d);
+      if (wl.length) {
+        const qq = await jrQuotes(wl.map(w => w.symbol));
+        if (y > H - 200) { doc.addPage(); header(title); y = 80; }
+        y = titled(`Watch list — ${wl.filter(w => w.kind === 'large').length} large caps · ${wl.filter(w => w.kind === 'penny').length} penny stocks`, y);
+        doc.autoTable({ ...tblBase, startY: y, head: [['List', 'Ticker', 'Last close', 'Change', 'Volume', 'Why I\'m watching it']],
+          body: ['large', 'penny'].flatMap(k => wl.filter(w => w.kind === k).map(w => { const x = qq[w.symbol] || {};
+            return [k === 'large' ? 'Large cap' : 'Penny', w.symbol, x.close == null ? '' : jrPx2(x.close), x.chg == null ? '' : (x.chg > 0 ? '+' : '') + x.chg.toFixed(2) + '%', x.vol == null ? '' : _spFmtVol(x.vol), w.note || '']; })),
+          columnStyles: { 5: { cellWidth: 330 } }, didDrawPage: () => header(title) });
         y = doc.lastAutoTable.finalY + 18;
       }
       // The rules, side by side in two framed cards: bigger dark text, bold numbers, one rule per line
