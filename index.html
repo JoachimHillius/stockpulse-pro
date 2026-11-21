@@ -19259,7 +19259,7 @@ async function jrPlanRule(id, k, on) {
   jrRender();
   const supa = await getSupabaseAsync();
   const { error } = await supa.from('jr_plans').update({ rules: p.rules, updated_at: new Date().toISOString() }).eq('id', id);
-  if (error) showToast('Journal', 'Rules not saved: ' + error.message, 'error');
+  if (error) showToast('Journal', 'Rules not saved: ' + error.message, 'error'); else if (p.trade_id) jrPlanToToday(p);
 }
 function jrPlanHtml() {
   const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
@@ -19278,12 +19278,13 @@ function jrPlanHtml() {
         <td>${inp(p, 'qty', '0', 60)}</td>
         <td class="${x.over ? 'jr-neg' : ''}">${money(x.risk)}${x.over ? ' ✗' : ''}</td>
         ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
-        <td>${money(x.left)}</td>
-        <td><button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
+        <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td>
+        <td>${inp(p, 'exit_price', 'exit', 64)}${p.trade_id ? `<div style="font-size:10px;margin-top:2px;white-space:nowrap;"><a href="#" onclick="jrTab('today');return false;" style="color:var(--green);">✓ on Today</a>${(() => { const t = (JR.trades || []).find(t => t.id === p.trade_id); return t && t.pnl != null ? ` <b class="${t.pnl >= 0 ? 'jr-pos' : 'jr-neg'}">${t.pnl >= 0 ? '+' : '−'}$${Math.abs(t.pnl).toFixed(2)}</b>` : ''; })()}</div>` : ''}</td>
+        <td style="white-space:nowrap;">${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
         ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${jrPlanNotesRow(p)}${jrPlanRulesRow(p)}`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
         <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${b.lost && b.budget < b.cap ? `Budget $${b.budget} (only this much left today — already −$${b.lost} of $${b.limit})` : P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${b.limit} daily${b.lost ? ` · −$${b.lost} lost today` : ''})`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
-      ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Price' : 'Premium'}</th><th>Stop %</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th>Budget left</th><th></th></tr>${body}</table>`
+      ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Entry price' : 'Premium in'}</th><th>Stop %</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th title="What's left of the day's budget after this plan's loss at the stop">Budget left</th><th title="Fill in when you're out — the trade goes to Today automatically">${P ? 'Exit price' : 'Premium out'}</th><th></th></tr>${body}</table>`
         : `<div style="color:var(--text3);padding:8px 0;">No ${P ? 'penny' : 'options'} plans for this day yet — use <b>+ ${P ? 'Penny' : 'Options'} plan</b> or <b>→ Plan</b> on the Watchlist tab.</div>`}</div>`;
   };
   // Step 1 is the watch list: a section only shows when the day's watch list has that kind (large caps → options), or plans of it already exist
@@ -19310,7 +19311,38 @@ async function jrPlanSet(id, f, v) {
   p[f] = val; jrRender();
   const supa = await getSupabaseAsync();
   const { error } = await supa.from('jr_plans').update({ [f]: val, updated_at: new Date().toISOString() }).eq('id', id);
-  if (error) showToast('Journal', 'Plan not saved: ' + error.message, 'error');
+  if (error) { showToast('Journal', 'Plan not saved: ' + error.message, 'error'); return; }
+  if (f === 'exit_price' ? val != null || p.trade_id : p.trade_id && ['symbol', 'price', 'qty', 'stop_pct', 'notes'].includes(f)) jrPlanToToday(p);
+}
+// Plan → Today: once the plan has an exit, it becomes the day's trade on Today (created once, kept in step after that — the plan is the place to edit it).
+function jrPlanToToday(p) {   // one at a time per plan, so quick edits never create the trade twice
+  JR._ptt ||= {}; const prev = JR._ptt[p.id] || Promise.resolve();
+  return (JR._ptt[p.id] = prev.then(() => _jrPlanToToday(p)).catch(e => console.warn('[plan→today]', e)));
+}
+async function _jrPlanToToday(p) {
+  const n = jrNum, kind = p.kind === 'penny' ? 'penny' : 'option', sym = String(p.symbol || '').trim().toUpperCase();
+  const entry = n(p.price), qty = n(p.qty), exit = n(p.exit_price), sp = n(p.stop_pct);
+  if (!sym || entry == null || !qty) { if (exit != null) showToast('Journal', `To send it to Today, fill in the ticker, ${kind === 'penny' ? 'entry price and planned shares' : 'premium in and planned contracts'} first.`, 'error'); return; }
+  const tg = String(p.target ?? '').replace(/[%$\s]/g, ''), tgN = tg === '' || isNaN(+tg) ? null : +tg;
+  const row = { d: p.d, kind, symbol: sym, session: p.session || null, qty, entry, exit, plan_entry: entry, plan_tol: n(p.plan_tol),
+    plan_stop_pct: sp, plan_stop: sp != null ? Math.round(entry * (1 - sp / 100) * 10000) / 10000 : null,
+    plan_target_pct: kind === 'option' ? tgN : null, plan_target: kind === 'penny' ? tgN : (tgN != null ? Math.round(entry * (1 + tgN / 100) * 10000) / 10000 : null),
+    opt_type: p.opt_type || null, expiry: p.expiry || null, strike: p.strike ? String(p.strike) : null, stock_entry: n(p.stock_price),
+    rules: { ...(p.rules || {}) }, notes: p.notes || null, source: 'plan', updated_at: new Date().toISOString() };
+  const ec = jrExpiryCheck(row); if (ec) row.rules.expiry = ec.ok;
+  row.result = jrAutoResult(row);
+  const supa = await getSupabaseAsync();
+  let data = null, error = null;
+  if (p.trade_id) ({ data, error } = await supa.from('jr_trades').update(row).eq('id', p.trade_id).select());
+  if (!error && !(data && data.length)) {   // new (or the Today trade was deleted): create it and link the plan to it
+    ({ data, error } = await supa.from('jr_trades').insert(row).select());
+    if (!error && data && data[0]) { p.trade_id = data[0].id; await supa.from('jr_plans').update({ trade_id: p.trade_id }).eq('id', p.id); showToast(sym, `On Today now ✓ — ${row.result.toUpperCase()}${row.result === 'fail' ? ' (check the rules / add a note)' : ''}`, 'info'); }
+  }
+  if (error) { showToast('Journal', 'Could not send it to Today: ' + error.message, 'error'); return; }
+  const t = data[0], saved = { ...t, qty: n(t.qty), entry: n(t.entry), exit: n(t.exit), pnl: n(t.pnl) };
+  JR.trades = (JR.trades || []).filter(x => x.id !== saved.id).concat(saved).sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id);
+  delete JR.edit['t' + saved.id];
+  jrRender();
 }
 async function jrPlanDel(id) {
   const supa = await getSupabaseAsync();
