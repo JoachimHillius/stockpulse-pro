@@ -6982,8 +6982,9 @@ function showHoverPopup(sym, triggerEl){
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
   const spPanel = (typeof _spPopPanel === 'function') ? _spPopPanel(sym) : '';   // Single Pattern rows only
-  content.innerHTML = spPanel + `<div id="hp-vol" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;color:#8090a0;">VOLUME TODAY · loading…</div>` + buildBreakoutPanel(sym) + html + buildLevelPanel(sym);
+  content.innerHTML = spPanel + `<div id="hp-vol" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;color:#8090a0;">VOLUME TODAY · loading…</div>` + buildBreakoutPanel(sym) + html + buildLevelPanel(sym) + (typeof jcPopupHtml === 'function' ? jcPopupHtml(sym) : '');
   _hpLoadVol(sym);
+  if (typeof jcPop === 'function') jcPop(sym);   // candle chart at the bottom: 1 year · Day
   fetchAndRenderTrend(sym);
 
   // FIXED lower-right corner — never tracks the hovered row
@@ -7029,6 +7030,7 @@ function showHoverPopup(sym, triggerEl){
 function hideHoverPopup(){
   const popup = document.getElementById('hover-popup');
   if(popup) popup.style.display = 'none';
+  if (typeof JC !== 'undefined' && JC.chart) { try { JC.chart.remove(); } catch (_) {} JC.chart = null; }   // free the pop-up chart
 }
 
 // ============================================================
@@ -19571,6 +19573,157 @@ function tgRender() {
       <tbody>${body || `<tr><td colspan="${8 + days.length}" style="padding:24px;text-align:center;color:#8090a0;">${!TG.rows ? 'Loading…' : TG.q ? `No Telegram alerts for "${tgEsc(TG.q)}" in the last 5 trading days — <a href="#" onclick="tgSearch('');return false;" style="color:var(--cyan);">back to the full list</a>` : 'No alerts in the last 5 trading days'}</td></tr>`}</tbody>
     </table></div></div>`;
   if (typing) { const el = document.getElementById('tg-q'); if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} } }
+}
+</script>
+<script>
+// ══ STOCK CHART (pop-up + full view) ═════════════════════════════════════
+// Candles + volume with TradingView's open-source Lightweight Charts (loaded only when a chart opens).
+// Day / Week / Month come from public.price_history (1 or 2 years). 1-min … 1-hour come live from the chart-data function (Yahoo).
+const JC = { sym: '', tf: 'D', yrs: 1, chart: null, full: null, cache: {}, lib: null };
+const JC_TF = [['1m', '1 min'], ['5m', '5 min'], ['15m', '15 min'], ['30m', '30 min'], ['1h', '1 hour'], ['D', 'Day'], ['W', 'Week'], ['M', 'Month']];
+const JC_INTRA = { '1m': 'last ~7 days', '5m': 'last ~60 days', '15m': 'last ~60 days', '30m': 'last ~60 days', '1h': 'last ~2 years' };
+function jcLib() {
+  if (window.LightweightCharts) return Promise.resolve();
+  return JC.lib ||= _spLoadScript('https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js');
+}
+// ET wall-clock for intraday bars (the chart shows times as given, so shift UTC seconds by the New York offset)
+function jcEt(t) {
+  const d = new Date(t * 1000), p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const g = k => +p.find(x => x.type === k).value;
+  return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute')) / 1000;
+}
+async function jcData(sym, tf, yrs) {
+  const key = `${sym}|${tf}|${tf.length > 1 ? '' : yrs}`;
+  if (JC.cache[key] && Date.now() - JC.cache[key].at < (tf.length > 1 ? 60e3 : 600e3)) return JC.cache[key].rows;
+  const supa = await getSupabaseAsync();
+  let rows = [];
+  if (JC_INTRA[tf]) {
+    const { data, error } = await supa.functions.invoke('chart-data', { body: { symbol: sym, interval: tf } });
+    if (error) throw error;
+    rows = (data?.candles || []).map(c => ({ time: jcEt(c.t), open: c.o, high: c.h, low: c.l, close: c.c, value: c.v }));
+  } else {
+    const from = new Date(Date.now() - (tf === 'D' ? yrs : Math.max(yrs, 2)) * 366 * 864e5).toISOString().slice(0, 10);
+    const { data, error } = await supa.from('price_history').select('trading_date,open,high,low,close,volume').eq('symbol', sym).gte('trading_date', from).order('trading_date').range(0, 999);
+    if (error) throw error;
+    const day = (data || []).filter(r => r.open != null && r.close != null).map(r => ({ time: r.trading_date, open: +r.open, high: +r.high, low: +r.low, close: +r.close, value: +r.volume || 0 }));
+    if (tf === 'D') rows = day;
+    else {   // roll days up into weeks (starting Monday) or months
+      const out = new Map();
+      day.forEach(r => {
+        const dt = new Date(r.time + 'T12:00:00Z');
+        const k = tf === 'W' ? new Date(dt.getTime() - ((dt.getUTCDay() + 6) % 7) * 864e5).toISOString().slice(0, 10) : r.time.slice(0, 7) + '-01';
+        const b = out.get(k); if (!b) out.set(k, { ...r, time: k });
+        else { b.high = Math.max(b.high, r.high); b.low = Math.min(b.low, r.low); b.close = r.close; b.value += r.value; }
+      });
+      rows = [...out.values()];
+    }
+  }
+  JC.cache[key] = { at: Date.now(), rows };
+  return rows;
+}
+async function jcDraw(el, sym, tf, yrs, big) {
+  if (!el) return null;
+  el.innerHTML = '<div style="padding:30px;text-align:center;color:#8090a0;font-size:11px;">Loading chart…</div>';
+  try { await jcLib(); } catch (e) { el.innerHTML = '<div style="padding:20px;color:var(--red);font-size:11px;">Chart library could not load</div>'; return null; }
+  let rows;
+  try { rows = await jcData(sym, tf, yrs); } catch (e) { console.warn('[chart]', e); el.innerHTML = '<div style="padding:20px;color:var(--red);font-size:11px;">No chart data right now — try again</div>'; return null; }
+  if (!rows.length) { el.innerHTML = `<div style="padding:24px;text-align:center;color:#8090a0;font-size:11px;">No ${tf.length > 1 ? 'intraday' : 'price'} history for ${sym}</div>`; return null; }
+  el.innerHTML = '';
+  const light = document.body.classList.contains('light-mode');
+  const LC = window.LightweightCharts;
+  const ch = LC.createChart(el, { autoSize: true,
+    layout: { background: { type: 'solid', color: 'transparent' }, textColor: light ? '#33475b' : '#9fb0c2', fontSize: big ? 12 : 10 },
+    grid: { vertLines: { color: light ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.05)' }, horzLines: { color: light ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.06)' } },
+    crosshair: { mode: LC.CrosshairMode.Normal },
+    rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, timeVisible: !!JC_INTRA[tf], secondsVisible: false, rightOffset: 3 },
+    handleScroll: big, handleScale: big });
+  const cs = ch.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderUpColor: '#22c55e', borderDownColor: '#ef4444', wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    priceFormat: { type: 'price', precision: rows[rows.length - 1].close < 1 ? 4 : 2, minMove: rows[rows.length - 1].close < 1 ? 0.0001 : 0.01 } });
+  cs.setData(rows.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+  const vs = ch.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
+  vs.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  vs.setData(rows.map(r => ({ time: r.time, value: r.value, color: r.close >= r.open ? 'rgba(34,197,94,.35)' : 'rgba(239,68,68,.35)' })));
+  // intraday: start on the latest ~1 day of bars so candles are readable; Day/Week/Month: the whole range
+  const show = { '1m': 390, '5m': 160, '15m': 110, '30m': 80, '1h': 120 }[tf];
+  if (show && rows.length > show) ch.timeScale().setVisibleLogicalRange({ from: rows.length - show, to: rows.length + 2 }); else ch.timeScale().fitContent();
+  if (big) {   // hover read-out
+    const info = document.getElementById('jc-ohlc');
+    const fmt = v => v == null ? '' : (v < 1 ? v.toFixed(4) : v.toFixed(2));
+    const put = r => { if (!info || !r) return; const chg = r.close - r.open, c = chg >= 0 ? '#22c55e' : '#ef4444';
+      info.innerHTML = `O <b>${fmt(r.open)}</b> H <b>${fmt(r.high)}</b> L <b>${fmt(r.low)}</b> C <b style="color:${c}">${fmt(r.close)}</b> <span style="color:${c}">${chg >= 0 ? '+' : ''}${(chg / r.open * 100).toFixed(2)}%</span> · Vol <b>${typeof _spFmtVol === 'function' ? _spFmtVol(r.value) : r.value}</b>`; };
+    const byTime = new Map(rows.map(r => [typeof r.time === 'object' ? JSON.stringify(r.time) : r.time, r]));
+    put(rows[rows.length - 1]);
+    ch.subscribeCrosshairMove(p => put(p && p.time != null ? byTime.get(typeof p.time === 'object' ? JSON.stringify(p.time) : p.time) : rows[rows.length - 1]));
+  }
+  return ch;
+}
+// ---- small chart at the bottom of the ticker pop-up ----
+function jcPopupHtml(sym) {
+  return `<div id="jc-pop" data-sym="${sym}" style="padding:10px 12px;border-top:1px solid var(--border2);">
+    <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;flex-wrap:wrap;">
+      <span style="font-size:9px;letter-spacing:1px;color:#e0e0e0;margin-right:4px;">CHART</span>
+      ${[[1, '1Y'], [2, '2Y']].map(([y, l]) => `<button class="fbtn jc-y" data-y="${y}" onclick="event.stopPropagation();jcPop('${sym}',null,${y})" style="padding:2px 7px;font-size:10px;">${l}</button>`).join('')}
+      <span style="width:6px"></span>
+      ${[['D', 'Day'], ['W', 'Week'], ['M', 'Month']].map(([t, l]) => `<button class="fbtn jc-t" data-t="${t}" onclick="event.stopPropagation();jcPop('${sym}','${t}')" style="padding:2px 7px;font-size:10px;">${l}</button>`).join('')}
+      <button class="fbtn" onclick="event.stopPropagation();jcOpenFull('${sym}')" title="Open the full chart with 1-min to 1-hour, zoom and more" style="margin-left:auto;padding:2px 8px;font-size:10px;">⤢ Full chart</button>
+    </div>
+    <div id="jc-pop-box" onclick="jcOpenFull('${sym}')" title="Click to open the full chart" style="height:210px;cursor:zoom-in;"></div></div>`;
+}
+let _jcPopTf = 'D', _jcPopY = 1;
+async function jcPop(sym, tf, yrs) {
+  if (tf) _jcPopTf = tf; if (yrs) _jcPopY = yrs;
+  const wrap = document.getElementById('jc-pop'); if (!wrap || wrap.dataset.sym !== sym) return;
+  wrap.querySelectorAll('.jc-y').forEach(b => b.classList.toggle('active', +b.dataset.y === _jcPopY));
+  wrap.querySelectorAll('.jc-t').forEach(b => b.classList.toggle('active', b.dataset.t === _jcPopTf));
+  if (JC.chart) { try { JC.chart.remove(); } catch (_) {} JC.chart = null; }
+  JC.chart = await jcDraw(document.getElementById('jc-pop-box'), sym, _jcPopTf, _jcPopY, false);
+}
+// ---- full view: covers the page below the top banner ----
+function jcOpenFull(sym) {
+  JC.sym = sym; JC.tf = _jcPopTf || 'D'; JC.yrs = _jcPopY || 1; JC.help = false;
+  let ov = document.getElementById('jc-full');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'jc-full'; document.body.appendChild(ov);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('jc-full')?.style.display === 'flex') jcCloseFull(); }); }
+  ov.style.cssText = 'position:fixed;left:0;right:0;bottom:0;top:var(--hdr-h,141px);z-index:9500;background:var(--bg);display:flex;flex-direction:column;border-top:2px solid var(--cyan);box-shadow:0 -6px 18px rgba(0,0,0,.4);';
+  jcFullRender();
+}
+function jcFullRender() {
+  const ov = document.getElementById('jc-full'); if (!ov) return;
+  const intra = !!JC_INTRA[JC.tf];
+  ov.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border2);">
+      <b style="font-size:16px;color:var(--cyan);letter-spacing:1px;margin-right:8px;">${JC.sym}</b>
+      ${JC_TF.map(([t, l]) => `<button class="fbtn${JC.tf === t ? ' active' : ''}" onclick="jcSet('${t}')">${l}</button>`).join('')}
+      <span style="width:10px"></span>
+      ${intra ? `<span style="font-size:11px;color:#8090a0;">${JC_INTRA[JC.tf]} · incl. pre-market &amp; after-hours</span>` : [[1, '1 year'], [2, '2 years']].map(([y, l]) => `<button class="fbtn${JC.yrs === y ? ' active' : ''}" onclick="jcSetY(${y})">${l}</button>`).join('')}
+      <span style="margin-left:auto;display:flex;gap:6px;">
+        <button class="fbtn" onclick="jcZoom(0.7)" title="Zoom in">＋</button><button class="fbtn" onclick="jcZoom(1.4)" title="Zoom out">−</button>
+        <button class="fbtn" onclick="jcZoom(0)" title="Show the whole range">Reset</button>
+        <button class="fbtn${JC.help ? ' active' : ''}" onclick="JC.help=!JC.help;jcFullRender()" title="How the chart works">ⓘ How it works</button>
+        <button class="fbtn" onclick="jcCloseFull()" title="Close (Esc)" style="border-color:var(--cyan);color:var(--cyan);font-weight:700;">✕ Close</button></span></div>
+    <div id="jc-ohlc" style="padding:6px 16px;font-size:12px;color:#c0c8d4;min-height:18px;"></div>
+    ${JC.help ? `<div style="margin:0 16px 8px;padding:10px 14px;border:1px solid var(--border2);border-radius:8px;background:rgba(0,212,255,.05);font-size:12px;line-height:1.6;color:var(--text2);">
+      <b style="color:var(--text);">How the chart works</b><br>
+      • <b>Opens on 1 year · Day.</b> In the pop-up: 1Y / 2Y and Day / Week / Month. Click the small chart (or ⤢ Full chart) to open this full view.<br>
+      • <b>Timeframes:</b> 1 min · 5 min · 15 min · 30 min · 1 hour · Day · Week · Month. Day / Week / Month show 1 or 2 years from your price history.<br>
+      • <b>How far back:</b> 1 min ≈ last 7 days · 5 / 15 / 30 min ≈ last 60 days · 1 hour ≈ last 2 years (that's what the data source keeps). Minute charts include pre-market and after-hours; they open on the latest day — zoom out or drag to go back.<br>
+      • <b>Zoom:</b> ＋ / − buttons, mouse wheel or trackpad pinch · <b>Move:</b> drag left / right · <b>Reset</b> shows the whole range · hover a candle to see open, high, low, close and volume.<br>
+      • <b>Close:</b> ✕ or the Esc key. Times are New York time. Green candle = closed higher than it opened, red = lower; bars at the bottom = volume.</div>` : ''}
+    <div id="jc-full-box" style="flex:1;min-height:200px;margin:0 8px 8px;"></div>`;
+  if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
+  jcDraw(document.getElementById('jc-full-box'), JC.sym, JC.tf, JC.yrs, true).then(c => { JC.full = c; });
+}
+function jcSet(tf) { JC.tf = tf; jcFullRender(); }
+function jcSetY(y) { JC.yrs = y; jcFullRender(); }
+function jcZoom(f) {
+  const ts = JC.full && JC.full.timeScale(); if (!ts) return;
+  if (!f) { ts.fitContent(); return; }
+  const r = ts.getVisibleLogicalRange(); if (!r) return;
+  const mid = (r.from + r.to) / 2, half = Math.max(5, (r.to - r.from) / 2 * f);
+  ts.setVisibleLogicalRange({ from: mid - half, to: mid + half });
+}
+function jcCloseFull() {
+  if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
+  const ov = document.getElementById('jc-full'); if (ov) { ov.style.display = 'none'; ov.innerHTML = ''; }
 }
 </script>
 </body>
