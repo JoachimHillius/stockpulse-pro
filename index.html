@@ -20147,22 +20147,24 @@ async function jcDraw(el, sym, tf, yrs, big) {
     crosshair: { mode: LC.CrosshairMode.Normal }, handleScroll: big, handleScale: big };
   const ch = LC.createChart(top, { ...base, layout: { ...base.layout, attributionLogo: false }, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.06, bottom: 0.04 } },
     timeScale: { visible: false, rightOffset: 3 } });
-  const vc = LC.createChart(vol, { ...base, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.12, bottom: 0.04 } },
+  const vc = LC.createChart(vol, { ...base,   // volume: no free axis drag (it could push 0 off the bottom) — the axis drag below changes VOL MAX instead, always anchored at 0
+    handleScale: big ? { axisPressedMouseMove: { time: true, price: false }, axisDoubleClickReset: { time: true, price: false }, mouseWheel: true, pinch: true } : false, rightPriceScale: { borderVisible: false, minimumWidth: big ? 84 : 62, scaleMargins: { top: 0.12, bottom: 0.04 } },
     timeScale: { borderVisible: false, timeVisible: !!JC_INTRA[tf], secondsVisible: false, rightOffset: 3 } });
   const f = p => p < 0 ? '' : (px ? p.toFixed(4) : p.toFixed(2));
   const cs = ch.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderUpColor: '#22c55e', borderDownColor: '#ef4444', wickUpColor: '#22c55e', wickDownColor: '#ef4444',
-    priceFormat: { type: 'custom', formatter: f, minMove: px ? 0.0001 : 0.01 } });
+    priceFormat: { type: 'custom', formatter: f, minMove: px ? 0.0001 : 0.01 }, autoscaleInfoProvider: jcPriceZoom });
   cs.setData(rows.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
   const vfmt = v => v < 0 ? '' : _spFmtVol(v);
   const vs = vc.addHistogramSeries({ priceFormat: { type: 'custom', formatter: vfmt, minMove: 1 }, priceLineVisible: false,
     autoscaleInfoProvider: orig => JC.vmax ? { priceRange: { minValue: 0, maxValue: JC.vmax } } : orig() });
   vs.setData(rows.map(r => ({ time: r.time, value: r.value, color: r.close >= r.open ? (light ? '#16a34a' : '#34e37a') : (light ? '#dc2626' : '#ff5a5a') })));
-  const H = { ch, vc, cs, vs, rows, big, sym, tf, top, lines: [], ma: {}, alive: true, lv: null,
+  const H = { ch, vc, cs, vs, rows, all, start, big, sym, tf, top, lines: [], ma: {}, alive: true, lv: null, pats: [],
     timeScale: () => ch.timeScale(),
     remove() { this.alive = false; try { ch.remove(); } catch (_) {} try { vc.remove(); } catch (_) {} } };
   // moving averages
   JC_MA.forEach(([n, c]) => {
-    const s = ch.addLineSeries({ color: jcMaColor(c), lineWidth: big ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: !!JC.ma[n] });
+    const s = ch.addLineSeries({ color: jcMaColor(c), lineWidth: big ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: !!JC.ma[n],
+      autoscaleInfoProvider: orig => JC.pz && JC.pz !== 1 ? null : orig() });   // zoomed in: the candles set the scale, not a far-away average
     s.setData(jcSma(all, n, start)); H.ma[n] = s;
   });
   if (!big) top.insertAdjacentHTML('beforeend', `<div style="position:absolute;left:6px;top:4px;z-index:3;font-size:9.5px;pointer-events:none;display:flex;gap:6px;">${JC_MA.filter(([n]) => JC.ma[n]).map(([n, c]) => `<b style="color:${jcMaColor(c)}">${n}</b>`).join('')}<span style="color:#8090a0;">MA</span></div>`);
@@ -20189,7 +20191,10 @@ async function jcDraw(el, sym, tf, yrs, big) {
   const show = { '1m': 390, '5m': 160, '15m': 110, '30m': 80, '1h': 120 }[tf];
   if (show && rows.length > show) ch.timeScale().setVisibleLogicalRange({ from: rows.length - show, to: rows.length + 2 }); else ch.timeScale().fitContent();
   // support / resistance
-  jcLevels(sym).then(v => { H.lv = v; if (H.alive) jcSrApply(H); }).catch(e => console.warn('[chart s/r]', e));
+  jcLevels(sym).then(v => { H.lv = v; if (H.alive) { jcSrApply(H); jcPatApply(H); } }).catch(e => { console.warn('[chart s/r]', e); if (H.alive) jcPatApply(H); });
+  if (big) { jcPatApply(H);
+    ch.subscribeClick(p => { if (JC.tool || !p || p.time == null) return; const o = H.patBy && H.patBy.get(typeof p.time === 'object' ? JSON.stringify(p.time) : p.time);
+      if (o) jcPatCard(H, o, p.point ? p.point.x : 0); else document.getElementById('jc-patcard')?.remove(); }); }
   if (big) {
     // hover read-out
     const info = document.getElementById('jc-ohlc');
@@ -20214,9 +20219,115 @@ async function jcDraw(el, sym, tf, yrs, big) {
         ${JC.vmax && ![1e5, 2.5e5, 5e5, 1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8, 2.5e8].includes(JC.vmax) ? `<option value="${JC.vmax}" selected>${_spFmtVol(JC.vmax)}</option>` : ''}</select>
       <button class="fbtn" onclick="jcVstep(0.5)" title="Lower the max — small bars get taller" style="padding:0 6px;font-size:11px;line-height:16px;">▲</button>
       <button class="fbtn" onclick="jcVstep(2)" title="Raise the max — bars get shorter" style="padding:0 6px;font-size:11px;line-height:16px;">▼</button></div>`);
+    // drag on the volume scale (right side): up = taller bars, down = shorter; 0 always stays at the bottom. Double-click = Auto.
+    const ax = document.createElement('div');
+    ax.title = 'Drag up / down to stretch the volume — 0 stays at the bottom · double-click = Auto';
+    ax.style.cssText = 'position:absolute;right:0;top:0;bottom:28px;width:84px;z-index:4;cursor:ns-resize;touch-action:none;';
+    vol.appendChild(ax);
+    ax.addEventListener('dblclick', () => jcVmax(0));
+    ax.addEventListener('pointerdown', e => {
+      e.preventDefault(); ax.setPointerCapture(e.pointerId);
+      const y0 = e.clientY, v0 = JC.vmax || jcVisMax(H);
+      const mv = ev => { const v = Math.max(1000, v0 * Math.exp((ev.clientY - y0) / 90)), mag = Math.pow(10, Math.floor(Math.log10(v)) - 1); jcVmax(Math.round(v / mag) * mag); };
+      const up = () => { ax.removeEventListener('pointermove', mv); ax.removeEventListener('pointerup', up); };
+      ax.addEventListener('pointermove', mv); ax.addEventListener('pointerup', up);
+    });
   }
   return H;
 }
+// ══ CANDLE PATTERNS: markers on the chart, click one for what it is and what to watch next ══
+// Shapes and their meaning follow the Candlestick Cheat Sheet. "Strong" = the pattern fits its place (after a run up / down or at a support /
+// resistance line) and comes with at least average volume. History = how this ticker moved over the next 3 candles after the same pattern.
+const JC_PAT = {
+  hammer: { n: 'Hammer', d: 'bull', what: 'Small body at the top, long lower wick (2× the body or more), little or no upper wick.', mean: 'After a fall, sellers pushed it down but buyers took it all back by the close — a possible bottom.' },
+  invhammer: { n: 'Inverted hammer', d: 'bull', what: 'Small body at the bottom, long upper wick, little or no lower wick.', mean: 'After a fall, buyers tried to push it up for the first time — a possible turn, weaker than a hammer.' },
+  hangman: { n: 'Hanging man', d: 'bear', what: 'Hammer shape (long lower wick, small body on top) — but after a run up.', mean: 'After a run up, sellers could push it down hard during the day — a warning the run is tiring.' },
+  shooting: { n: 'Shooting star', d: 'bear', what: 'Small body at the bottom, long upper wick (2× the body or more) — after a run up.', mean: 'After a run up, buyers pushed it up but sellers slammed it back down — a possible top.' },
+  doji: { n: 'Doji', d: 'neutral', what: 'Open and close almost the same (tiny body), wicks on one or both sides.', mean: 'Buyers and sellers ended even — indecision. After a long run it can mean the run is pausing.' },
+  spin: { n: 'Spinning top / long-legged doji', d: 'neutral', what: 'Small body in the middle, long wicks on both sides.', mean: 'Big swings both ways, but it closed about where it opened — indecision; after a run it is usually a pause.' },
+  bullengulf: { n: 'Bullish engulfing', d: 'bull', what: 'A green body that completely covers the previous red body.', mean: 'Buyers fully took over from the day before — one of the stronger turn signals after a fall.' },
+  bearengulf: { n: 'Bearish engulfing', d: 'bear', what: 'A red body that completely covers the previous green body.', mean: 'Sellers fully took over from the day before — one of the stronger top signals after a run up.' },
+  piercing: { n: 'Piercing line', d: 'bull', what: 'After a long red candle: opens lower, then closes above the middle of that red body.', mean: 'Buyers won back more than half of the drop — a possible turn up.' },
+  darkcloud: { n: 'Dark cloud cover', d: 'bear', what: 'After a long green candle: opens higher, then closes below the middle of that green body.', mean: 'Sellers took back more than half of the gain — a possible turn down.' },
+  mstar: { n: 'Morning star', d: 'bull', what: '3 candles: a long red one, a small candle (indecision), then a strong green one closing into the first body.', mean: 'Selling ran out, a pause, then buyers stepped in — a classic bottom pattern.' },
+  estar: { n: 'Evening star', d: 'bear', what: '3 candles: a long green one, a small candle (indecision), then a strong red one closing into the first body.', mean: 'Buying ran out, a pause, then sellers stepped in — a classic top pattern.' },
+  soldiers: { n: 'Three white soldiers', d: 'bull', what: '3 green candles in a row, each closing higher with solid bodies.', mean: 'Steady buying three days running — a strong uptrend start (watch for it getting stretched).' },
+  crows: { n: 'Three black crows', d: 'bear', what: '3 red candles in a row, each closing lower with solid bodies.', mean: 'Steady selling three days running — a strong downtrend start.' },
+  downrev: { n: 'Down days, then reversal', d: 'bull', what: '3–5 lower closes in a row, then a green candle that closes above the previous candle\'s high (or a bullish reversal candle).', mean: 'The selling streak was broken by buyers — a possible bounce from the dip.' },
+};
+JC.pat = jcPref('pat', 'strong');
+function jcPatterns(all, start, lv) {
+  const out = [], n = all.length, vAvg = i => { let s = 0, k = 0; for (let j = Math.max(0, i - 20); j < i; j++) { s += all[j].value || 0; k++; } return k ? s / k : 0; };
+  const sma = (i, p) => { if (i < p - 1) return null; let s = 0; for (let j = i - p + 1; j <= i; j++) s += all[j].close; return s / p; };
+  const levels = lv ? [lv.major, ...lv.sup, ...lv.res].filter(Boolean).map(c => c.p) : [];
+  for (let i = Math.max(start, 6); i < n; i++) {
+    const c = all[i], p1 = all[i - 1], p2 = all[i - 2];
+    const B = x => Math.abs(x.close - x.open), R = x => Math.max(1e-9, x.high - x.low), U = x => x.high - Math.max(x.open, x.close), L = x => Math.min(x.open, x.close) - x.low;
+    const G = x => x.close > x.open, Rd = x => x.close < x.open;
+    const m8 = sma(i - 1, 8), ref = all[i - 6].close;
+    const down = p1.close < ref * 0.97 && (m8 == null || p1.close < m8), up = p1.close > ref * 1.03 && (m8 == null || p1.close > m8);
+    const body = B(c), rng = R(c), up_ = U(c), lo_ = L(c);
+    let k = null;
+    // 3-candle patterns first, then 2, then 1
+    if (Rd(p2) && B(p2) > 0.5 * R(p2) && B(p1) < 0.35 * B(p2) && G(c) && c.close > (p2.open + p2.close) / 2) k = 'mstar';
+    else if (G(p2) && B(p2) > 0.5 * R(p2) && B(p1) < 0.35 * B(p2) && Rd(c) && c.close < (p2.open + p2.close) / 2) k = 'estar';
+    else if ([p2, p1, c].every(x => G(x) && B(x) > 0.5 * R(x)) && p1.close > p2.close && c.close > p1.close && p1.open >= Math.min(p2.open, p2.close) && c.open >= Math.min(p1.open, p1.close)) k = 'soldiers';
+    else if ([p2, p1, c].every(x => Rd(x) && B(x) > 0.5 * R(x)) && p1.close < p2.close && c.close < p1.close && p1.open <= Math.max(p2.open, p2.close) && c.open <= Math.max(p1.open, p1.close)) k = 'crows';
+    else if (Rd(p1) && G(c) && c.open <= p1.close && c.close >= p1.open && body > B(p1)) k = 'bullengulf';
+    else if (G(p1) && Rd(c) && c.open >= p1.close && c.close <= p1.open && body > B(p1)) k = 'bearengulf';
+    else if (Rd(p1) && B(p1) > 0.6 * R(p1) && G(c) && c.open < p1.close && c.close > (p1.open + p1.close) / 2 && c.close < p1.open) k = 'piercing';
+    else if (G(p1) && B(p1) > 0.6 * R(p1) && Rd(c) && c.open > p1.close && c.close < (p1.open + p1.close) / 2 && c.close > p1.open) k = 'darkcloud';
+    else if (lo_ >= 2 * Math.max(body, 0.02 * rng) && up_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? 'hangman' : down ? 'hammer' : null;
+    else if (up_ >= 2 * Math.max(body, 0.02 * rng) && lo_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? 'shooting' : down ? 'invhammer' : null;
+    else if (body <= 0.1 * rng && rng > 0) k = 'doji';
+    else if (body <= 0.3 * rng && up_ >= 0.25 * rng && lo_ >= 0.25 * rng) k = 'spin';
+    // 3–5 down closes, then a reversal
+    let streak = 0; for (let j = i - 1; j > 0 && all[j].close < all[j - 1].close && streak < 6; j--) streak++;
+    if (streak >= 3 && streak <= 5 && (k === 'hammer' || k === 'bullengulf' || k === 'piercing' || k === 'mstar' || (G(c) && c.close > p1.high))) k = 'downrev';
+    if (!k) continue;
+    const P = JC_PAT[k], va = vAvg(i), vx = va ? (c.value || 0) / va : 0;
+    const near = levels.find(l => Math.abs((P.d === 'bull' ? c.low : P.d === 'bear' ? c.high : c.close) - l) <= l * 0.03);
+    const fits = P.d === 'bull' ? (down || k === 'downrev' || near != null) : P.d === 'bear' ? (up || near != null) : (up || down);
+    const strong = fits && (vx >= 1 || near != null) && (P.d !== 'neutral' || vx >= 1.5);
+    out.push({ i, time: c.time, k, strong, vx, near, ctx: up ? 'after a run up' : down ? 'after a fall' : 'no clear trend before it', streak });
+  }
+  // how this ticker moved over the next 3 candles after the same pattern (all occurrences in the loaded data)
+  const st = {};
+  out.forEach(o => { if (o.i + 3 >= n) return; const r = all[o.i + 3].close / all[o.i].close - 1; (st[o.k] ||= []).push(r); });
+  out.forEach(o => { const a = st[o.k] || []; o.hist = { n: a.length, up: a.filter(r => r > 0).length, avg: a.length ? a.reduce((s, r) => s + r, 0) / a.length : 0 }; });
+  return out;
+}
+function jcPatApply(H) {
+  if (!H || !H.big) return;
+  H.pats = JC.pat === 'off' ? [] : jcPatterns(H.all, H.start, H.lv).filter(o => JC.pat === 'all' || o.strong);
+  H.patBy = new Map(H.pats.map(o => [typeof o.time === 'object' ? JSON.stringify(o.time) : o.time, o]));
+  try { H.cs.setMarkers(H.pats.map(o => { const d = JC_PAT[o.k].d;
+    return { time: o.time, position: d === 'bull' ? 'belowBar' : 'aboveBar', shape: d === 'bull' ? 'arrowUp' : d === 'bear' ? 'arrowDown' : 'circle',
+      color: d === 'bull' ? '#22c55e' : d === 'bear' ? '#ef4444' : '#facc15', size: o.strong ? 1.2 : 0.8 }; })); } catch (e) { console.warn('[patterns]', e); }
+  document.getElementById('jc-patcard')?.remove();
+}
+function jcPatCard(H, o, x) {
+  document.getElementById('jc-patcard')?.remove(); if (!o) return;
+  const P = JC_PAT[o.k], c = H.all[o.i], f = v => v < 1 ? v.toFixed(4) : v.toFixed(2), col = P.d === 'bull' ? '#22c55e' : P.d === 'bear' ? '#ef4444' : '#facc15';
+  const dt = typeof c.time === 'string' ? new Date(c.time + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    : new Date(c.time * 1000).toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const next = P.d === 'bull' ? `<b>Confirmed</b> if a later candle closes above <b>${f(c.high)}</b> (this candle's high). <b>Fails</b> on a close below <b>${f(c.low)}</b> (its low) — a natural stop area.`
+    : P.d === 'bear' ? `<b>Confirmed</b> if a later candle closes below <b>${f(c.low)}</b> (this candle's low). <b>Fails</b> on a close above <b>${f(c.high)}</b> (its high).`
+    : `Wait for the break: a close above <b>${f(c.high)}</b> = the ${o.ctx === 'after a fall' ? 'bounce' : 'move up'} goes on; a close below <b>${f(c.low)}</b> = it turns down.`;
+  const h = o.hist, hTxt = h.n ? `On ${H.sym} this pattern showed up <b>${h.n}×</b> in this chart: the next 3 candles closed <b>higher ${h.up} of ${h.n}</b> times (average ${h.avg >= 0 ? '+' : ''}${(h.avg * 100).toFixed(1)}%).` : 'Not enough history on this chart to count how it went before.';
+  const el = document.createElement('div'); el.id = 'jc-patcard';
+  el.style.cssText = `position:absolute;top:8px;left:${Math.max(8, Math.min(x + 14, H.top.clientWidth - 420))}px;width:380px;z-index:8;background:var(--bg2);border:1px solid ${col};border-radius:9px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:12px;line-height:1.55;color:var(--text2);`;
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><b style="color:${col};font-size:14px;">${P.d === 'bull' ? '▲' : P.d === 'bear' ? '▼' : '●'} ${P.n}</b>
+      <span style="color:var(--text3);">${dt}</span><button class="fbtn" onclick="document.getElementById('jc-patcard').remove()" style="margin-left:auto;padding:0 7px;">✕</button></div>
+    <div style="color:var(--text3);margin-bottom:6px;">O ${f(c.open)} · H ${f(c.high)} · L ${f(c.low)} · C ${f(c.close)} · Vol ${_spFmtVol(c.value || 0)}${o.vx ? ` (${o.vx.toFixed(1)}× the 20-candle average)` : ''}</div>
+    <div><b style="color:var(--text);">What it is:</b> ${P.what}</div>
+    <div><b style="color:var(--text);">What it means here:</b> ${P.mean} It came <b>${o.ctx}</b>${o.k === 'downrev' ? ` (${o.streak} lower closes before it)` : ''}${o.near != null ? `, right at the <b>${f(o.near)}</b> support / resistance line` : ''}. ${o.strong ? '<b style="color:var(--text);">Strong setup</b> — it fits its place' + (o.vx >= 1 ? ' and came on above-average volume.' : '.') : 'Weaker setup — it doesn\'t fully fit its place or the volume is light.'}</div>
+    <div style="margin-top:4px;"><b style="color:var(--text);">What to watch next:</b> ${next}</div>
+    <div style="margin-top:4px;"><b style="color:var(--text);">How it went before:</b> ${hTxt}</div>
+    <div style="margin-top:6px;font-size:10.5px;color:var(--text3);">A pattern is a probability, not a signal — always wait for the confirmation and keep your stop.</div>`;
+  H.top.appendChild(el);
+}
+function jcPatSet(v) { JC.pat = v; jcSave('pat', v); if (JC.full) jcPatApply(JC.full); document.querySelectorAll('#jc-full .jc-pat').forEach(b => b.classList.toggle('active', b.dataset.v === v)); }
 // ══ DRAWING: trend line · horizontal line · zone · text · bubble — saved per ticker (public.jc_drawings), shown on every timeframe ══
 function jcT2L(H, t) {   // unix seconds → (fractional) bar index; extends past the first / last bar with the bar spacing
   const ts = H.times, n = ts.length; if (n < 2) return 0;
@@ -20391,7 +20502,7 @@ async function jcPop(sym, tf, yrs) {
 }
 // ---- full view: covers the page below the top banner ----
 async function jcOpenFull(sym) {
-  await jcDrawLoad(sym); JC.vmax = 0;
+  await jcDrawLoad(sym); JC.vmax = 0; JC.pz = 1;
   JC.sym = sym; JC.tf = _jcPopTf || 'D'; JC.yrs = _jcPopY || 1; JC.help = false;
   let ov = document.getElementById('jc-full');
   if (!ov) { ov = document.createElement('div'); ov.id = 'jc-full'; document.body.appendChild(ov);
@@ -20418,8 +20529,14 @@ function jcFullRender() {
       <button class="fbtn" onclick="jcClearDraw()" title="Delete every drawing on this ticker">Clear all</button>
       <span id="jc-hint" style="font-size:10.5px;color:#8090a0;margin-left:4px;"></span>
       <span style="margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:10px;letter-spacing:1px;color:#8090a0;" title="Price scale: zoom in / out on the candles (0 never goes off the bottom) · Default = price and volume back to Auto (also after dragging the price scale)">PRICE</span>
+        <button class="fbtn" onclick="jcPz(1.4)" title="Zoom in on the price" style="padding:3px 8px;">＋</button><button class="fbtn" onclick="jcPz(1/1.4)" title="Zoom out on the price" style="padding:3px 8px;">−</button>
+        <button class="fbtn" onclick="jcPz(0)" title="Price and volume scales back to the default (Auto)" style="padding:3px 8px;">Default</button>
+        <span style="width:6px"></span>
         <span style="font-size:10px;letter-spacing:1px;color:#8090a0;">MA</span>
         ${JC_MA.map(([n, c]) => `<button class="fbtn jc-ma" data-n="${n}" onclick="jcMaToggle(${n})" title="${n}-period moving average — click to show / hide" style="color:${jcMaColor(c)};border-color:${jcMaColor(c)};font-weight:700;padding:3px 7px;">${n}</button>`).join('')}
+        <span style="font-size:10px;letter-spacing:1px;color:#8090a0;margin-left:4px;" title="Candle patterns: ▲ bullish · ▼ bearish · ● indecision — click a marker for what it is and what to watch next">PATTERNS</span>
+        ${[['off', 'Off'], ['strong', 'Strong'], ['all', 'All']].map(([v, l]) => `<button class="fbtn jc-pat${JC.pat === v ? ' active' : ''}" data-v="${v}" onclick="jcPatSet('${v}')" style="padding:3px 7px;">${l}</button>`).join('')}
         <button id="jc-sr-btn" class="fbtn" onclick="jcSrToggle()" title="Support (green), resistance (magenta) and the major long-term level (thick orange) from 2 years of daily candles"></button>
         <button class="fbtn" onclick="jcExport('png')" title="Save the chart as a picture">⬇ PNG</button>
         <button class="fbtn" onclick="jcExport('pdf')" title="Save the chart as a one-page PDF to print">⬇ PDF</button></span></div>
@@ -20429,10 +20546,12 @@ function jcFullRender() {
       • <b>Opens on 1 year · Day.</b> In the pop-up: 1Y / 2Y and Day / Week / Month. Click the small chart (or ⤢ Full chart) to open this full view.<br>
       • <b>Timeframes:</b> 1 min · 5 min · 15 min · 30 min · 1 hour · Day · Week · Month. Day / Week / Month show 1 or 2 years from your price history.<br>
       • <b>How far back:</b> 1 min ≈ last 7 days · 5 / 15 / 30 min ≈ last 60 days · 1 hour ≈ last 2 years (that's what the data source keeps). Minute charts include pre-market and after-hours; they open on the latest day — zoom out or drag to go back.<br>
+      • <b>Price scale:</b> PRICE ＋ / − zooms in / out on the candles (never below 0); you can also drag the price scale on the right up / down. <b>Default</b> puts price and volume back to Auto.<br>
       • <b>Zoom:</b> ＋ / − buttons, mouse wheel or trackpad pinch · <b>Move:</b> drag left / right · <b>Reset</b> shows the whole range · hover a candle to see open, high, low, close and volume.<br>
-      • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered. <b>VOL MAX</b> sets the top of the volume scale: Auto = the highest bar in view; pick a lower max (or ▲) to see small volume — bars above it are cut off. Hover a candle: the date at the bottom shows its volume.<br>
+      • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered. <b>VOL MAX</b> sets the top of the volume scale: Auto = the highest bar in view; pick a lower max (or ▲), or drag the volume scale on the right, to see small volume — bars above it are cut off, and 0 always stays at the bottom (double-click the scale = Auto). Hover a candle: the date at the bottom shows its volume.<br>
       • <b>Moving averages:</b> 3 yellow · 8 purple · 15 green · 50 blue · 100 white (black in light mode) · 200 red (simple averages of the close). Click a number to show / hide it.<br>
       • <b>Support / resistance:</b> levels where price turned at least twice in the last 2 years of daily candles — green = support below the price, magenta = resistance above, <b style="color:#ff8c00;">thick orange = the major level</b> (most turns over the longest time). The label shows how many times it turned there. Same levels on every timeframe; turn them on / off with the button.<br>
+      • <b>Patterns:</b> markers on candles from the Candlestick Cheat Sheet — <b style="color:#22c55e;">▲</b> bullish (hammer, engulfing, morning star, 3–5 down days then a reversal …) · <b style="color:#ef4444;">▼</b> bearish (shooting star, hanging man, evening star …) · <b style="color:#facc15;">●</b> indecision (doji, spinning top). <b>Strong</b> shows only the ones that fit their place (after a run up / down or at a support / resistance line) with at least average volume; <b>All</b> shows every one. Click a marker: what it is, what it means here, what to watch next (confirmation / fail level) and how this ticker moved after the same pattern before.<br>
       • <b>Drawing:</b> pick Trend line, Horizontal, Zone, Text or Bubble and click on the chart (lines and zones: two clicks). Erase = click a drawing to delete it. Click the tool again or press Esc to go back to scroll / zoom. Drawings are saved per ticker and show on every timeframe.<br>
       • <b>⬇ PNG / ⬇ PDF:</b> saves the chart as you see it — drawings, levels and averages included — with the ticker, timeframe and date on top.<br>
       • <b>Close:</b> ✕ or the Esc key. Times are New York time. Green candle = closed higher than it opened, red = lower.</div>` : ''}
@@ -20441,7 +20560,26 @@ function jcFullRender() {
   jcBarRefresh(); jcToolApply();
   jcDraw(document.getElementById('jc-full-box'), JC.sym, JC.tf, JC.yrs, true).then(c => { JC.full = c; jcToolApply(); });
 }
-function jcSet(tf) { JC.tf = tf; JC.vmax = 0; jcFullRender(); }
+function jcVisMax(H) {   // highest volume bar in view
+  const r = H.vc.timeScale().getVisibleLogicalRange(); const a = Math.max(0, Math.floor(r ? r.from : 0)), b = Math.min(H.rows.length - 1, Math.ceil(r ? r.to : H.rows.length - 1));
+  let m = 0; for (let i = a; i <= b; i++) m = Math.max(m, H.rows[i].value || 0); return m || 1000;
+}
+// price zoom (＋ / − / Default next to the averages): zooms around the middle of the candles in view; never below 0
+function jcPriceZoom(orig) {
+  const o = orig(); if (!o || !o.priceRange || !JC.pz || JC.pz === 1) return o;
+  const lo = o.priceRange.minValue, hi = o.priceRange.maxValue, mid = (lo + hi) / 2, half = (hi - lo) / 2 / JC.pz;
+  let a = mid - half, b = mid + half; if (a < 0) { b -= a; a = 0; }
+  return { priceRange: { minValue: a, maxValue: b }, margins: o.margins };
+}
+function jcPz(f) {
+  const H = JC.full; if (!H) return;
+  JC.pz = f ? Math.min(20, Math.max(0.25, (JC.pz || 1) * f)) : 1;
+  if (!f) jcVmax(0);   // Default: price and volume back to Auto
+  H.cs.applyOptions({ autoscaleInfoProvider: jcPriceZoom });
+  Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pz && JC.pz !== 1 ? null : orig() }));
+  H.ch.priceScale('right').applyOptions({ autoScale: true });
+}
+function jcSet(tf) { JC.tf = tf; JC.vmax = 0; JC.pz = 1; jcFullRender(); }
 // volume scale: Auto (highest bar in view) or a fixed max; ▲ halves the max, ▼ doubles it
 function jcVmax(v) { JC.vmax = +v || 0; const H = JC.full; if (!H) return;
   H.vs.applyOptions({ autoscaleInfoProvider: orig => JC.vmax ? { priceRange: { minValue: 0, maxValue: JC.vmax } } : orig() });
@@ -20449,12 +20587,11 @@ function jcVmax(v) { JC.vmax = +v || 0; const H = JC.full; if (!H) return;
   const sel = document.getElementById('jc-vmax'); if (sel) { if (![...sel.options].some(o => +o.value === JC.vmax)) sel.insertAdjacentHTML('beforeend', `<option value="${JC.vmax}">${_spFmtVol(JC.vmax)}</option>`); sel.value = String(JC.vmax); } }
 function jcVstep(f) {
   const H = JC.full; if (!H) return; let cur = JC.vmax;
-  if (!cur) { const r = H.vc.timeScale().getVisibleLogicalRange(); const a = Math.max(0, Math.floor(r ? r.from : 0)), b = Math.min(H.rows.length - 1, Math.ceil(r ? r.to : H.rows.length - 1));
-    cur = 0; for (let i = a; i <= b; i++) cur = Math.max(cur, H.rows[i].value || 0); }
+  if (!cur) cur = jcVisMax(H);
   const v = Math.max(1000, cur * f), mag = Math.pow(10, Math.floor(Math.log10(v)) - 1);   // round to 2 significant digits
   jcVmax(Math.round(v / mag) * mag);
 }
-function jcSetY(y) { JC.yrs = y; JC.vmax = 0; jcFullRender(); }
+function jcSetY(y) { JC.yrs = y; JC.vmax = 0; JC.pz = 1; jcFullRender(); }
 function jcZoom(f) {
   const ts = JC.full && JC.full.timeScale(); if (!ts) return;
   if (!f) { ts.fitContent(); return; }
@@ -20463,7 +20600,7 @@ function jcZoom(f) {
   ts.setVisibleLogicalRange({ from: mid - half, to: mid + half });
 }
 function jcCloseFull() {
-  JC.tool = null;
+  JC.tool = null; JC.pz = 1; JC.vmax = 0;
   if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
   const ov = document.getElementById('jc-full'); if (ov) { ov.style.display = 'none'; ov.innerHTML = ''; }
 }
