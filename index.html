@@ -18281,7 +18281,8 @@ function jrRender() {
   root.innerHTML = `<div class="${JR.tab === 'today' ? 'jr-sticky' : ''}"><div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'plan' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
     <button class="jr-btn g" onclick="jrPlanAdd('penny')">+ Penny plan</button><button class="jr-btn" onclick="jrPlanAdd('option')">+ Options plan</button>
-    <button class="jr-btn" onclick="jrPlanCsv()" title="Download this day's plan as a spreadsheet (opens in Excel / Numbers / Google Sheets)">⬇ Spreadsheet</button>` : ''}${JR.tab === 'today' ? `<span class="jr-sp"></span>
+    <button class="jr-btn" onclick="jrPlanCsv()" title="Download this day's plan as a spreadsheet (opens in Excel / Numbers / Google Sheets)">⬇ Spreadsheet</button>
+    <button class="jr-btn" onclick="jrPlanUploadPick()" title="Upload a filled-in plan: the fillable PDF or the spreadsheet from Download PDF → Empty trade plans">⬆ Upload filled plan</button>` : ''}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
     <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : JR.tab === 'plan' ? '' : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
   if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
@@ -18715,6 +18716,10 @@ function jrDlMenu(btn) {
   m.style.cssText = `position:fixed;top:${b.bottom + 4}px;right:${Math.max(8, window.innerWidth - b.right)}px;z-index:9999;background:var(--bg2);border:1px solid var(--cyan);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:300px;padding:6px;`;
   m.innerHTML = items.map(([k, l, d]) => `<div class="jr-dl-i" onclick="document.getElementById('jr-dl').remove();jrPdf('${k}')" style="padding:8px 10px;border-radius:5px;cursor:pointer;">
       <b style="color:var(--cyan);">${l}</b> <span style="color:var(--text2);font-size:11px;">— ${jrEsc(d)}</span></div>`).join('')
+    + `<div style="border-top:1px solid var(--border2);margin:6px 4px 4px;padding-top:6px;color:var(--text2);font-size:10px;letter-spacing:1px;padding-left:6px;">EMPTY TRADE PLANS — fill in, then upload on the Plan tab</div>`
+    + [['penny', 'Penny stocks'], ['option', 'Options (large caps)']].map(([k, l]) => `<div style="display:flex;gap:6px;align-items:center;padding:5px 10px;"><b style="color:var(--cyan);min-width:150px;">${l}</b>
+        <button class="jr-btn sm" onclick="document.getElementById('jr-dl').remove();jrPlanBlankPdf('${k}')">Fillable PDF</button>
+        <button class="jr-btn sm" onclick="document.getElementById('jr-dl').remove();jrPlanBlankXlsx('${k}')">Spreadsheet</button></div>`).join('')
     + '<div style="color:var(--text3);font-size:10px;padding:4px 10px;">Day = date on Today · Week = Weekly Audit week · Month = Calendar month · Analytics = the view on the Analytics tab</div>';
   document.body.appendChild(m);
   m.querySelectorAll('.jr-dl-i').forEach(x => { x.onmouseenter = () => x.style.background = 'var(--bg3)'; x.onmouseleave = () => x.style.background = ''; });
@@ -19054,7 +19059,7 @@ function jrPlanHtml() {
     const rows = ps.filter(p => p.kind === kind), b = c[kind], P = kind === 'penny';
     const body = rows.map((p, i) => { const x = c[p.id] || {};
       return `<tr>
-        <td>${i + 1}</td><td>${inp(p, 'symbol', 'TICKER', 80, 'text-transform:uppercase;font-weight:700;')}</td>
+        <td>${i + 1}</td><td>${inp(p, 'symbol', 'TICKER', 80, 'text-transform:uppercase;font-weight:700;')}${!P && (p.strike || p.expiry || p.entry_trigger) ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;white-space:nowrap;">${jrEsc([p.strike ? p.strike + (p.opt_type === 'put' ? ' P' : p.opt_type === 'call' ? ' C' : '') : '', p.expiry ? 'exp ' + jrShowMD(p.expiry) : '', p.entry_trigger ? 'entry ' + p.entry_trigger : '', p.status || ''].filter(Boolean).join(' · '))}</div>` : ''}${P && p.session ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;">${{ pre: 'Pre-market', reg: 'Regular', post: 'After-hours' }[p.session] || ''}</div>` : ''}</td>
         <td>${inp(p, 'price', P ? '2.00' : '2.21', 70)}</td><td>${sel(p)}</td><td>${px(x.stop)}</td>
         <td style="font-weight:700;color:var(--cyan);font-size:13px;">${x.max == null ? '—' : x.max.toLocaleString('en-US')}${P && x.ruleSize != null ? `<div style="font-size:10px;color:var(--text3);font-weight:400;">rule ⅓: ${x.ruleSize.toLocaleString('en-US')}</div>` : ''}</td>
         <td>${inp(p, 'qty', '0', 60)}</td>
@@ -19105,6 +19110,151 @@ function jrPlanCsv() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
   a.download = `trade-plan-${d}.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+// ---------- STEP 42: empty trade plans (fillable PDF + spreadsheet) and upload back into the Plan tab ----------
+// Options columns mirror the V2-Active Postions sheet; penny columns follow the Plan tab. Field / column order is the import contract.
+const JR_TPL = {
+  penny: { title: 'Penny stock trade plan', rows: 14, cols: [
+    ['symbol', 'Ticker', 70], ['session', 'Session (Pre/Reg/After)', 66], ['price', 'Price', 54], ['plan_tol', 'Entry ± $', 54], ['stop_pct', 'Stop %', 44],
+    ['stop_at', 'Stop at', 54], ['max', 'Max shares', 58], ['qty', 'Planned shares', 62], ['target', 'Target $', 56], ['notes', 'Notes / setup', 0]] },
+  option: { title: 'Options trade plan — large caps', rows: 14, cols: [
+    ['date', 'Date Added', 42], ['status', 'Open / closed', 44], ['delta', 'Delta', 32], ['theta', 'Theta', 32], ['symbol', 'Stock Ticker', 52], ['expiry', 'exp. Date', 42],
+    ['strike', 'Strike $', 46], ['entry_trigger', 'Entry', 44], ['qty', '# pos.', 30], ['stock_price', 'Stock entered', 44], ['price', '$Strike entered', 46], ['exit_price', '$Strike exit', 44],
+    ['p2_qty', '# pos.', 30], ['p2_stock', 'Stock entered', 44], ['p2_in', '$Strike entered', 46], ['p2_out', '$Strike exit', 44], ['stop_pct', 'Stop %', 36], ['target', 'Target %', 0]],
+    groups: [[8, 11, 'Position 1'], [12, 15, 'Position 2'], [16, 17, 'Plan']] }
+};
+function jrTplHint(kind) {
+  const r = jrRiskFor(JR.d);
+  return kind === 'penny'
+    ? `Max shares = daily risk $${r.penny_limit} ÷ (price × stop %) · e.g. $2.00 at 15% → ${Math.floor(r.penny_limit / 0.3).toLocaleString('en-US')} shares · rule size = ⅓ of that · Session: Pre / Reg / After · stop: mental pre / after-hours, hard stop order in the regular session`
+    : `Max loss per trade = 80% of the daily risk $${r.option_limit} = $${Math.round(r.option_limit * 0.8)} · must stop = premium in − $${Math.round(r.option_limit * 0.8)} ÷ (# pos. × 100) · Strike: e.g. 400 C or 180 P · dates as MM/DD or MM/DD/YY · status: Open / Closed / Watch`;
+}
+async function jrPlanBlankPdf(kind) {
+  try {
+    if (!window.jspdf) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    const T = JR_TPL[kind], doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' }), Field = window.jspdf.AcroFormTextField;
+    const W = doc.internal.pageSize.getWidth(), M = 28, NAVY = [16, 65, 94];
+    const field = (name, x, y, w, h, size = 9) => { const f = new Field(); f.fieldName = name; f.Rect = [x + 1, y + 1, w - 2, h - 2]; f.fontSize = size; f.value = ''; doc.addField(f); };
+    doc.setFillColor(...NAVY); doc.rect(0, 0, W, 54, 'F'); doc.setFillColor(0, 180, 220); doc.rect(0, 54, W, 3, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(255, 255, 255); doc.text(T.title, M, 26);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(180, 225, 245); doc.text('Fill it in on screen or on paper · upload the filled PDF on Journal > Plan to load it', M, 43);
+    doc.setFontSize(8.5); doc.text('StockPulse Pro', W - M, 26, { align: 'right' });
+    // top line: date, risk, market
+    let y = 70; doc.setFontSize(9); doc.setTextColor(40, 55, 70); doc.setFont('helvetica', 'bold');
+    const lab = (t, x) => { doc.text(t, x, y + 12); return x + doc.getTextWidth(t) + 4; };
+    const box = (x, w) => { doc.setDrawColor(150, 165, 180); doc.setLineWidth(0.6); doc.rect(x, y, w, 17); };
+    let x = lab('Date', M); box(x, 70); field('hdr_date', x, y, 70, 17); x += 84;
+    const r = jrRiskFor(JR.d); x = lab(`Daily risk: $${kind === 'penny' ? r.penny_limit : r.option_limit}`, x) + 10;
+    for (const [k, l, w] of [['hdr_spy', 'SPY', 70], ['hdr_vix', 'VIX', 50], ['hdr_trend', 'Trend', 60], ['hdr_note', 'Market note', 0]]) {
+      x = lab(l, x); const ww = w || (W - M - x); box(x, ww); field(k, x, y, ww, 17); x += ww + 12;
+    }
+    // table
+    y = 100; const cols = T.cols.map(c => [...c]); const fixed = cols.reduce((s, c) => s + c[2], 0); cols[cols.length - 1][2] = W - 2 * M - fixed;
+    const xs = []; let cx = M; cols.forEach(c => { xs.push(cx); cx += c[2]; });
+    if (T.groups) { T.groups.forEach(([a, b, l], gi) => { const gx = xs[a], gw = xs[b] + cols[b][2] - gx; doc.setFillColor(...(gi === 2 ? [90, 110, 130] : [0, 150, 190])); doc.rect(gx, y, gw, 14, 'F'); doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.text(l, gx + gw / 2, y + 10, { align: 'center' }); }); y += 14; }
+    const hh = 26; doc.setFillColor(...NAVY); doc.rect(M, y, W - 2 * M, hh, 'F'); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255);
+    cols.forEach((c, i) => doc.text(doc.splitTextToSize(c[1], c[2] - 4), xs[i] + 3, y + 10));
+    y += hh; const rh = 24;
+    for (let rI = 1; rI <= T.rows; rI++) {
+      if (rI % 2 === 0) { doc.setFillColor(244, 248, 251); doc.rect(M, y, W - 2 * M, rh, 'F'); }
+      cols.forEach((c, i) => { doc.setDrawColor(190, 202, 214); doc.setLineWidth(0.5); doc.rect(xs[i], y, c[2], rh); field(`${kind}_r${rI}_${c[0]}`, xs[i], y, c[2], rh, 9); });
+      y += rh;
+    }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 75, 90);
+    doc.text(doc.splitTextToSize(jrTplHint(kind).replace(/[–—−]/g, '-').replace(/⅓/g, '1/3').replace(/→/g, '->'), W - 2 * M), M, y + 16);
+    doc.save(`${kind === 'penny' ? 'penny' : 'options'}-trade-plan-blank.pdf`);
+  } catch (e) { console.error('[plan pdf]', e); showToast('Journal', 'Could not make the plan PDF: ' + e.message, 'error'); }
+}
+async function jrXlsx() { if (!window.XLSX) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'); return window.XLSX; }
+async function jrPlanBlankXlsx(kind) {
+  try {
+    const X = await jrXlsx(), T = JR_TPL[kind], r = jrRiskFor(JR.d);
+    const aoa = [[T.title], ['Date', '', '', `Daily risk: $${kind === 'penny' ? r.penny_limit : r.option_limit}`, 'SPY', '', 'VIX', '', 'Trend', '', 'Market note'], []];
+    if (T.groups) { const g = Array(T.cols.length).fill(''); T.groups.forEach(([a, , l]) => { g[a] = l; }); aoa.push(g); } else aoa.push([]);
+    aoa.push(T.cols.map(c => c[1]));
+    for (let i = 0; i < T.rows; i++) aoa.push(Array(T.cols.length).fill(''));
+    aoa.push([]); aoa.push([jrTplHint(kind)]);
+    const ws = X.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = T.cols.map(c => ({ wch: Math.max(9, Math.round((c[2] || 200) / 5.5)) }));
+    if (T.groups) ws['!merges'] = T.groups.map(([a, b]) => ({ s: { r: 3, c: a }, e: { r: 3, c: b } }));
+    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, kind === 'penny' ? 'Penny plan' : 'Options plan');
+    X.writeFile(wb, `${kind === 'penny' ? 'penny' : 'options'}-trade-plan-blank.xlsx`);
+  } catch (e) { console.error('[plan xlsx]', e); showToast('Journal', 'Could not make the spreadsheet: ' + e.message, 'error'); }
+}
+// ---- upload: filled PDF (form fields) or spreadsheet → preview → Import into the Plan tab ----
+function jrPlanUploadPick() {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.pdf,.xlsx,.xls,.csv';
+  inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) jrPlanUpload(f); }; inp.click();
+}
+function jrPlanRowFrom(kind, get, d) {   // get(key) → raw text of that column for one row
+  const n = v => { const t = String(v ?? '').replace(/[$,\s%]/g, ''); return t === '' || isNaN(+t) ? null : +t; }, s = v => String(v ?? '').trim();
+  const row = { kind, symbol: s(get('symbol')).toUpperCase().replace(/^\$/, '') || null, price: n(get('price')), stop_pct: n(get('stop_pct')), qty: n(get('qty')), notes: s(get('notes')) || null, target: s(get('target')) || null };
+  if (kind === 'penny') { const ss = s(get('session')).toLowerCase(); row.session = /^pre/.test(ss) ? 'pre' : /^(aft|post)/.test(ss) ? 'post' : ss ? 'reg' : null; row.plan_tol = n(get('plan_tol')); }
+  else {
+    const st = s(get('status')); row.status = st || null; row.delta = n(get('delta')); row.theta = n(get('theta'));
+    const dd = s(get('date')); if (dd) { const iso = jrParseMD(dd, null, false); if (iso) row.d = iso; }
+    const ex = s(get('expiry')); if (ex) { const iso = jrParseMD(ex, row.d || d, true); if (iso) row.expiry = iso; }
+    const k = s(get('strike')).toUpperCase(), km = k.match(/^\$?([\d.]+)\s*([CP])?/); if (km) { row.strike = km[1]; row.opt_type = km[2] === 'P' ? 'put' : km[2] === 'C' ? 'call' : null; } else if (k) row.strike = k;
+    row.entry_trigger = s(get('entry_trigger')) || null; row.stock_price = n(get('stock_price')); row.exit_price = n(get('exit_price'));
+    const p2 = { qty: n(get('p2_qty')), stock: n(get('p2_stock')), premium_in: n(get('p2_in')), premium_out: n(get('p2_out')) };
+    row.pos2 = Object.values(p2).some(v => v != null) ? p2 : null;
+  }
+  return row.symbol && /^[A-Z][A-Z0-9.\-]{0,7}$/.test(row.symbol) ? row : null;   // a real ticker, not the help line under the table
+}
+async function jrPlanUpload(file) {
+  try {
+    const buf = await file.arrayBuffer(); let rows = [], hdr = {};
+    if (/\.pdf$/i.test(file.name)) {
+      if (!window.PDFLib) await _spLoadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js');
+      const pdf = await window.PDFLib.PDFDocument.load(buf), vals = {};
+      pdf.getForm().getFields().forEach(f => { try { vals[f.getName()] = f.getText ? (f.getText() || '') : ''; } catch (_) {} });
+      if (!Object.keys(vals).length) { showToast('Journal', 'This PDF has no fill-in fields — use the empty plan from Download PDF, or a spreadsheet.', 'error'); return; }
+      hdr = { date: vals.hdr_date, spy: vals.hdr_spy, vix: vals.hdr_vix, trend: vals.hdr_trend, note: vals.hdr_note };
+      for (const kind of ['penny', 'option']) for (let i = 1; i <= 40; i++) {
+        if (!Object.keys(vals).some(k => k.startsWith(`${kind}_r${i}_`))) continue;
+        const r = jrPlanRowFrom(kind, key => vals[`${kind}_r${i}_${key}`], JR.d); if (r) rows.push(r);
+      }
+    } else {
+      const X = await jrXlsx(), wb = X.read(buf, { type: 'array' }), aoa = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+      const hi = aoa.findIndex(r => r.some(c => /stock ticker/i.test(c)) || (r.some(c => /^ticker$/i.test(String(c).trim())) && r.some(c => /session/i.test(c))));
+      if (hi < 0) { showToast('Journal', 'No plan header found — use the empty plan spreadsheet from Download PDF.', 'error'); return; }
+      const kind = aoa[hi].some(c => /stock ticker/i.test(c)) ? 'option' : 'penny', keys = JR_TPL[kind].cols.map(c => c[0]);
+      const top = aoa.find(r => /^date$/i.test(String(r[0]).trim())); if (top) hdr = { date: top[1] || top[2], spy: top[5], vix: top[7], trend: top[9], note: top[11] };
+      for (let i = hi + 1; i < aoa.length; i++) { const r = jrPlanRowFrom(kind, key => aoa[i][keys.indexOf(key)], JR.d); if (r) rows.push(r); }
+    }
+    const d = (hdr.date && jrParseMD(String(hdr.date).trim(), null, false)) || JR.d;
+    rows.forEach(r => { if (!r.d) r.d = d; });
+    if (!rows.length) { showToast('Journal', 'No filled-in rows found in that file.', 'info'); return; }
+    jrPlanPreview(rows, file.name, hdr);
+  } catch (e) { console.error('[plan upload]', e); showToast('Journal', 'Could not read that file: ' + e.message, 'error'); }
+}
+function jrPlanPreview(rows, name, hdr) {
+  JR._imp = rows; const old = document.getElementById('jr-imp'); if (old) old.remove();
+  const m = document.createElement('div'); m.id = 'jr-imp';
+  m.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;';
+  const cell = v => v == null || v === '' ? '<span style="color:var(--text3)">—</span>' : jrEsc(String(v));
+  const body = rows.map(r => `<tr><td>${jrShowMD(r.d)}</td><td>${r.kind === 'penny' ? 'Penny' : 'Option'}</td><td><b>${cell(r.symbol)}</b></td>
+      <td>${r.kind === 'option' ? cell([r.strike, r.opt_type === 'put' ? 'P' : r.opt_type === 'call' ? 'C' : ''].filter(Boolean).join(' ') + (r.expiry ? ' · ' + jrShowMD(r.expiry) : '')) : cell(r.session)}</td>
+      <td>${cell(r.price)}</td><td>${cell(r.qty)}</td><td>${cell(r.stop_pct != null ? r.stop_pct + '%' : '')}</td><td>${cell(r.target)}</td><td>${cell(r.entry_trigger || r.notes)}</td></tr>`).join('');
+  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--cyan);border-radius:10px;max-width:960px;width:94%;max-height:80vh;overflow:auto;padding:16px 18px;">
+      <h3 style="margin:0 0 4px;color:var(--cyan);letter-spacing:1px;">IMPORT PLAN · ${jrEsc(name)}</h3>
+      <div style="font-size:11.5px;color:var(--text2);margin-bottom:10px;">${rows.length} row${rows.length === 1 ? '' : 's'} found${hdr.spy || hdr.vix ? ` · market: SPY ${jrEsc(hdr.spy || '—')} · VIX ${jrEsc(hdr.vix || '—')} ${hdr.trend ? '· ' + jrEsc(hdr.trend) : ''}` : ''}. Check them, then Import — they're added to the Plan tab on their date.</div>
+      <table class="jr-tbl" style="width:100%;"><tr><th>Date</th><th>Type</th><th>Ticker</th><th>Strike · exp. / session</th><th>Price / premium</th><th>Qty</th><th>Stop %</th><th>Target</th><th>Entry / notes</th></tr>${body}</table>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="jr-btn" onclick="document.getElementById('jr-imp').remove()">Cancel</button>
+        <button class="jr-btn g" onclick="jrPlanImport()">Import ${rows.length} plan${rows.length === 1 ? '' : 's'}</button></div></div>`;
+  document.body.appendChild(m);
+}
+async function jrPlanImport() {
+  const rows = JR._imp || []; if (!rows.length) return;
+  const supa = await getSupabaseAsync();
+  const { data, error } = await supa.from('jr_plans').insert(rows).select();
+  if (error) { showToast('Journal', 'Import failed: ' + error.message, 'error'); return; }
+  JR.plans = (JR.plans || []).concat(data || []); JR._imp = null;
+  document.getElementById('jr-imp')?.remove();
+  const d0 = rows[0].d; if (d0 && d0 !== JR.d) JR.d = d0;
+  JR.tab = 'plan'; jrRender(); showToast('Journal', `${rows.length} plan${rows.length === 1 ? '' : 's'} imported ✓`, 'info');
 }
 async function jrPdfChart(cfg, w, h) {   // renders a Chart.js chart off-screen for print and returns a PNG
   const box = document.createElement('div'); box.style.cssText = `position:fixed;left:-20000px;top:0;width:${w}px;height:${h}px;background:#fff;`;
