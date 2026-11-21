@@ -19179,7 +19179,8 @@ async function jrWatchPick(kind) {
   if (!JR.wl || Date.now() - JR.wl.at > 600e3) {
     try { const supa = await getSupabaseAsync(); let all = [];
       for (let f = 0; f < 10000; f += 1000) { const { data, error } = await supa.from('user_watchlist').select('symbol').range(f, f + 999); if (error) throw error; all = all.concat(data || []); if (!data || data.length < 1000) break; }
-      JR.wl = { at: Date.now(), syms: [...new Set(all.map(r => r.symbol))] }; await jrQuotes(JR.wl.syms);
+      const builtIn = typeof WATCHLIST === 'object' ? Object.values(WATCHLIST).flat() : [];   // the page's built-in tickers (NVDA, AMD …) + everything added
+      JR.wl = { at: Date.now(), syms: [...new Set(builtIn.concat(all.map(r => r.symbol)))] }; await jrQuotes(JR.wl.syms);
     } catch (e) { m.remove(); showToast('Watchlist', 'Could not load the Watchlist: ' + e.message, 'error'); return; }
   }
   JR.wp = { kind, sort: JR.wp?.sort || 'chg', f: '', sel: new Set() }; jrWatchPickRender();
@@ -20066,7 +20067,9 @@ async function jcDraw(el, sym, tf, yrs, big) {
   const cs = ch.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderUpColor: '#22c55e', borderDownColor: '#ef4444', wickUpColor: '#22c55e', wickDownColor: '#ef4444',
     priceFormat: { type: 'custom', formatter: f, minMove: px ? 0.0001 : 0.01 } });
   cs.setData(rows.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
-  const vs = vc.addHistogramSeries({ priceFormat: { type: 'volume' }, priceLineVisible: false });
+  const vfmt = v => v < 0 ? '' : _spFmtVol(v);
+  const vs = vc.addHistogramSeries({ priceFormat: { type: 'custom', formatter: vfmt, minMove: 1 }, priceLineVisible: false,
+    autoscaleInfoProvider: orig => JC.vmax ? { priceRange: { minValue: 0, maxValue: JC.vmax } } : orig() });
   vs.setData(rows.map(r => ({ time: r.time, value: r.value, color: r.close >= r.open ? (light ? '#16a34a' : '#34e37a') : (light ? '#dc2626' : '#ff5a5a') })));
   const H = { ch, vc, cs, vs, rows, big, sym, tf, top, lines: [], ma: {}, alive: true, lv: null,
     timeScale: () => ch.timeScale(),
@@ -20082,6 +20085,16 @@ async function jcDraw(el, sym, tf, yrs, big) {
   const sync = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange(r => { if (lock || !r) return; lock = true; try { b.timeScale().setVisibleLogicalRange(r); } catch (_) {} lock = false; });
   sync(ch, vc); sync(vc, ch);
   const byTime = new Map(rows.map(r => [typeof r.time === 'object' ? JSON.stringify(r.time) : r.time, r]));
+  // hover date label at the bottom shows the volume of that candle too
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  vc.applyOptions({ localization: { timeFormatter: t => {
+    let key, dt;
+    if (typeof t === 'object') { key = `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`; dt = new Date(Date.UTC(t.year, t.month - 1, t.day)); }
+    else if (typeof t === 'string') { key = t; dt = new Date(t + 'T00:00:00Z'); }
+    else { key = t; dt = new Date(t * 1000); }
+    const r = byTime.get(key), intra = typeof t === 'number';
+    const ds = `${DOW[dt.getUTCDay()]} ${dt.getUTCDate()} ${MON[dt.getUTCMonth()]} '${String(dt.getUTCFullYear()).slice(2)}${intra ? ' ' + String(dt.getUTCHours()).padStart(2, '0') + ':' + String(dt.getUTCMinutes()).padStart(2, '0') : ''}`;
+    return r ? `${ds} · Vol ${_spFmtVol(r.value)}` : ds; } } });
   const xh = (src, dst, ser, val) => src.subscribeCrosshairMove(p => { try {
     if (p && p.time != null && p.point) { const r = byTime.get(p.time); if (r && dst.setCrosshairPosition) dst.setCrosshairPosition(val(r), p.time, ser); }
     else if (dst.clearCrosshairPosition) dst.clearCrosshairPosition(); } catch (_) {} });
@@ -20108,6 +20121,13 @@ async function jcDraw(el, sym, tf, yrs, big) {
       sep.addEventListener('pointermove', mv); sep.addEventListener('pointerup', up);
     });
     jcDrawInit(H);
+    vol.insertAdjacentHTML('beforeend', `<div style="position:absolute;left:6px;top:4px;z-index:5;display:flex;gap:4px;align-items:center;font-size:10.5px;white-space:nowrap;padding:3px 6px;border-radius:6px;background:${light ? 'rgba(255,255,255,.92)' : 'rgba(13,34,56,.9)'};border:1px solid ${light ? 'rgba(0,0,0,.15)' : 'rgba(0,212,255,.3)'};color:${light ? '#33475b' : '#9fb0c2'};">
+      <span title="Top of the volume scale. Auto = the highest bar in view. Pick a lower max to see small volume; bars above it are cut off.">VOL MAX</span>
+      <select id="jc-vmax" onchange="jcVmax(this.value)" style="background:var(--bg3);color:var(--text);border:1px solid var(--border2);border-radius:4px;font-size:10.5px;padding:1px 3px;">
+        ${[0, 1e5, 2.5e5, 5e5, 1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8, 2.5e8].map(v => `<option value="${v}" ${(JC.vmax || 0) === v ? 'selected' : ''}>${v ? _spFmtVol(v) : 'Auto'}</option>`).join('')}
+        ${JC.vmax && ![1e5, 2.5e5, 5e5, 1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8, 2.5e8].includes(JC.vmax) ? `<option value="${JC.vmax}" selected>${_spFmtVol(JC.vmax)}</option>` : ''}</select>
+      <button class="fbtn" onclick="jcVstep(0.5)" title="Lower the max — small bars get taller" style="padding:0 6px;font-size:11px;line-height:16px;">▲</button>
+      <button class="fbtn" onclick="jcVstep(2)" title="Raise the max — bars get shorter" style="padding:0 6px;font-size:11px;line-height:16px;">▼</button></div>`);
   }
   return H;
 }
@@ -20285,7 +20305,7 @@ async function jcPop(sym, tf, yrs) {
 }
 // ---- full view: covers the page below the top banner ----
 async function jcOpenFull(sym) {
-  await jcDrawLoad(sym);
+  await jcDrawLoad(sym); JC.vmax = 0;
   JC.sym = sym; JC.tf = _jcPopTf || 'D'; JC.yrs = _jcPopY || 1; JC.help = false;
   let ov = document.getElementById('jc-full');
   if (!ov) { ov = document.createElement('div'); ov.id = 'jc-full'; document.body.appendChild(ov);
@@ -20324,7 +20344,7 @@ function jcFullRender() {
       • <b>Timeframes:</b> 1 min · 5 min · 15 min · 30 min · 1 hour · Day · Week · Month. Day / Week / Month show 1 or 2 years from your price history.<br>
       • <b>How far back:</b> 1 min ≈ last 7 days · 5 / 15 / 30 min ≈ last 60 days · 1 hour ≈ last 2 years (that's what the data source keeps). Minute charts include pre-market and after-hours; they open on the latest day — zoom out or drag to go back.<br>
       • <b>Zoom:</b> ＋ / − buttons, mouse wheel or trackpad pinch · <b>Move:</b> drag left / right · <b>Reset</b> shows the whole range · hover a candle to see open, high, low, close and volume.<br>
-      • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered.<br>
+      • <b>Volume:</b> its own panel under the candles with its scale on the right (K = thousands, M = millions). Drag the <b>⇕ volume</b> bar up or down to make it taller or shorter — it's remembered. <b>VOL MAX</b> sets the top of the volume scale: Auto = the highest bar in view; pick a lower max (or ▲) to see small volume — bars above it are cut off. Hover a candle: the date at the bottom shows its volume.<br>
       • <b>Moving averages:</b> 3 yellow · 8 purple · 15 green · 50 blue · 100 white (black in light mode) · 200 red (simple averages of the close). Click a number to show / hide it.<br>
       • <b>Support / resistance:</b> levels where price turned at least twice in the last 2 years of daily candles — green = support below the price, magenta = resistance above, <b style="color:#ff8c00;">thick orange = the major level</b> (most turns over the longest time). The label shows how many times it turned there. Same levels on every timeframe; turn them on / off with the button.<br>
       • <b>Drawing:</b> pick Trend line, Horizontal, Zone, Text or Bubble and click on the chart (lines and zones: two clicks). Erase = click a drawing to delete it. Click the tool again or press Esc to go back to scroll / zoom. Drawings are saved per ticker and show on every timeframe.<br>
@@ -20335,8 +20355,20 @@ function jcFullRender() {
   jcBarRefresh(); jcToolApply();
   jcDraw(document.getElementById('jc-full-box'), JC.sym, JC.tf, JC.yrs, true).then(c => { JC.full = c; jcToolApply(); });
 }
-function jcSet(tf) { JC.tf = tf; jcFullRender(); }
-function jcSetY(y) { JC.yrs = y; jcFullRender(); }
+function jcSet(tf) { JC.tf = tf; JC.vmax = 0; jcFullRender(); }
+// volume scale: Auto (highest bar in view) or a fixed max; ▲ halves the max, ▼ doubles it
+function jcVmax(v) { JC.vmax = +v || 0; const H = JC.full; if (!H) return;
+  H.vs.applyOptions({ autoscaleInfoProvider: orig => JC.vmax ? { priceRange: { minValue: 0, maxValue: JC.vmax } } : orig() });
+  H.vc.priceScale('right').applyOptions({ autoScale: true });
+  const sel = document.getElementById('jc-vmax'); if (sel) { if (![...sel.options].some(o => +o.value === JC.vmax)) sel.insertAdjacentHTML('beforeend', `<option value="${JC.vmax}">${_spFmtVol(JC.vmax)}</option>`); sel.value = String(JC.vmax); } }
+function jcVstep(f) {
+  const H = JC.full; if (!H) return; let cur = JC.vmax;
+  if (!cur) { const r = H.vc.timeScale().getVisibleLogicalRange(); const a = Math.max(0, Math.floor(r ? r.from : 0)), b = Math.min(H.rows.length - 1, Math.ceil(r ? r.to : H.rows.length - 1));
+    cur = 0; for (let i = a; i <= b; i++) cur = Math.max(cur, H.rows[i].value || 0); }
+  const v = Math.max(1000, cur * f), mag = Math.pow(10, Math.floor(Math.log10(v)) - 1);   // round to 2 significant digits
+  jcVmax(Math.round(v / mag) * mag);
+}
+function jcSetY(y) { JC.yrs = y; JC.vmax = 0; jcFullRender(); }
 function jcZoom(f) {
   const ts = JC.full && JC.full.timeScale(); if (!ts) return;
   if (!f) { ts.fitContent(); return; }
