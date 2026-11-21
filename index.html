@@ -19095,10 +19095,14 @@ function jrWatchHtml() {
         <td>${px(x.close)}</td><td class="${x.chg > 0 ? 'jr-pos' : x.chg < 0 ? 'jr-neg' : ''}">${x.chg == null ? '—' : (x.chg > 0 ? '+' : '') + x.chg.toFixed(2) + '%'}</td>
         <td>${x.vol == null ? '—' : _spFmtVol(x.vol)}</td>
         ${[1, 2, 3, 4].map(k => { const h = (JR.h5[w.symbol] || []).find(y => y.n === k + 1); return `<td style="text-align:right;white-space:nowrap;line-height:1.25;">${pc(h ? h.chg : null)}<div style="font-size:10px;color:var(--text3);">${h && h.vol != null ? _spFmtVol(h.vol) : ''}</div></td>`; }).join('')}
-        <td style="width:30%;"><div class="jr-micw"><input value="${jrEsc(w.note || '')}" placeholder="why I'm watching it" onchange="jrWatchNote(${w.id},this.value)">${jrMicBtn()}</div></td>
+        <td style="width:24%;">${w.note || JR.wopen === w.id ? `<span style="font-size:10.5px;color:var(--text3);">📝 note below ↓</span>`
+          : `<input placeholder="+ why I'm watching it" onfocus="jrWatchOpenNote(${w.id})" style="width:100%;">`}</td>
         <td style="white-space:nowrap;"><button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(w.symbol)}')" title="Full chart with your drawings">📈 Chart</button>
           <button class="jr-btn sm g" onclick="jrWatchToPlan(${w.id})" title="Make a ${kind === 'penny' ? 'penny' : 'options'} plan for this ticker on the Plan tab">→ Plan</button>
-          <button class="jr-btn del sm" onclick="jrWatchDel(${w.id})" title="Take it off today's list">✕</button></td></tr>`; }).join('');
+          <button class="jr-btn del sm" onclick="jrWatchDel(${w.id})" title="Take it off today's list">✕</button></td></tr>
+        ${w.note || JR.wopen === w.id ? `<tr><td></td><td colspan="10" style="padding:0 0 8px;white-space:normal;"><div class="jr-micw">
+          <textarea id="jr-wn-${w.id}" rows="2" placeholder="Why ${jrEsc(w.symbol)} is on the list — setup, levels, news, what you're waiting for…" onchange="jrWatchNote(${w.id},this.value)" onblur="jrWatchNoteBlur(${w.id},this)"
+            style="width:100%;resize:vertical;min-height:40px;line-height:1.45;">${jrEsc(w.note || '')}</textarea>${jrMicBtn()}</div></td></tr>` : ''}`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title} <span style="color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0;">${list.length} / ${cap}</span>
         <span class="jr-sp"></span>
         <span style="position:relative;display:inline-flex;text-transform:none;letter-spacing:0;font-weight:400;">
@@ -19149,8 +19153,16 @@ async function jrWatchAdd(kind, syms, isNew) {
   if (error) { showToast('Watchlist', 'Not added: ' + error.message, 'error'); return; }
   JR.watch = JR.watch.concat(data || []); document.getElementById('jr-wpick')?.remove(); jrRender();
 }
+function jrWatchNoteBlur(id, el) {   // opened but left empty → fold back to the small box (not while dictating into it)
+  setTimeout(() => { if (el.value.trim() || JR.wopen !== id || _jrRec) return; const a = document.activeElement; if (a && el.parentElement.contains(a)) return; JR.wopen = null; jrRender(); }, 200);
+}
+function jrWatchOpenNote(id) {   // the note opens as a full-width box under the ticker
+  JR.wopen = id; jrRender();
+  const t = document.getElementById('jr-wn-' + id); if (t) t.focus();
+}
 async function jrWatchNote(id, v) {
   const w = JR.watch.find(x => x.id === id); if (!w) return; w.note = String(v || '').trim() || null;
+  if (JR.wopen === id) JR.wopen = null; if (!w.note) setTimeout(() => { if (JR.tab === 'watch' && document.activeElement?.id !== 'jr-wn-' + id) jrRender(); }, 0);
   const supa = await getSupabaseAsync(); const { error } = await supa.from('jr_watch').update({ note: w.note }).eq('id', id);
   if (error) showToast('Watchlist', 'Note not saved: ' + error.message, 'error');
 }
