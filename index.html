@@ -8,6 +8,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockPulse PRO</title>
+<script src="https://bizscan-pro.vercel.app/pixel.js" data-id="b93a6ffc965f" async defer></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Bebas+Neue&display=swap');
 :root {
@@ -512,6 +513,7 @@ select option{background:var(--bg2);}
 </style>
 </head>
 <body>
+<script>(function () { const g = document.createElement('div'); g.id = 'spa-gate'; g.style.cssText = 'position:fixed;inset:0;z-index:99990;background:#0d2238;display:flex;align-items:center;justify-content:center;color:#9fb0c2;font-family:monospace;font-size:13px;'; g.textContent = 'Loading…'; document.body.appendChild(g); })();</script>
 
 <div class="toast-wrap" id="toasts"></div>
 
@@ -1415,6 +1417,9 @@ select option{background:var(--bg2);}
 
   </div>
 </div>
+
+<!-- ============ PAGE: ADMIN (accounts) ============ -->
+<div id="page-admin" class="page"></div>
 
 <!-- ============ PAGE: SETTINGS ============ -->
 <div id="page-settings" class="page">
@@ -7042,13 +7047,13 @@ const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 let _supa=null;
 
 function getSupabase(){
-  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:'sp-data'}});
   return _supa;
 }
 async function getSupabaseAsync(){
   if(_supa) return _supa;
   await _supabaseReady;
-  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:'sp-data'}});
   return _supa;
 }
 
@@ -20724,5 +20729,232 @@ function jcCloseFull() {
   const ov = document.getElementById('jc-full'); if (ov) { ov.style.display = 'none'; ov.innerHTML = ''; }
 }
 </script>
+<script>
+// ══ ACCOUNTS: sign-in / sign-up, personal links (/name), admin ═══════════════════════════════════
+// The login uses its own Supabase client (session kept under "sp-auth"); all market and journal data still goes through the
+// existing public-key client, unchanged, until per-user data is switched on. New users wait on a "being set up" screen until then.
+const SPA = { c: null, me: null, link: null, linkName: null, ref: null, mode: 'in', msg: '', busy: false };
+const SPA_FEATURES = [   // key · label · how the nav button is found (its onclick)
+  ['morning', 'Morning Brief', "goPage('morning'"], ['news', 'News Scanner', "goPage('news'"], ['watchlist', 'Watchlist', "goPage('watchlist'"],
+  ['momentum', 'Momentum Watchlist', "goPage('momentum'"], ['scanners', 'Scanners', "goPage('scanners'"], ['flow', 'Options Flow', "goPage('flow'"],
+  ['flowpredict', 'Flow Predictor', "goPage('flowpredict'"], ['toscsv', 'ThinkorSwim CSV', "goPage('toscsv'"], ['history', 'History / Outlook', "goPage('history'"],
+  ['earnings', 'Earnings', "goPage('earnings'"], ['tradelog', 'Trade Log', "goPage('tradelog'"], ['journal', 'Journal', "goPage('journal'"],
+  ['map', 'Map', 'showMarketMap('], ['rangescan', 'Range Scan', "goPage('rangescan'"], ['sp_penny', 'Single Pattern Penny', "spOpenGroup('penny'"],
+  ['sp_large', 'Single Pattern Large', "spOpenGroup('large'"], ['telegram', 'Telegram News', "goPage('telegram'"]];
+const spaEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+async function spaClient() {
+  if (SPA.c) return SPA.c;
+  if (!window.supabase) await _supabaseReady;
+  SPA.c = window.supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'sp-auth', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  return SPA.c;
+}
+async function spaBoot() {
+  // personal link: propsst.evolutionx4u.com/<name> — remember it as the referral for a sign-up from this browser
+  const seg = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase();
+  if (/^[a-z]{1,24}[0-9]{0,4}$/.test(seg)) SPA.link = seg;
+  try { const r = JSON.parse(localStorage.getItem('sp_ref') || 'null'); if (r && Date.now() - r.at < 30 * 864e5) SPA.ref = r.h; } catch (_) {}
+  const c = await spaClient();
+  if (SPA.link) { try { const { data } = await c.rpc('sp_link_name', { p_username: SPA.link }); SPA.linkName = data || null; } catch (_) {} }
+  c.auth.onAuthStateChange((ev) => { if (ev === 'PASSWORD_RECOVERY') { SPA.mode = 'newpw'; spaShow(); } });
+  const { data: { session } } = await c.auth.getSession();
+  if (/access_token|type=signup|type=recovery/.test(location.hash)) history.replaceState(null, '', location.pathname);   // tidy the address after the email link
+  if (SPA.mode === 'newpw') return;
+  if (!session) { if (SPA.link && SPA.linkName) { SPA.ref = SPA.link; try { localStorage.setItem('sp_ref', JSON.stringify({ h: SPA.link, at: Date.now() })); } catch (_) {} } spaShow(); return; }
+  await spaEnter();
+}
+async function spaEnter() {
+  const c = await spaClient();
+  const { data: me, error } = await c.rpc('sp_me');
+  if (error || !me) { SPA.mode = 'noprofile'; spaShow(); return; }
+  SPA.me = me; c.rpc('sp_touch').then(() => {}, () => {});
+  if (me.status === 'blocked') { SPA.mode = 'blocked'; spaShow(); return; }
+  if (me.role !== 'admin' && me.users_open !== true) { SPA.mode = 'waiting'; spaShow(); return; }
+  document.getElementById('spa-gate')?.remove();
+  spaApply();
+}
+function spaAllowed(k) { const f = (SPA.me && SPA.me.features) || {}; return SPA.me?.role === 'admin' || f.all === true || f[k] === true; }
+function spaApply() {   // header chip, Admin tab, and (for users) only the tabs they have
+  const me = SPA.me; if (!me) return;
+  const admin = me.role === 'admin';
+  if (!document.getElementById('spa-chip')) {
+    const hr = document.querySelector('.header-right');
+    hr?.insertAdjacentHTML('beforeend', `<div id="spa-chip" style="position:relative;">
+      <button onclick="spaMenu()" style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:4px;padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;">👤 ${spaEsc(me.first_name || me.username)} ▾</button></div>`);
+  }
+  if (admin && !document.getElementById('spa-admin-btn')) {
+    const nav = document.querySelector('.nav-btn[onclick*="goPage(\'settings\'"]');
+    nav?.insertAdjacentHTML('afterend', `<button class="nav-btn" id="spa-admin-btn" onclick="goPage('admin',this);spaAdminLoad()" style="color:var(--amber);">Admin</button>`);
+  }
+  if (!admin) {
+    document.querySelectorAll('.nav-btn').forEach(b => {
+      const oc = b.getAttribute('onclick') || '';
+      const f = SPA_FEATURES.find(([, , m]) => oc.includes(m));
+      if (f && !spaAllowed(f[0])) b.style.display = 'none';
+    });
+    document.getElementById('fh-pill')?.style.setProperty('display', 'none');
+    const first = SPA_FEATURES.find(([k]) => spaAllowed(k));
+    if (first) { const b = [...document.querySelectorAll('.nav-btn')].find(x => (x.getAttribute('onclick') || '').includes(first[2])); b?.click(); }
+  }
+  spaAccountCard();
+}
+function spaMenu() {
+  const old = document.getElementById('spa-menu'); if (old) { old.remove(); return; }
+  const admin = SPA.me?.role === 'admin';
+  document.getElementById('spa-chip').insertAdjacentHTML('beforeend', `<div id="spa-menu" style="position:absolute;right:0;top:110%;z-index:9900;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;min-width:170px;box-shadow:0 8px 20px rgba(0,0,0,.4);">
+    <div style="padding:8px 12px;font-size:11px;color:#8090a0;border-bottom:1px solid var(--border2);">${spaEsc(SPA.me.email)}</div>
+    ${[['My account', "goPage('settings',null)"], ...(admin ? [['Admin', "goPage('admin',document.getElementById('spa-admin-btn'));spaAdminLoad()"]] : []), ['Sign out', 'spaSignOut()']]
+      .map(([l, a]) => `<div onclick="document.getElementById('spa-menu').remove();${a}" style="padding:8px 12px;cursor:pointer;font-size:12px;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">${l}</div>`).join('')}</div>`);
+}
+async function spaSignOut() { const c = await spaClient(); await c.auth.signOut(); location.href = '/'; }
+// ---- the sign-in / sign-up screen ----
+function spaShow() {
+  let g = document.getElementById('spa-gate');
+  if (!g) { g = document.createElement('div'); g.id = 'spa-gate'; document.body.appendChild(g); }
+  const keep = {}; g.querySelectorAll('input').forEach(i => { if (i.type !== 'password') keep[i.id] = i.value; });   // keep what was typed when the screen redraws (errors)
+  g.style.cssText = 'position:fixed;inset:0;z-index:99990;background:var(--bg,#0d2238);display:flex;align-items:center;justify-content:center;overflow:auto;padding:24px;';
+  const inp = (id, l, t = 'text', v = '', ph = '', ac = '') => `<label style="display:block;font-size:11px;letter-spacing:.5px;color:#9fb0c2;margin:10px 0 4px;">${l}</label>
+    <input id="${id}" type="${t}" value="${spaEsc(v)}" placeholder="${ph}" autocomplete="${ac}" style="width:100%;box-sizing:border-box;background:var(--bg3,#183a57);border:1px solid var(--border2,#2a4a66);border-radius:6px;color:var(--text,#e6eef5);padding:10px 12px;font-family:inherit;font-size:14px;">`;
+  const btn = (l, a) => `<button onclick="${a}" ${SPA.busy ? 'disabled' : ''} style="width:100%;margin-top:16px;background:var(--cyan,#00d4ff);color:#002233;border:none;border-radius:6px;padding:11px;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer;opacity:${SPA.busy ? .6 : 1};">${SPA.busy ? '…' : l}</button>`;
+  const link = (l, a) => `<a href="#" onclick="${a};return false;" style="color:var(--cyan,#00d4ff);">${l}</a>`;
+  const who = SPA.linkName ? spaEsc(SPA.linkName) : null, invitedBy = SPA.ref && SPA.ref !== SPA.link ? SPA.ref : (SPA.ref && who ? who : SPA.ref);
+  let body = '';
+  if (SPA.mode === 'in') body = `<h2 style="margin:0 0 4px;font-size:20px;">${who ? `Welcome back, ${who}` : 'Sign in'}</h2>
+      <div style="font-size:12px;color:#9fb0c2;">Use your name (your personal link) or your email.</div>
+      ${inp('spa-login', 'Name or email', 'text', SPA.link && who ? SPA.link : '', 'e.g. john or john@email.com', 'username')}${inp('spa-pw', 'Password', 'password', '', '', 'current-password')}
+      ${btn('Sign in', 'spaSignIn()')}
+      <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12px;">${link('Forgot password?', "SPA.mode='forgot';SPA.msg='';spaShow()")}${link(who ? `New here? ${who} invited you — create an account` : 'Create an account', "SPA.mode='up';SPA.msg='';spaShow()")}</div>`;
+  else if (SPA.mode === 'up') body = `<h2 style="margin:0 0 4px;font-size:20px;">Create your account</h2>
+      ${invitedBy ? `<div style="font-size:12px;color:#9fb0c2;">Invited by <b style="color:var(--text);">${spaEsc(who || invitedBy)}</b></div>` : ''}
+      <div style="display:flex;gap:10px;"><div style="flex:1;">${inp('spa-first', 'First name', 'text', '', '', 'given-name')}</div><div style="flex:1;">${inp('spa-last', 'Last name', 'text', '', '', 'family-name')}</div></div>
+      ${inp('spa-email', 'Email', 'email', '', '', 'email')}${inp('spa-phone', 'Phone', 'tel', '', '', 'tel')}${inp('spa-pw', 'Password (8+ characters)', 'password', '', '', 'new-password')}
+      <div style="font-size:11px;color:#8090a0;margin-top:8px;">Your personal link will be propsst.evolutionx4u.com/<i>your first name</i>.</div>
+      ${btn('Create account', 'spaSignUp()')}<div style="margin-top:12px;font-size:12px;">Already have an account? ${link('Sign in', "SPA.mode='in';SPA.msg='';spaShow()")}</div>`;
+  else if (SPA.mode === 'forgot') body = `<h2 style="margin:0 0 4px;font-size:20px;">Reset your password</h2>${inp('spa-email', 'Your email', 'email', '', '', 'email')}
+      ${btn('Send reset link', 'spaForgot()')}<div style="margin-top:12px;font-size:12px;">${link('Back to sign in', "SPA.mode='in';SPA.msg='';spaShow()")}</div>`;
+  else if (SPA.mode === 'newpw') body = `<h2 style="margin:0 0 4px;font-size:20px;">Choose a new password</h2>${inp('spa-pw', 'New password (8+ characters)', 'password', '', '', 'new-password')}${btn('Save password', 'spaNewPw()')}`;
+  else if (SPA.mode === 'check') body = `<h2 style="margin:0 0 6px;font-size:20px;">Check your email</h2><div style="font-size:13px;color:#c0c8d4;line-height:1.5;">We sent a confirmation link to <b>${spaEsc(SPA.sentTo || '')}</b>. Click it to finish — then you're signed in.<br><br>Nothing there? Check spam, or ${link('try again', "SPA.mode='up';SPA.msg='';spaShow()")}.</div>`;
+  else if (SPA.mode === 'waiting') body = `<h2 style="margin:0 0 6px;font-size:20px;">You're all set, ${spaEsc(SPA.me?.first_name || '')}</h2><div style="font-size:13px;color:#c0c8d4;line-height:1.5;">Your account is ready. Access opens soon — you'll get your Watchlist and Journal.<br><br>Your personal link: <b>propsst.evolutionx4u.com/${spaEsc(SPA.me?.username || '')}</b></div>${btn('Sign out', 'spaSignOut()')}`;
+  else if (SPA.mode === 'blocked') body = `<h2 style="margin:0 0 6px;font-size:20px;">Account paused</h2><div style="font-size:13px;color:#c0c8d4;">Your access is paused. Please contact support.</div>${btn('Sign out', 'spaSignOut()')}`;
+  else if (SPA.mode === 'noprofile') body = `<h2 style="margin:0 0 6px;font-size:20px;">Almost there</h2><div style="font-size:13px;color:#c0c8d4;">Your account isn't set up for StockPulse Pro yet. Please contact support.</div>${btn('Sign out', 'spaSignOut()')}`;
+  g.innerHTML = `<div style="width:100%;max-width:400px;background:var(--bg2,#12304d);border:1px solid var(--border2,#2a4a66);border-top:3px solid var(--cyan,#00d4ff);border-radius:10px;padding:26px 26px 22px;color:var(--text,#e6eef5);font-family:'JetBrains Mono',monospace;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:2px;color:var(--cyan,#00d4ff);margin-bottom:14px;">STOCKPULSE <span style="color:var(--text,#fff);font-size:20px;">PRO</span></div>
+      ${body}${SPA.msg ? `<div style="margin-top:12px;font-size:12px;color:${SPA.msgOk ? 'var(--green,#22c55e)' : 'var(--red,#ef4444)'};">${spaEsc(SPA.msg)}</div>` : ''}</div>`;
+  g.querySelectorAll('input').forEach(i => { if (keep[i.id]) i.value = keep[i.id]; i.addEventListener('keydown', e => { if (e.key === 'Enter') g.querySelector('button')?.click(); }); });
+  setTimeout(() => g.querySelector('input:not([value]):not([type=hidden]), input[value=""]')?.focus(), 0);
+}
+const spaV = id => (document.getElementById(id)?.value || '').trim();
+function spaErr(m, ok) { SPA.msg = m; SPA.msgOk = !!ok; SPA.busy = false; spaShow(); }
+async function spaSignIn() {
+  const login = spaV('spa-login'), pw = document.getElementById('spa-pw')?.value || '';
+  if (!login || !pw) return spaErr('Enter your name (or email) and password.');
+  SPA.busy = true; spaShow();
+  try {
+    const c = await spaClient();
+    const { data, error } = await c.functions.invoke('auth-login', { body: { login, password: pw } });
+    const d = data || (error && error.context && typeof error.context.json === 'function' ? await error.context.json().catch(() => null) : null);
+    if (!d || !d.access_token) return spaErr((d && d.error) || 'Name or password is wrong.');
+    await c.auth.setSession({ access_token: d.access_token, refresh_token: d.refresh_token });
+    SPA.busy = false; SPA.msg = ''; await spaEnter();
+  } catch (e) { spaErr('Sign-in failed — try again.'); }
+}
+async function spaSignUp() {
+  const first = spaV('spa-first'), last = spaV('spa-last'), email = spaV('spa-email').toLowerCase(), phone = spaV('spa-phone'), pw = document.getElementById('spa-pw')?.value || '';
+  if (!first || !last || !email || !phone || !pw) return spaErr('Please fill in every field.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return spaErr('That email doesn\'t look right.');
+  if (pw.length < 8) return spaErr('Use at least 8 characters for the password.');
+  SPA.busy = true; spaShow();
+  try {
+    const c = await spaClient();
+    const { error } = await c.auth.signUp({ email, password: pw, options: { emailRedirectTo: location.origin + '/', data: { app: 'stockpulse', first_name: first, last_name: last, phone, ref: SPA.ref || null } } });
+    if (error) return spaErr(/registered|exists/i.test(error.message) ? 'That email already has an account — sign in instead.' : error.message);
+    SPA.sentTo = email; SPA.mode = 'check'; SPA.busy = false; SPA.msg = ''; spaShow();
+  } catch (e) { spaErr('Sign-up failed — try again.'); }
+}
+async function spaForgot() {
+  const email = spaV('spa-email').toLowerCase(); if (!email) return spaErr('Enter your email.');
+  SPA.busy = true; spaShow();
+  const c = await spaClient(); await c.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/' });
+  spaErr('If that email has an account, a reset link is on its way.', true);
+}
+async function spaNewPw() {
+  const pw = document.getElementById('spa-pw')?.value || ''; if (pw.length < 8) return spaErr('Use at least 8 characters.');
+  SPA.busy = true; spaShow();
+  const c = await spaClient(); const { error } = await c.auth.updateUser({ password: pw });
+  if (error) return spaErr(error.message);
+  SPA.mode = 'in'; SPA.busy = false; SPA.msg = ''; await spaEnter();
+}
+// ---- Settings: "My account" (users see only this) ----
+function spaAccountCard() {
+  const page = document.getElementById('page-settings'); if (!page || !SPA.me) return;
+  const me = SPA.me, url = `${location.origin}/${me.username}`;
+  let card = document.getElementById('spa-account');
+  if (!card) { card = document.createElement('div'); card.id = 'spa-account'; card.className = 'card'; card.style.marginBottom = '14px'; page.prepend(card); }
+  if (me.role !== 'admin') [...page.children].forEach(ch => { if (ch !== card) ch.style.display = 'none'; });
+  const f = (id, l, v, ro) => `<div style="flex:1;min-width:160px;"><div style="font-size:10px;letter-spacing:.5px;color:#8090a0;margin-bottom:3px;">${l}</div><input id="${id}" class="wl-price-in" value="${spaEsc(v || '')}" ${ro ? 'readonly style="width:100%;opacity:.7;"' : 'style="width:100%;"'}></div>`;
+  card.innerHTML = `<div class="card-hd"><span class="card-title">My account</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">${f('spa-a-first', 'FIRST NAME', me.first_name)}${f('spa-a-last', 'LAST NAME', me.last_name)}${f('spa-a-phone', 'PHONE', me.phone)}${f('spa-a-email', 'EMAIL', me.email, true)}</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;font-size:12px;">
+      <span style="color:#8090a0;">Your personal link:</span> <b style="color:var(--cyan);">${spaEsc(url)}</b>
+      <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${spaEsc(url)}');this.textContent='Copied ✓'">Copy</button>
+      <span style="color:#8090a0;">· people who signed up through it: <b style="color:var(--text);">${me.referrals || 0}</b></span>
+      <button class="btn btn-cyan btn-sm" style="margin-left:auto;" onclick="spaSaveMe(this)">Save</button></div>`;
+}
+async function spaSaveMe(b) {
+  const c = await spaClient();
+  const { error } = await c.rpc('sp_update_me', { p_first: spaV('spa-a-first'), p_last: spaV('spa-a-last'), p_phone: spaV('spa-a-phone') });
+  if (error) { showToast('Account', 'Not saved: ' + error.message, 'error'); return; }
+  const { data } = await c.rpc('sp_me'); if (data) SPA.me = data; b.textContent = 'Saved ✓'; setTimeout(spaAccountCard, 1200);
+}
+// ---- Admin page ----
+async function spaAdminLoad() {
+  const page = document.getElementById('page-admin'); if (!page) return;
+  page.innerHTML = '<div style="padding:16px;color:#8090a0;">Loading users…</div>';
+  const c = await spaClient();
+  const { data, error } = await c.rpc('sp_admin_users');
+  if (error) { page.innerHTML = `<div style="padding:16px;color:var(--red);">${spaEsc(error.message)}</div>`; return; }
+  SPA.users = data || []; spaAdminRender();
+}
+function spaAdminRender() {
+  const page = document.getElementById('page-admin'); if (!page) return;
+  const us = SPA.users || [], d = t => t ? new Date(t).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) : '—';
+  const th = t => `<th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:#c0c8d4;border-bottom:1px solid var(--border2);white-space:nowrap;">${t}</th>`;
+  const td = (t, st = '') => `<td style="padding:7px 8px;border-bottom:1px solid var(--border);font-size:12px;vertical-align:top;${st}">${t}</td>`;
+  const rows = us.map(u => {
+    const isA = u.role === 'admin', f = u.features || {};
+    const feats = isA ? '<span style="color:var(--amber);">all (admin)</span>' : SPA_FEATURES.map(([k, l]) => `<label style="display:inline-flex;align-items:center;gap:3px;margin:0 8px 3px 0;white-space:nowrap;font-size:11px;"><input type="checkbox" ${f[k] ? 'checked' : ''} onchange="spaAdminFeat('${u.id}','${k}',this.checked)">${l}</label>`).join('');
+    return `<tr>${td(`<b>${spaEsc([u.first_name, u.last_name].filter(Boolean).join(' ') || '—')}</b>${isA ? ' <span style="color:var(--amber);font-size:10px;">ADMIN</span>' : ''}<div style="color:#8090a0;font-size:11px;">/${spaEsc(u.username)}</div>`)}
+      ${td(`${spaEsc(u.email)}<div style="color:#8090a0;font-size:11px;">${spaEsc(u.phone || '')}</div>`)}
+      ${td(u.referred_handle ? '/' + spaEsc(u.referred_handle) : '—')}${td(String(u.referrals || 0), 'text-align:center;')}
+      ${td(`${d(u.created_at)}<div style="font-size:11px;color:${u.email_verified_at ? 'var(--green)' : 'var(--amber)'};">${u.email_verified_at ? 'verified' : 'not verified'}</div>`)}
+      ${td(d(u.last_seen_at))}
+      ${td(isA ? '—' : `<button class="btn btn-sm" onclick="spaAdminStatus('${u.id}','${u.status === 'blocked' ? 'active' : 'blocked'}')" style="${u.status === 'blocked' ? 'color:var(--green);border-color:var(--green);' : 'color:var(--red);border-color:var(--red);'}">${u.status === 'blocked' ? 'Release' : 'Block'}</button>${u.status === 'blocked' ? '<div style="font-size:10px;color:var(--red);margin-top:2px;">blocked</div>' : ''}`)}
+      ${td(feats, 'white-space:normal;max-width:560px;')}</tr>`; }).join('');
+  page.innerHTML = `<div style="padding:12px 16px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><b style="letter-spacing:1px;color:var(--cyan);font-size:14px;">ADMIN · USERS</b>
+      <span style="font-size:11px;color:#8090a0;">${us.length} account${us.length === 1 ? '' : 's'} · ${us.filter(u => u.email_verified_at).length} verified · ${us.reduce((s, u) => s + Number(u.referrals || 0), 0)} via personal links</span>
+      <button class="btn btn-sm" style="margin-left:auto;" onclick="spaAdminLoad()">↻ Refresh</button></div>
+    <div style="font-size:11px;color:#8090a0;margin-bottom:8px;">New accounts get Watchlist + Journal. Tick a box to give a user another tab, untick to take it away. Block pauses a user's access. Users wait on a "being set up" screen until per-user data is switched on.</div>
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${th('USER · LINK')}${th('EMAIL · PHONE')}${th('INVITED BY')}${th('REFERRALS')}${th('SIGNED UP')}${th('LAST SEEN')}${th('ACCESS')}${th('TABS')}</tr></thead>
+    <tbody>${rows || `<tr><td colspan="8" style="padding:20px;text-align:center;color:#8090a0;">No accounts yet.</td></tr>`}</tbody></table></div></div>`;
+}
+async function spaAdminSet(id, status, features) {
+  const c = await spaClient(); const { error } = await c.rpc('sp_admin_set', { p_id: id, p_status: status, p_features: features });
+  if (error) { showToast('Admin', error.message, 'error'); return false; } return true;
+}
+async function spaAdminFeat(id, k, on) {
+  const u = (SPA.users || []).find(x => x.id === id); if (!u) return;
+  const f = { ...(u.features || {}), [k]: !!on }; if (!on) delete f[k];
+  if (await spaAdminSet(id, null, f)) u.features = f; spaAdminRender();
+}
+async function spaAdminStatus(id, st) {
+  const u = (SPA.users || []).find(x => x.id === id); if (!u) return;
+  if (await spaAdminSet(id, st, null)) u.status = st; spaAdminRender();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const t = setTimeout(() => { if (!SPA.c) { const g = document.getElementById('spa-gate'); if (g) g.innerHTML = '<div style="text-align:center;">Can\'t reach the server right now.<br><br><button onclick="location.reload()" style="padding:8px 16px;cursor:pointer;">Reload</button></div>'; } }, 15000);
+  spaBoot().then(() => clearTimeout(t)).catch(e => { clearTimeout(t); console.error('[accounts]', e); spaShow(); });
+});
+</script>
+
 </body>
 </html>
