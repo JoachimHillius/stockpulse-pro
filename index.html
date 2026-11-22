@@ -6982,8 +6982,9 @@ function showHoverPopup(sym, triggerEl){
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
   const spPanel = (typeof _spPopPanel === 'function') ? _spPopPanel(sym) : '';   // Single Pattern rows only
-  content.innerHTML = spPanel + `<div id="hp-vol" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;color:#8090a0;">VOLUME TODAY · loading…</div>` + buildBreakoutPanel(sym) + html + buildLevelPanel(sym) + (typeof jcPopupHtml === 'function' ? jcPopupHtml(sym) : '');
+  content.innerHTML = `<div id="hp-info" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);">${typeof TI !== 'undefined' && TI[sym] ? tiHtml(TI[sym].d) : '<span style="font-size:11px;color:#8090a0;">COMPANY · loading…</span>'}</div>` + spPanel + `<div id="hp-vol" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;color:#8090a0;">VOLUME TODAY · loading…</div>` + buildBreakoutPanel(sym) + html + buildLevelPanel(sym) + (typeof jcPopupHtml === 'function' ? jcPopupHtml(sym) : '');
   _hpLoadVol(sym);
+  if (typeof tiGet === 'function') tiGet(sym).then(d => { const el = document.getElementById('hp-info'); if (el && el.dataset.sym === sym) el.innerHTML = tiHtml(d); }).catch(() => {});
   if (typeof jcPop === 'function') jcPop(sym);   // candle chart at the bottom: 1 year · Day
   fetchAndRenderTrend(sym);
 
@@ -19978,8 +19979,39 @@ function tgSearch(v) {
   if (el && TG.q) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
 }
 function tgSetTier(t) { TG.tier = t; TG.open = ''; tgRender(); }
+// ══ COMPANY INFO (who the company is + latest headlines) — rpc ticker_brief; the ticker-info function fills the description once per ticker and headlines every 30 min ══
+const TI = {};
+async function tiGet(sym) {
+  const c = TI[sym]; if (c && Date.now() - c.at < 10 * 60e3) return c.d;
+  const supa = await getSupabaseAsync();
+  let { data } = await supa.rpc('ticker_brief', { p_symbol: sym });
+  const stale = !data || (!data.summary && !data.tried_at) || !data.news_at || Date.now() - Date.parse(data.news_at) > 30 * 60e3;
+  if (stale) { try { await supa.functions.invoke('ticker-info', { body: { symbol: sym } }); const r = await supa.rpc('ticker_brief', { p_symbol: sym }); if (r.data) data = r.data; } catch (e) { console.warn('[ticker-info]', e); } }
+  TI[sym] = { at: Date.now(), d: data }; return data;
+}
+function tiHtml(d) {
+  const e = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  if (!d) return '<div style="font-size:11px;color:#8090a0;">Company info not available.</div>';
+  const ago = t => { const m = Math.round((Date.now() - Date.parse(t)) / 60e3); return m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+  const name = String(d.name || d.symbol).replace(/ - (Class [A-Z] )?(Common|Ordinary|American Depositary).*$/i, '');
+  const news = (d.news || []).slice(0, 3);
+  return `<div style="font-size:12px;line-height:1.5;">
+      <div><b style="color:var(--text);font-size:13px;">${e(name)}</b>${d.sector ? ` <span style="color:var(--cyan);">· ${e(d.sector)}</span>` : ''}${d.industry ? ` <span style="color:#8090a0;">· ${e(d.industry)}</span>` : ''}${d.exchange ? ` <span style="color:#5a708a;font-size:10px;">${e(d.exchange)}</span>` : ''}</div>
+      <div style="color:#c0c8d4;margin-top:2px;">${d.summary ? e(d.summary) : d.tried_at ? '<span style="color:#8090a0;">No company description found for this ticker.</span>' : '<span style="color:#8090a0;">Looking up the company description…</span>'}</div>
+      <div style="margin-top:5px;"><span style="font-size:10px;letter-spacing:.5px;color:#8090a0;font-weight:700;">LATEST NEWS (3 DAYS)</span>
+        ${news.length ? news.map(n => `<div style="margin-top:2px;">• ${n.url ? `<a href="${e(n.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--text);">${e(n.headline)}</a>` : e(n.headline)} <span style="color:#8090a0;font-size:10.5px;">${e(n.source || '')} · ${ago(n.published_at)}</span></div>`).join('')
+          : '<div style="color:#8090a0;margin-top:2px;">No headlines in the last 3 days — the move may have no news behind it (check filings / dilution).</div>'}</div></div>`;
+}
+function tgOnWl(sym) { return (typeof WATCHLIST === 'object' && Object.values(WATCHLIST).flat().includes(sym)) || (_userWatchlist || []).some(r => r.symbol === sym); }
+async function tgAddWl(sym) {   // + next to a Telegram ticker that isn't on the Watchlist page yet
+  try { const supa = await getSupabaseAsync(); const { error } = await supa.from('user_watchlist').insert({ symbol: sym, sector: 'Custom' });
+    if (error && !/duplicate/i.test(error.message)) throw error;
+    (_userWatchlist ||= []).push({ symbol: sym, sector: 'Custom', added_at: new Date().toISOString() }); showToast(sym, 'Added to your Watchlist ✓', 'info'); tgRender();
+  } catch (e) { showToast(sym, 'Not added: ' + (e.message || e), 'error'); }
+}
 function tgToggle(sym) {
   TG.open = TG.open === sym ? '' : sym; tgRender();
+  if (TG.open) tiGet(sym).then(() => { if (TG.open === sym) tgRender(); });   // company info at the top of the opened row
   if (TG.open && !TG.hist[sym]) (async () => {   // how the volume grew through the day
     try { const supa = await getSupabaseAsync(); const { data } = await supa.rpc('tg_vol_hist', { p_symbol: sym }); TG.hist[sym] = data || []; } catch (_) { TG.hist[sym] = []; }
     if (TG.open === sym) tgRender();
@@ -20008,12 +20040,13 @@ function tgRender() {
     const types = Object.entries(g.types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span style="font-size:10px;padding:1px 6px;border:1px solid var(--border2);border-radius:9px;margin-right:3px;">${t} ${n}</span>`).join('');
     const open = TG.open === g.sym;
     const tl = open ? `<tr><td colspan="${9 + days.length}" style="padding:4px 10px 12px 30px;border-bottom:1px solid var(--border2);background:rgba(0,212,255,.04);">
+      <div style="padding:6px 0 8px;border-bottom:1px solid var(--border2);margin-bottom:4px;white-space:normal;">${TI[g.sym] ? tiHtml(TI[g.sym].d) : '<div style="font-size:11px;color:#8090a0;">Company info · loading…</div>'}</div>
       ${(() => { const h = TG.hist[g.sym]; if (!h) return '<div style="font-size:11px;color:#8090a0;padding:4px 0;">Loading volume…</div>'; if (!h.length) return '';
         return `<div style="font-size:11px;padding:6px 0 8px;"><span style="color:#c0c8d4;font-weight:700;letter-spacing:.5px;font-size:10px;">VOLUME BUILD-UP ${dl(tgDate(h[0].at))}:</span> ${h.map((x, i) => `<span style="white-space:nowrap;">${i ? '<span style="color:#5a708a;"> → </span>' : ''}<b>${tgVol(Number(x.today_vol))}</b> <span style="color:#8090a0;">${tgTime(x.at)}</span></span>`).join('')}</div>`; })()}
       <table style="border-collapse:collapse;font-size:11.5px;width:100%;"><tr>${['When', 'Alert', 'Price', 'Chg today', 'Volume today', 'Message'].map((t, i) => th(t, i > 1 && i < 5 ? 'right' : 'left')).join('')}</tr>
       ${g.ev.map(e => `<tr>${td(`${dl(e.d)} · ${tgTime(e.at)}`, 'left')}${td(e.type, 'left')}${td(money(e.price))}${td(pct(e.chg))}${td(e.vol == null ? '—' : tgVol(e.vol) + (e.volPct != null ? ` <span style="color:#8090a0;">(${e.volPct}%)</span>` : ''))}${td(tgEsc(e.line), 'left', 'white-space:normal;color:#a8b8c8;')}</tr>`).join('')}</table></td></tr>` : '';
     return `<tr onclick="tgToggle('${g.sym}')" style="cursor:pointer;${open ? 'background:rgba(0,212,255,.06);' : ''}">
-      ${td(`<span style="color:#8090a0;">${open ? '▾' : '▸'}</span> <b style="color:var(--text);font-size:13px;">${g.sym}</b>${TG.q ? ` <span style="font-size:9.5px;color:#8090a0;">${g.tier === 'penny' ? 'PENNY' : 'LARGE'}</span>` : ''}`, 'left')}
+      ${td(`<span style="color:#8090a0;">${open ? '▾' : '▸'}</span> <b style="color:var(--text);font-size:13px;">${g.sym}</b>${tgOnWl(g.sym) ? '' : ` <button class="fbtn" onclick="event.stopPropagation();tgAddWl('${g.sym}')" title="Not on your Watchlist yet — add it" style="padding:0 6px;font-size:11px;line-height:16px;color:var(--green);border-color:var(--green);">+ Add</button>`}${TG.q ? ` <span style="font-size:9.5px;color:#8090a0;">${g.tier === 'penny' ? 'PENNY' : 'LARGE'}</span>` : ''}`, 'left')}
       ${td(`<b style="font-size:15px;color:var(--cyan);">${g.n}</b>`)}${bars}
       ${td(money(g.price))}${td(pct(g.chg))}${td(vol)}
       ${td(`${tgTime(g.last.at)}<div style="font-size:10px;color:#8090a0;">${dl(g.lastDay)} · ${g.last.type}</div>`)}
