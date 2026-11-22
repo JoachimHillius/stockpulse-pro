@@ -730,6 +730,7 @@ select option{background:var(--bg2);}
     <button class="btn btn-ghost btn-sm" onclick="runRefresh(this,'watchlist',async()=>{await fetchLiveAll(true,'watchlist');await loadRsiSnapshot();})">↻ Refresh</button>
     <button class="btn btn-sm" onclick="showMarketMap()" style="padding:5px 12px;background:transparent;border:1px solid rgba(0,212,255,0.4);border-radius:4px;font-family:var(--font);font-size:11px;color:#00d4ff;cursor:pointer;" title="Market Map">⊞ Map</button>
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
+    <button class="btn btn-cyan btn-sm" id="wl-addt-btn" onclick="wlAddtOpen()" title="Add many tickers at once: type them, pick a starter list, or upload a CSV / Excel file / screenshot">+ Add tickers</button>
   </div>
   <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -7494,6 +7495,137 @@ async function addUserTicker(symbol,sector){
     if(typeof renderWatchlist==='function')renderWatchlist();
     return true;
   }catch(e){alert('Add failed: '+e.message);return false;}
+}
+// ── + Add tickers (STEP 60): type tickers, pick a starter list, or upload CSV / Excel / screenshot → preview → add ──
+const WLA_LISTS = { penny: 'Penny stocks', ndx: 'Nasdaq-100', spx: 'S&P 500' };
+const WLA_STOP = new Set(('A I AM PM ET USD THE AND FOR ALL BUY SELL OR TO OF IN ON AT BY IS IT AN AS BE NO YES NEW LOW HIGH OPEN CLOSE LAST VOL VOLUME PRICE CHG CHANGE NET TOTAL DAY WEEK MONTH YEAR TOP TICKER SYMBOL NAME QTY EST EPS PE MKT CAP AVG MAX MIN UP DOWN NYSE NASDAQ AMEX OTC ETF INC CORP LTD CO LLC PLC GROUP SHARES TIME DATE BID ASK MARK').split(' '));
+let WLA = null;
+function wlaEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function wlaHave() { return new Set([...(_userWatchlist || []).map(r => r.symbol), ...(spaWlTable() === 'user_watchlist' && typeof WATCHLIST === 'object' ? Object.values(WATCHLIST).flat() : [])]); }
+async function wlAddtOpen() {
+  document.getElementById('wl-addt')?.remove();
+  WLA = { rows: [], sel: new Set(), src: '', f: '', counts: {}, busy: '' };
+  const m = document.createElement('div'); m.id = 'wl-addt';
+  m.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;';
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  document.body.appendChild(m); wlaRender();
+  try { const supa = await getSupabaseAsync();
+    await Promise.all(Object.keys(WLA_LISTS).map(async l => { const { count } = await supa.from('sp_starter').select('symbol', { count: 'exact', head: true }).eq('list', l); WLA.counts[l] = count; }));
+    wlaRender();
+  } catch (_) {}
+}
+function wlaSet(rows, src) {   // rows: [{symbol, name?, close?}] → preview; new tickers start ticked, ones already on the Watchlist are shown greyed
+  const have = wlaHave(), seen = new Set();
+  WLA.rows = rows.map(r => ({ ...r, symbol: String(r.symbol || '').trim().toUpperCase().replace(/^\$/, '') }))
+    .filter(r => /^[A-Z]{1,6}$/.test(r.symbol) && !seen.has(r.symbol) && seen.add(r.symbol)).map(r => ({ ...r, on: have.has(r.symbol) }));
+  WLA.sel = new Set(WLA.rows.filter(r => !r.on).map(r => r.symbol)); WLA.src = src; WLA.f = ''; WLA.busy = ''; wlaRender();
+}
+function wlaTokens(text, ocr) {
+  return String(text || '').toUpperCase().split(/[^A-Z$]+/).map(t => t.replace(/^\$/, '')).filter(t => /^[A-Z]{1,5}$/.test(t) && !(ocr && (WLA_STOP.has(t) || t.length < 2))).map(symbol => ({ symbol }));
+}
+// A table of cells (CSV / Excel). A column headed Symbol / Ticker / Sym / Code is used on its own (any case);
+// without one, every cell written in capitals like a ticker (AAPL, $TSLA) counts — company names (Nvidia) don't.
+function wlaGrid(grid) {
+  grid = (grid || []).filter(r => r && r.length); const out = [];
+  const hi = grid.slice(0, 5).findIndex(r => r.some(c => /^\s*(symbol|symbols|ticker|tickers|sym|code|stock)\s*$/i.test(String(c ?? ''))));
+  if (hi >= 0) {
+    const col = grid[hi].findIndex(c => /^\s*(symbol|symbols|ticker|tickers|sym|code|stock)\s*$/i.test(String(c ?? '')));
+    grid.slice(hi + 1).forEach(r => { const v = String(r[col] ?? '').trim(); if (/^\$?[A-Za-z]{1,6}$/.test(v)) out.push({ symbol: v }); });
+  } else grid.forEach(r => r.forEach(c => { const v = String(c ?? '').trim(); if (/^\$?[A-Z]{1,6}$/.test(v) && !WLA_STOP.has(v.replace(/^\$/, ''))) out.push({ symbol: v }); }));
+  return out;
+}
+// Screenshot → bigger, grey, dark text on white (dark-theme screenshots read much better that way)
+async function wlaPrep(file) {
+  try {
+    const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = URL.createObjectURL(file); });
+    const k = Math.min(3, Math.max(1, 2400 / Math.max(img.width, img.height)));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
+    const d = g.getImageData(0, 0, c.width, c.height), px = d.data; let sum = 0;
+    for (let i = 0; i < px.length; i += 4) { const y = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; px[i] = px[i + 1] = px[i + 2] = y; sum += y; }
+    if (sum / (px.length / 4) < 128) for (let i = 0; i < px.length; i += 4) px[i] = px[i + 1] = px[i + 2] = 255 - px[i];
+    g.putImageData(d, 0, 0); return c;
+  } catch (_) { return file; }
+}
+function wlaTyped() { const v = document.getElementById('wla-type')?.value || ''; if (!v.trim()) return; wlaSet(wlaTokens(v, false), 'Typed'); }
+async function wlaList(l) {
+  WLA.busy = 'Loading ' + WLA_LISTS[l] + '…'; wlaRender();
+  try { const supa = await getSupabaseAsync(); let all = [];
+    for (let f = 0; f < 10000; f += 1000) { const { data, error } = await supa.rpc('sp_starter_get', { p_list: l }).range(f, f + 999); if (error) throw error; all = all.concat(data || []); if (!data || data.length < 1000) break; }
+    if (!all.length) throw new Error('this list is empty right now');
+    wlaSet(all, WLA_LISTS[l]);
+  } catch (e) { WLA.busy = ''; wlaRender(); showToast('Add tickers', 'Could not load the list: ' + e.message, 'error'); }
+}
+async function wlaFile(inp) {
+  const file = inp.files && inp.files[0]; inp.value = ''; if (!file) return;
+  const name = file.name || 'file', isImg = /^image\//.test(file.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(name);
+  try {
+    if (isImg) {
+      WLA.busy = 'Reading the screenshot… (first time takes ~10 seconds)'; wlaRender();
+      if (!window.Tesseract) await _spLoadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+      const { data } = await window.Tesseract.recognize(await wlaPrep(file), 'eng');
+      const rows = wlaTokens(data && data.text, true);
+      if (!rows.length) throw new Error('no tickers found in the picture');
+      wlaSet(rows, 'Screenshot: ' + name);
+    } else if (/\.(xlsx|xls|xlsm|ods)$/i.test(name)) {
+      WLA.busy = 'Reading ' + name + '…'; wlaRender();
+      const X = await jrXlsx(), wb = X.read(await file.arrayBuffer(), { type: 'array' }); let rows = [];
+      wb.SheetNames.forEach(s => { rows = rows.concat(wlaGrid(X.utils.sheet_to_json(wb.Sheets[s], { header: 1, raw: false }))); });
+      if (!rows.length) throw new Error('no tickers found in the file');
+      wlaSet(rows, 'File: ' + name);
+    } else {
+      const txt = await file.text();
+      const rows = wlaGrid(txt.split(/\r?\n/).map(line => line.split(/[,;\t|]/).map(c => c.replace(/["']/g, ''))));
+      if (!rows.length) throw new Error('no tickers found in the file');
+      wlaSet(rows, 'File: ' + name);
+    }
+  } catch (e) { WLA.busy = ''; wlaRender(); showToast('Add tickers', 'Could not read ' + name + ': ' + (e.message || e), 'error'); }
+}
+function wlaTog(s) { const r = WLA.rows.find(x => x.symbol === s); if (!r || r.on) return; WLA.sel.has(s) ? WLA.sel.delete(s) : WLA.sel.add(s); wlaRender(); }
+function wlaAll(on) { WLA.rows.filter(r => !r.on && (!WLA.f || r.symbol.includes(WLA.f))).forEach(r => on ? WLA.sel.add(r.symbol) : WLA.sel.delete(r.symbol)); wlaRender(); }
+async function wlaAdd() {
+  const syms = [...WLA.sel]; if (!syms.length) return;
+  WLA.busy = 'Adding ' + syms.length + ' tickers…'; wlaRender();
+  try { const supa = await getSupabaseAsync(), tbl = spaWlTable(), oc = tbl === 'user_watchlist' ? 'symbol' : 'user_id,symbol';
+    for (let i = 0; i < syms.length; i += 500) {
+      const { error } = await supa.from(tbl).upsert(syms.slice(i, i + 500).map(symbol => ({ symbol, sector: SECTOR_BY_SYMBOL[symbol] || 'Custom' })), { onConflict: oc, ignoreDuplicates: true });
+      if (error) throw error;
+    }
+    await loadUserWatchlist(); if (typeof renderWatchlist === 'function') renderWatchlist();
+    document.getElementById('wl-addt')?.remove();
+    showToast('Watchlist', `${syms.length} ticker${syms.length === 1 ? '' : 's'} added ✓ — new ones get their prices within a few minutes`, 'info');
+  } catch (e) { WLA.busy = ''; wlaRender(); showToast('Add tickers', 'Add failed: ' + e.message, 'error'); }
+}
+function wlaRender() {
+  const m = document.getElementById('wl-addt'); if (!m || !WLA) return;
+  const typed = document.getElementById('wla-type')?.value || '';
+  const list = WLA.rows.filter(r => !WLA.f || r.symbol.includes(WLA.f) || String(r.name || '').toUpperCase().includes(WLA.f));
+  const shown = list.slice(0, 2000), nOn = WLA.rows.filter(r => r.on).length;
+  const lb = l => `<button class="fbtn" onclick="wlaList('${l}')">${WLA_LISTS[l]}${WLA.counts[l] != null ? ' · ' + WLA.counts[l].toLocaleString() : ''}</button>`;
+  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--cyan);border-radius:10px;max-width:820px;width:94%;max-height:86vh;display:flex;flex-direction:column;padding:16px 18px;color:var(--text);">
+    <div style="display:flex;align-items:center;"><h3 style="margin:0;color:var(--cyan);letter-spacing:1px;font-size:14px;">ADD TICKERS TO YOUR WATCHLIST</h3>
+      <button onclick="document.getElementById('wl-addt').remove()" style="background:transparent;border:none;color:#888;cursor:pointer;font-size:20px;margin-left:auto;">×</button></div>
+    <div style="font-size:11px;color:var(--text2);margin:4px 0 10px;">Pick one way below. You'll see the tickers first and can untick any before adding.</div>
+    <div style="display:grid;grid-template-columns:110px 1fr;gap:8px 10px;align-items:center;font-size:12px;">
+      <b>1 · Type</b><div style="display:flex;gap:6px;"><input id="wla-type" value="${wlaEsc(typed)}" placeholder="e.g. AAPL, TSLA NVDA AKAN" style="flex:1;text-transform:uppercase;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;" onkeydown="if(event.key==='Enter')wlaTyped()"/><button class="fbtn" onclick="wlaTyped()">Show</button></div>
+      <b>2 · Starter list</b><div style="display:flex;gap:6px;flex-wrap:wrap;">${lb('penny')}${lb('ndx')}${lb('spx')}</div>
+      <b>3 · Upload</b><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><label class="fbtn" style="cursor:pointer;">📄 CSV / Excel / screenshot…<input type="file" accept=".csv,.txt,.xlsx,.xls,.xlsm,.ods,image/*" style="display:none;" onchange="wlaFile(this)"></label>
+        <span style="color:var(--text3);font-size:10.5px;">Any column with tickers works. Screenshots are read on your computer; check the list before adding.</span></div>
+    </div>
+    ${WLA.busy ? `<div style="margin-top:12px;color:var(--amber);font-size:12px;">${wlaEsc(WLA.busy)}</div>` : ''}
+    ${WLA.rows.length ? `<div style="display:flex;gap:6px;align-items:center;margin:12px 0 6px;flex-wrap:wrap;font-size:11.5px;">
+        <span><b>${wlaEsc(WLA.src)}</b> · ${WLA.rows.length.toLocaleString()} tickers${nOn ? ` · ${nOn.toLocaleString()} already on your Watchlist` : ''}</span>
+        <button class="fbtn" onclick="wlaAll(true)">Tick all</button><button class="fbtn" onclick="wlaAll(false)">Untick all</button>
+        <input class="wl-price-in" id="wla-f" style="width:130px;text-transform:uppercase;margin-left:auto;" placeholder="🔍 Filter" value="${wlaEsc(WLA.f)}" oninput="WLA.f=this.value.trim().toUpperCase();wlaRender();const e=document.getElementById('wla-f');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+      <div style="overflow:auto;flex:1;min-height:120px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px;align-content:start;">
+        ${shown.map(r => { const on = WLA.sel.has(r.symbol);
+          return `<div onclick="wlaTog('${r.symbol}')" title="${wlaEsc(r.name || '')}" style="cursor:${r.on ? 'default' : 'pointer'};border:1px solid ${on ? 'var(--cyan)' : 'var(--border)'};background:${on ? 'rgba(0,212,255,.1)' : 'var(--bg3)'};border-radius:4px;padding:4px 6px;font-size:11px;${r.on ? 'opacity:.45;' : ''}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            <input type="checkbox" ${on || r.on ? 'checked' : ''} ${r.on ? 'disabled' : ''} style="pointer-events:none;vertical-align:middle;"> <b>${r.symbol}</b>${r.close != null ? ` <span style="color:var(--text2);">$${Number(r.close) < 1 ? Number(r.close).toFixed(4) : Number(r.close).toFixed(2)}</span>` : ''}${r.on ? ' <span style="color:var(--text3);">on list</span>' : r.name ? ` <span style="color:var(--text3);">${wlaEsc(r.name)}</span>` : ''}</div>`; }).join('')}
+        ${list.length > shown.length ? `<div style="color:var(--text3);font-size:11px;">… ${list.length - shown.length} more — use the filter</div>` : ''}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('wl-addt').remove()">Cancel</button>
+        <button class="btn btn-cyan btn-sm" ${WLA.sel.size && !WLA.busy ? '' : 'disabled style="opacity:.45;cursor:not-allowed;"'} onclick="wlaAdd()">Add ${WLA.sel.size ? WLA.sel.size.toLocaleString() + ' ' : ''}to my Watchlist</button></div>` : ''}
+  </div>`;
 }
 async function removeUserTicker(symbol){
   const supa=await getSupabaseAsync();
