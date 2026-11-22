@@ -7047,13 +7047,13 @@ const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 let _supa=null;
 
 function getSupabase(){
-  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:'sp-data'}});
+  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{storageKey:'sp-auth',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
   return _supa;
 }
 async function getSupabaseAsync(){
   if(_supa) return _supa;
   await _supabaseReady;
-  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:'sp-data'}});
+  if(!_supa&&window.supabase)_supa=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{storageKey:'sp-auth',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
   return _supa;
 }
 
@@ -7197,7 +7197,7 @@ async function loadUserWatchlist(){
     // Paged: PostgREST returns at most 1,000 rows per request.
     const PAGE=1000, rows=[];
     for(let from=0; from<200000; from+=PAGE){
-      const{data,error}=await supa.from('user_watchlist').select('*').order('added_at',{ascending:true}).order('symbol',{ascending:true}).range(from,from+PAGE-1);
+      const{data,error}=await supa.from(spaWlTable()).select('*').order('added_at',{ascending:true}).order('symbol',{ascending:true}).range(from,from+PAGE-1);
       if(error)throw error;
       if(!data||!data.length)break;
       rows.push(...data);
@@ -7477,7 +7477,7 @@ async function addUserTicker(symbol,sector){
   const supa=await getSupabaseAsync();
   if(!supa){alert('Database not ready');return false;}
   try{
-    const{error}=await supa.from('user_watchlist').insert({symbol:sym,sector:sec});
+    const{error}=await supa.from(spaWlTable()).insert({symbol:sym,sector:sec});
     if(error){
       if(String(error.message).includes('duplicate')){
         // Already there: show it instead of just saying so (a search ignores the active filters).
@@ -7500,7 +7500,7 @@ async function removeUserTicker(symbol){
   if(!supa)return;
   const sym=(symbol||'').trim().toUpperCase();
   try{
-    await supa.from('user_watchlist').delete().eq('symbol',sym);
+    await supa.from(spaWlTable()).delete().eq('symbol',sym);
     await loadUserWatchlist();
     if(typeof renderWatchlist==='function')renderWatchlist();
   }catch(e){console.warn('[user_watchlist] delete failed:',e);}
@@ -7512,7 +7512,7 @@ async function updateUserTickerSector(symbol,newSector){
   const supa=await getSupabaseAsync();
   if(!supa)return;
   try{
-    await supa.from('user_watchlist').update({sector:sec}).eq('symbol',sym);
+    await supa.from(spaWlTable()).update({sector:sec}).eq('symbol',sym);
     await supa.from('symbol_sectors').upsert({symbol:sym,sector:sec,updated_at:new Date().toISOString()},{onConflict:'symbol'});
     await loadUserWatchlist();
     if(typeof renderWatchlist==='function')renderWatchlist();
@@ -18377,7 +18377,7 @@ async function jrSaveDay(field, val) {
   JR.days[d] = cur;
   const supa = await getSupabaseAsync();
   const { error } = await supa.from('jr_days').upsert({ d, spy_open: cur.spy_open ?? null, spy_close: cur.spy_close ?? null, vix_open: cur.vix_open ?? null,
-    vix_close: cur.vix_close ?? null, trend: cur.trend ?? null, note: cur.note ?? null, updated_at: new Date().toISOString() }, { onConflict: 'd' });
+    vix_close: cur.vix_close ?? null, trend: cur.trend ?? null, note: cur.note ?? null, updated_at: new Date().toISOString() }, { onConflict: 'user_id,d' });
   if (error) { showToast('Journal', 'Market not saved: ' + error.message, 'error'); return; }
   jrRender();
   const st = document.getElementById('jr-day-st'); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
@@ -18906,7 +18906,7 @@ async function jrSaveAudit() {
   const ws = jrAuditWeek(), notes = document.getElementById('jr-aud-notes').value.trim() || null;
   const row = { week_start: ws, penny_result: jrWeekStats(ws, 'penny').result, option_result: jrWeekStats(ws, 'option').result, notes, updated_at: new Date().toISOString() };
   const supa = await getSupabaseAsync();
-  const { error } = await supa.from('jr_audit').upsert(row, { onConflict: 'week_start' });
+  const { error } = await supa.from('jr_audit').upsert(row, { onConflict: 'user_id,week_start' });
   if (error) { showToast('Journal', 'Audit not saved: ' + error.message, 'error'); return; }
   JR.audit[ws] = row;
   const st = document.getElementById('jr-aud-st'); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
@@ -19151,9 +19151,9 @@ async function jrWatchAdd(kind, syms, isNew) {
   // tickers not yet in the library / on the Watchlist page get added there too
   try {
     await supa.from('jr_symbols').upsert(add.map(symbol => ({ symbol })), { onConflict: 'symbol', ignoreDuplicates: true });
-    const { data: onWl } = await supa.from('user_watchlist').select('symbol').in('symbol', add);
+    const { data: onWl } = await supa.from(spaWlTable()).select('symbol').in('symbol', add);
     const nw = add.filter(s => !(onWl || []).some(r => r.symbol === s));
-    if (nw.length) { const { error } = await supa.from('user_watchlist').insert(nw.map(symbol => ({ symbol, sector: 'Custom' }))); if (!error && isNew) showToast(nw.join(', '), 'Added to your Watchlist page too ✓', 'info'); }
+    if (nw.length) { const { error } = await supa.from(spaWlTable()).insert(nw.map(symbol => ({ symbol, sector: 'Custom' }))); if (!error && isNew) showToast(nw.join(', '), 'Added to your Watchlist page too ✓', 'info'); }
   } catch (e) { console.warn('[watch library]', e); }
   const { data, error } = await supa.from('jr_watch').insert(add.map(symbol => ({ d: JR.d, kind, symbol }))).select();
   if (error) { showToast('Watchlist', 'Not added: ' + error.message, 'error'); return; }
@@ -19209,7 +19209,7 @@ async function jrWatchPick(kind) {
   document.body.appendChild(m);
   if (!JR.wl || Date.now() - JR.wl.at > 600e3) {
     try { const supa = await getSupabaseAsync(); let all = [];
-      for (let f = 0; f < 10000; f += 1000) { const { data, error } = await supa.from('user_watchlist').select('symbol').range(f, f + 999); if (error) throw error; all = all.concat(data || []); if (!data || data.length < 1000) break; }
+      for (let f = 0; f < 10000; f += 1000) { const { data, error } = await supa.from(spaWlTable()).select('symbol').range(f, f + 999); if (error) throw error; all = all.concat(data || []); if (!data || data.length < 1000) break; }
       const builtIn = typeof WATCHLIST === 'object' ? Object.values(WATCHLIST).flat() : [];   // the page's built-in tickers (NVDA, AMD …) + everything added
       JR.wl = { at: Date.now(), syms: [...new Set(builtIn.concat(all.map(r => r.symbol)))] }; await jrQuotes(JR.wl.syms);
     } catch (e) { m.remove(); showToast('Watchlist', 'Could not load the Watchlist: ' + e.message, 'error'); return; }
@@ -20009,7 +20009,7 @@ function tiHtml(d) {
 }
 function tgOnWl(sym) { return (typeof WATCHLIST === 'object' && Object.values(WATCHLIST).flat().includes(sym)) || (_userWatchlist || []).some(r => r.symbol === sym); }
 async function tgAddWl(sym) {   // + next to a Telegram ticker that isn't on the Watchlist page yet
-  try { const supa = await getSupabaseAsync(); const { error } = await supa.from('user_watchlist').insert({ symbol: sym, sector: 'Custom' });
+  try { const supa = await getSupabaseAsync(); const { error } = await supa.from(spaWlTable()).insert({ symbol: sym, sector: 'Custom' });
     if (error && !/duplicate/i.test(error.message)) throw error;
     (_userWatchlist ||= []).push({ symbol: sym, sector: 'Custom', added_at: new Date().toISOString() }); showToast(sym, 'Added to your Watchlist ✓', 'info'); tgRender();
   } catch (e) { showToast(sym, 'Not added: ' + (e.message || e), 'error'); }
@@ -20543,7 +20543,7 @@ let _jcSaveT = null;
 function jcDrawSave(sym) {
   clearTimeout(_jcSaveT);
   _jcSaveT = setTimeout(async () => { try { const supa = await getSupabaseAsync();
-    const { error } = await supa.from('jc_drawings').upsert({ symbol: sym, items: JC.draw[sym] || [], updated_at: new Date().toISOString() });
+    const { error } = await supa.from('jc_drawings').upsert({ symbol: sym, items: JC.draw[sym] || [], updated_at: new Date().toISOString() }, { onConflict: 'user_id,symbol' });
     if (error) throw error; } catch (e) { console.warn('[chart drawings]', e); showToast('Chart', 'Drawing could not be saved: ' + (e.message || e), 'error'); } }, 400);
 }
 async function jcDrawLoad(sym) {
@@ -20742,12 +20742,13 @@ const SPA_FEATURES = [   // key · label · how the nav button is found (its onc
   ['map', 'Map', 'showMarketMap('], ['rangescan', 'Range Scan', "goPage('rangescan'"], ['sp_penny', 'Single Pattern Penny', "spOpenGroup('penny'"],
   ['sp_large', 'Single Pattern Large', "spOpenGroup('large'"], ['telegram', 'Telegram News', "goPage('telegram'"]];
 const spaEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-async function spaClient() {
+async function spaClient() {   // the same client the whole app uses (it carries the signed-in user)
   if (SPA.c) return SPA.c;
-  if (!window.supabase) await _supabaseReady;
-  SPA.c = window.supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'sp-auth', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  SPA.c = await getSupabaseAsync();
   return SPA.c;
 }
+// the main Watchlist: the admin keeps the original list (it feeds the scanners and Telegram alerts); every other user has their own
+function spaWlTable() { return SPA.me && SPA.me.role !== 'admin' ? 'sp_user_watchlist' : 'user_watchlist'; }
 async function spaBoot() {
   // personal link: propsst.evolutionx4u.com/<name> — remember it as the referral for a sign-up from this browser
   const seg = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase();
@@ -20786,6 +20787,8 @@ function spaApply() {   // header chip, Admin tab, and (for users) only the tabs
     nav?.insertAdjacentHTML('afterend', `<button class="nav-btn" id="spa-admin-btn" onclick="goPage('admin',this);spaAdminLoad()" style="color:var(--amber);">Admin</button>`);
   }
   if (!admin) {
+    if (typeof WATCHLIST === 'object') Object.keys(WATCHLIST).forEach(k => delete WATCHLIST[k]);   // the built-in tickers are the admin's
+    if (typeof loadUserWatchlist === 'function') loadUserWatchlist().then(() => { if (typeof renderWatchlist === 'function') renderWatchlist(); }).catch(() => {});
     document.querySelectorAll('.nav-btn').forEach(b => {
       const oc = b.getAttribute('onclick') || '';
       const f = SPA_FEATURES.find(([, , m]) => oc.includes(m));
@@ -20833,7 +20836,7 @@ function spaShow() {
       ${btn('Send reset link', 'spaForgot()')}<div style="margin-top:12px;font-size:12px;">${link('Back to sign in', "SPA.mode='in';SPA.msg='';spaShow()")}</div>`;
   else if (SPA.mode === 'newpw') body = `<h2 style="margin:0 0 4px;font-size:20px;">Choose a new password</h2>${inp('spa-pw', 'New password (8+ characters)', 'password', '', '', 'new-password')}${btn('Save password', 'spaNewPw()')}`;
   else if (SPA.mode === 'check') body = `<h2 style="margin:0 0 6px;font-size:20px;">Check your email</h2><div style="font-size:13px;color:#c0c8d4;line-height:1.5;">We sent a confirmation link to <b>${spaEsc(SPA.sentTo || '')}</b>. Click it to finish — then you're signed in.<br><br>Nothing there? Check spam, or ${link('try again', "SPA.mode='up';SPA.msg='';spaShow()")}.</div>`;
-  else if (SPA.mode === 'waiting') body = `<h2 style="margin:0 0 6px;font-size:20px;">You're all set, ${spaEsc(SPA.me?.first_name || '')}</h2><div style="font-size:13px;color:#c0c8d4;line-height:1.5;">Your account is ready. Access opens soon — you'll get your Watchlist and Journal.<br><br>Your personal link: <b>propsst.evolutionx4u.com/${spaEsc(SPA.me?.username || '')}</b></div>${btn('Sign out', 'spaSignOut()')}`;
+  else if (SPA.mode === 'waiting') body = `<h2 style="margin:0 0 6px;font-size:20px;">You're all set, ${spaEsc(SPA.me?.first_name || '')}</h2><div style="font-size:13px;color:#c0c8d4;line-height:1.5;">Thanks for signing up! Your StockPulse Pro access is being prepared — we'll email you as soon as it's ready.<br><br>Your personal link: <b>propsst.evolutionx4u.com/${spaEsc(SPA.me?.username || '')}</b></div>${btn('Sign out', 'spaSignOut()')}`;
   else if (SPA.mode === 'blocked') body = `<h2 style="margin:0 0 6px;font-size:20px;">Account paused</h2><div style="font-size:13px;color:#c0c8d4;">Your access is paused. Please contact support.</div>${btn('Sign out', 'spaSignOut()')}`;
   else if (SPA.mode === 'noprofile') body = `<h2 style="margin:0 0 6px;font-size:20px;">Almost there</h2><div style="font-size:13px;color:#c0c8d4;">Your account isn't set up for StockPulse Pro yet. Please contact support.</div>${btn('Sign out', 'spaSignOut()')}`;
   g.innerHTML = `<div style="width:100%;max-width:400px;background:var(--bg2,#12304d);border:1px solid var(--border2,#2a4a66);border-top:3px solid var(--cyan,#00d4ff);border-radius:10px;padding:26px 26px 22px;color:var(--text,#e6eef5);font-family:'JetBrains Mono',monospace;">
@@ -20854,7 +20857,7 @@ async function spaSignIn() {
     const d = data || (error && error.context && typeof error.context.json === 'function' ? await error.context.json().catch(() => null) : null);
     if (!d || !d.access_token) return spaErr((d && d.error) || 'Name or password is wrong.');
     await c.auth.setSession({ access_token: d.access_token, refresh_token: d.refresh_token });
-    SPA.busy = false; SPA.msg = ''; await spaEnter();
+    location.reload();
   } catch (e) { spaErr('Sign-in failed — try again.'); }
 }
 async function spaSignUp() {
@@ -20881,7 +20884,7 @@ async function spaNewPw() {
   SPA.busy = true; spaShow();
   const c = await spaClient(); const { error } = await c.auth.updateUser({ password: pw });
   if (error) return spaErr(error.message);
-  SPA.mode = 'in'; SPA.busy = false; SPA.msg = ''; await spaEnter();
+  location.reload();
 }
 // ---- Settings: "My account" (users see only this) ----
 function spaAccountCard() {
