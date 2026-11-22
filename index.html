@@ -20237,6 +20237,7 @@ function tgRender() {
 // Candles + volume with TradingView's open-source Lightweight Charts (loaded only when a chart opens).
 // Day / Week / Month come from public.price_history (1 or 2 years). 1-min … 1-hour come live from the chart-data function (Yahoo).
 const JC = { sym: '', tf: 'D', yrs: 1, chart: null, full: null, cache: {}, lib: null };
+try { JC.color = JSON.parse(localStorage.getItem('jc_dcolor') || 'null'); } catch (_) { JC.color = null; }
 const JC_TF = [['1m', '1 min'], ['5m', '5 min'], ['15m', '15 min'], ['30m', '30 min'], ['1h', '1 hour'], ['D', 'Day'], ['W', 'Week'], ['M', 'Month']];
 const JC_INTRA = { '1m': 'last ~7 days', '5m': 'last ~60 days', '15m': 'last ~60 days', '30m': 'last ~60 days', '1h': 'last ~2 years' };
 function jcLib() {
@@ -20252,6 +20253,12 @@ function jcEt(t) {
 // prefs (remembered in this browser): moving averages on/off, support/resistance on/off, volume panel height
 function jcPref(k, d) { try { const v = localStorage.getItem('jc_' + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } }
 function jcSave(k, v) { try { localStorage.setItem('jc_' + k, JSON.stringify(v)); } catch (_) {} }
+// drawing colors (STEP 63): null = the tool's own color (lines cyan, zones yellow, text white); a picked color is saved with each drawing
+const JC_DCOL = [['#facc15', 'Yellow'], ['#00d4ff', 'Cyan'], ['#22c55e', 'Green'], ['#ef4444', 'Red'], ['#f97316', 'Orange'], ['#a855f7', 'Purple'], ['#ec4899', 'Pink'], ['#ffffff', 'White']];
+function jcRgba(hex, a) { const h = String(hex || '').replace('#', ''); if (h.length !== 6) return `rgba(250,204,21,${a})`; return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`; }
+function jcInk(hex) { const h = String(hex || '').replace('#', ''); if (h.length !== 6) return '#002233'; const L = (0.299 * parseInt(h.slice(0, 2), 16) + 0.587 * parseInt(h.slice(2, 4), 16) + 0.114 * parseInt(h.slice(4, 6), 16)) / 255; return L > 0.55 ? '#002233' : '#ffffff'; }
+function jcColor(c) { JC.color = c || null; jcSave('dcolor', JC.color); jcColorApply(); }
+function jcColorApply() { document.querySelectorAll('#jc-full .jc-col').forEach(b => { const on = (b.dataset.c || null) === (JC.color || null); b.style.outline = on ? '2px solid var(--cyan)' : 'none'; b.style.outlineOffset = '2px'; }); }
 // moving averages (simple): 3 yellow · 8 purple · 15 green · 50 blue · 100 white (black in light mode) · 200 red
 const JC_MA = [[3, '#facc15'], [8, '#a855f7'], [15, '#22c55e'], [50, '#3b82f6'], [100, null], [200, '#ef4444']];
 const jcMaColor = (c) => c || (document.body.classList.contains('light-mode') ? '#111111' : '#ffffff');
@@ -20604,19 +20611,24 @@ function jcDrawInit(H) {
   H.top.appendChild(cv); H.canvas = cv;
   const loop = () => { if (!H.alive) return; jcPaint(H); requestAnimationFrame(loop); }; requestAnimationFrame(loop);
   const pos = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
-  cv.addEventListener('pointermove', e => { const [x, y] = pos(e); H.mouse = jcPt(H, x, y); if (H.zb) { H.zb.x1 = x; H.zb.y1 = y; } });
+  cv.addEventListener('pointermove', e => { const [x, y] = pos(e); H.mouse = jcPt(H, x, y); if (H.zb) { H.zb.x1 = x; H.zb.y1 = y; }
+    if (H.pen) { const l = H.pen.last; if (Math.hypot(x - l[0], y - l[1]) >= 3) { const q = jcPt(H, x, y); if (q) { H.pen.d.pts.push(q); H.pen.last = [x, y]; } } } });
   cv.addEventListener('pointerdown', e => {
     if (!JC.tool) return; e.preventDefault();
     if (JC.tool === 'zoom') { const [x, y] = pos(e); H.zb = { x0: x, y0: y, x1: x, y1: y }; cv.setPointerCapture(e.pointerId); return; }
     const [x, y] = pos(e), pt = jcPt(H, x, y); if (!pt) return;
     const items = JC.draw[H.sym] || (JC.draw[H.sym] = []);
+    const cc = JC.color ? { c: JC.color } : {};
+    if (JC.tool === 'pen') { H.pen = { d: { type: 'pen', pts: [pt], ...cc }, last: [x, y] }; cv.setPointerCapture(e.pointerId); return; }
     if (JC.tool === 'erase') { const i = jcHit(H, items, x, y); if (i >= 0) { items.splice(i, 1); jcDrawSave(H.sym); } return; }
-    if (JC.tool === 'hline') { items.push({ type: 'hline', p: pt.p }); jcDrawSave(H.sym); return; }
+    if (JC.tool === 'paint') { const i = jcHit(H, items, x, y); if (i >= 0) { if (JC.color) items[i].c = JC.color; else delete items[i].c; jcDrawSave(H.sym); } return; }
+    if (JC.tool === 'hline') { items.push({ type: 'hline', p: pt.p, ...cc }); jcDrawSave(H.sym); return; }
     if (JC.tool === 'text' || JC.tool === 'bubble') return;   // placed on click (below) so the text box keeps the focus
     if (!H.first) { H.first = pt; return; }
-    items.push({ type: JC.tool, a: H.first, b: pt }); H.first = null; jcDrawSave(H.sym);
+    items.push({ type: JC.tool, a: H.first, b: pt, ...cc }); H.first = null; jcDrawSave(H.sym);
   });
   cv.addEventListener('pointerup', () => {
+    if (H.pen) { const d = H.pen.d; H.pen = null; if (d.pts.length >= 2) { (JC.draw[H.sym] ||= []).push(d); jcDrawSave(H.sym); } return; }
     const z = H.zb; if (!z) return; H.zb = null;
     if (Math.abs(z.x1 - z.x0) < 8 || Math.abs(z.y1 - z.y0) < 8) return;   // too small: ignore (a plain click)
     const ts = H.ch.timeScale(), l0 = ts.coordinateToLogical(Math.min(z.x0, z.x1)), l1 = ts.coordinateToLogical(Math.max(z.x0, z.x1));
@@ -20639,7 +20651,7 @@ function jcTextInput(H, x, y, pt, type) {
   H.top.appendChild(inp); inp.focus();
   let done = false;
   const fin = ok => { if (done) return; done = true; const t = inp.value.trim(); inp.remove();
-    if (ok && t) { (JC.draw[H.sym] ||= []).push({ type, a: pt, text: t.slice(0, 120) }); jcDrawSave(H.sym); } };
+    if (ok && t) { (JC.draw[H.sym] ||= []).push({ type, a: pt, text: t.slice(0, 120), ...(JC.color ? { c: JC.color } : {}) }); jcDrawSave(H.sym); } };
   inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); });
   inp.addEventListener('blur', () => fin(true));
 }
@@ -20651,27 +20663,30 @@ function jcPaint(H) {
   const plotW = W - (H.ch.priceScale('right').width() || 0);
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, Ht); ctx.clip();
   const light = document.body.classList.contains('light-mode'), items = (JC.draw[H.sym] || []).slice();
-  if (H.first && H.mouse && (JC.tool === 'trend' || JC.tool === 'zone')) items.push({ type: JC.tool, a: H.first, b: H.mouse, preview: true });
+  if (H.pen) items.push({ ...H.pen.d, preview: true });
+  if (H.first && H.mouse && (JC.tool === 'trend' || JC.tool === 'zone')) items.push({ type: JC.tool, a: H.first, b: H.mouse, preview: true, ...(JC.color ? { c: JC.color } : {}) });
   if (H.zb) { const z = H.zb; ctx.setLineDash([5, 4]); ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.5; ctx.fillStyle = 'rgba(0,212,255,.10)';
     ctx.fillRect(Math.min(z.x0, z.x1), Math.min(z.y0, z.y1), Math.abs(z.x1 - z.x0), Math.abs(z.y1 - z.y0)); ctx.strokeRect(Math.min(z.x0, z.x1), Math.min(z.y0, z.y1), Math.abs(z.x1 - z.x0), Math.abs(z.y1 - z.y0)); ctx.setLineDash([]); }
   items.forEach(d => {
     ctx.globalAlpha = d.preview ? 0.6 : 1; ctx.setLineDash([]);
-    if (d.type === 'hline') { const y = H.cs.priceToCoordinate(d.p); if (y == null) return;
-      ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke();
+    if (d.type === 'hline') { const y = H.cs.priceToCoordinate(d.p); if (y == null) return; const col = d.c || '#00d4ff';
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke();
       ctx.font = 'bold 11px sans-serif'; const s = d.p < 1 ? d.p.toFixed(4) : d.p.toFixed(2), tw = ctx.measureText(s).width;
-      ctx.fillStyle = '#00d4ff'; ctx.fillRect(plotW - tw - 10, y - 9, tw + 8, 18); ctx.fillStyle = '#002233'; ctx.fillText(s, plotW - tw - 6, y + 4); return; }
+      ctx.fillStyle = col; ctx.fillRect(plotW - tw - 10, y - 9, tw + 8, 18); ctx.fillStyle = jcInk(col); ctx.fillText(s, plotW - tw - 6, y + 4); return; }
+    if (d.type === 'pen') { const ps = (d.pts || []).map(q => jcXY(H, q)).filter(Boolean); if (ps.length < 2) return;
+      ctx.strokeStyle = d.c || '#00d4ff'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(ps[0].x, ps[0].y); ps.slice(1).forEach(q => ctx.lineTo(q.x, q.y)); ctx.stroke(); return; }
     const a = jcXY(H, d.a); if (!a) return;
     if (d.type === 'trend' || d.type === 'zone') { const b = jcXY(H, d.b); if (!b) return;
-      if (d.type === 'trend') { ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        [a, b].forEach(q => { ctx.fillStyle = '#00d4ff'; ctx.beginPath(); ctx.arc(q.x, q.y, 3, 0, 7); ctx.fill(); }); }
-      else { ctx.fillStyle = 'rgba(250,204,21,.16)'; ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1.5; const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      if (d.type === 'trend') { const col = d.c || '#00d4ff'; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        [a, b].forEach(q => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(q.x, q.y, 3, 0, 7); ctx.fill(); }); }
+      else { const col = d.c || '#facc15'; ctx.fillStyle = jcRgba(col, 0.16); ctx.strokeStyle = col; ctx.lineWidth = 1.5; const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
         ctx.fillRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.strokeRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y)); }
       return; }
-    if (d.type === 'text') { ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = light ? '#0f172a' : '#ffffff'; ctx.fillText(d.text, a.x, a.y); return; }
-    if (d.type === 'bubble') { const r = jcBubbleBox(ctx, a, d.text);
-      ctx.fillStyle = '#00d4ff'; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(r.x + 6, r.y + r.h); ctx.lineTo(r.x + 18, r.y + r.h); ctx.closePath(); ctx.fill();
+    if (d.type === 'text') { ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = d.c && !(light && d.c === '#ffffff') ? d.c : (light ? '#0f172a' : '#ffffff'); ctx.fillText(d.text, a.x, a.y); return; }
+    if (d.type === 'bubble') { const r = jcBubbleBox(ctx, a, d.text), col = d.c || '#00d4ff';
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(r.x + 6, r.y + r.h); ctx.lineTo(r.x + 18, r.y + r.h); ctx.closePath(); ctx.fill();
       ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(r.x, r.y, r.w, r.h, 6); else ctx.rect(r.x, r.y, r.w, r.h); ctx.fill();
-      ctx.fillStyle = '#002233'; ctx.fillText(d.text, r.x + 8, r.y + 15); }
+      ctx.fillStyle = jcInk(col); ctx.fillText(d.text, r.x + 8, r.y + 15); }
   });
   ctx.restore();
 }
@@ -20680,6 +20695,9 @@ function jcHit(H, items, x, y) {   // index of the drawing under the cursor (for
   for (let i = items.length - 1; i >= 0; i--) {
     const d = items[i];
     if (d.type === 'hline') { const yy = H.cs.priceToCoordinate(d.p); if (yy != null && Math.abs(yy - y) < 7) return i; continue; }
+    if (d.type === 'pen') { const ps = (d.pts || []).map(q => jcXY(H, q)).filter(Boolean);
+      for (let k = 1; k < ps.length; k++) { const p0 = ps[k - 1], p1 = ps[k], dx = p1.x - p0.x, dy = p1.y - p0.y, L = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((x - p0.x) * dx + (y - p0.y) * dy) / L));
+        if (Math.hypot(p0.x + t * dx - x, p0.y + t * dy - y) < 7) return i; } continue; }
     const a = jcXY(H, d.a); if (!a) continue;
     if (d.type === 'trend') { const b = jcXY(H, d.b); if (!b) continue; const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy || 1;
       const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L)); if (Math.hypot(a.x + t * dx - x, a.y + t * dy - y) < 7) return i; }
@@ -20704,10 +20722,11 @@ async function jcDrawLoad(sym) {
 function jcTool(t) { JC.tool = JC.tool === t ? null : t; if (JC.full) JC.full.first = null; jcToolApply(); }
 function jcToolApply() {
   document.querySelectorAll('#jc-full .jc-tool').forEach(b => b.classList.toggle('active', b.dataset.t === JC.tool));
+  jcColorApply();
   const cv = JC.full && JC.full.canvas; if (!cv) return;
-  cv.style.pointerEvents = JC.tool ? 'auto' : 'none'; cv.style.cursor = JC.tool === 'erase' ? 'not-allowed' : JC.tool ? 'crosshair' : '';
+  cv.style.pointerEvents = JC.tool ? 'auto' : 'none'; cv.style.cursor = JC.tool === 'erase' ? 'not-allowed' : JC.tool === 'paint' ? 'pointer' : JC.tool ? 'crosshair' : '';
   const hint = document.getElementById('jc-hint');
-  if (hint) hint.textContent = { trend: 'Click the start, then the end of the line', hline: 'Click a price to draw a level', zone: 'Click one corner, then the opposite corner', text: 'Click where the text goes, type, Enter', bubble: 'Click the point the bubble points to, type, Enter', erase: 'Click a drawing to delete it', zoom: 'Press and drag a box over the area to zoom into — Default goes back' }[JC.tool] || 'Pick a tool to draw · click it again to go back to scroll / zoom';
+  if (hint) hint.textContent = { trend: 'Click the start, then the end of the line', hline: 'Click a price to draw a level', zone: 'Click one corner, then the opposite corner', text: 'Click where the text goes, type, Enter', bubble: 'Click the point the bubble points to, type, Enter', pen: 'Hold the mouse button down and draw (e.g. a step up / step down), release to finish', erase: 'Click a drawing to delete it', paint: 'Pick a color dot, then click a drawing to give it that color (Auto = its original color)', zoom: 'Press and drag a box over the area to zoom into — Default goes back' }[JC.tool] || 'Pick a tool to draw · click it again to go back to scroll / zoom';
 }
 function jcClearDraw() {
   const n = (JC.draw[JC.sym] || []).length; if (!n) return;
@@ -20794,7 +20813,10 @@ function jcFullRender() {
         <button class="fbtn" onclick="jcCloseFull()" title="Close (Esc)" style="border-color:var(--cyan);color:var(--cyan);font-weight:700;">✕ Close</button></span></div>
     <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:6px 16px;border-bottom:1px solid var(--border2);">
       <span style="font-size:10px;letter-spacing:1px;color:#8090a0;margin-right:2px;">DRAW</span>
-      ${[['trend', '╱ Trend line'], ['hline', '─ Horizontal'], ['zone', '▭ Zone'], ['text', 'T Text'], ['bubble', '💬 Bubble'], ['erase', '⌫ Erase']].map(([t, l]) => `<button class="fbtn jc-tool" data-t="${t}" onclick="jcTool('${t}')">${l}</button>`).join('')}
+      ${[['trend', '╱ Trend line'], ['pen', '✏️ Freehand'], ['hline', '─ Horizontal'], ['zone', '▭ Zone'], ['text', 'T Text'], ['bubble', '💬 Bubble'], ['paint', '🎨 Recolor'], ['erase', '⌫ Erase']].map(([t, l]) => `<button class="fbtn jc-tool" data-t="${t}" onclick="jcTool('${t}')">${l}</button>`).join('')}
+      <span style="display:inline-flex;align-items:center;gap:5px;margin-left:4px;" title="Color for new drawings (and for 🎨 Recolor)">
+        <button class="jc-col" data-c="" onclick="jcColor(null)" title="Auto: lines cyan, zones yellow, text white" style="width:18px;height:18px;border-radius:50%;border:1px solid var(--border2);cursor:pointer;padding:0;background:linear-gradient(135deg,#00d4ff 50%,#facc15 50%);"></button>
+        ${JC_DCOL.map(([c, n]) => `<button class="jc-col" data-c="${c}" onclick="jcColor('${c}')" title="${n}" style="width:18px;height:18px;border-radius:50%;border:1px solid var(--border2);cursor:pointer;padding:0;background:${c};"></button>`).join('')}</span>
       <button class="fbtn" onclick="jcClearDraw()" title="Delete every drawing on this ticker">Clear all</button>
       <span id="jc-hint" style="font-size:10.5px;color:#8090a0;margin-left:4px;"></span>
       <span style="margin-left:auto;display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
@@ -20982,7 +21004,7 @@ const SPA_GUIDE = [
     <p>Open a chart with 📈 (Watchlist card, Journal watch list or plan).</p>
     <p><b>Moving averages:</b> 3 yellow · 8 purple · 15 green · 50 blue · 100 white/black · 200 red — switch each on or off at the top.</p>
     <p><b>Zoom:</b> the zoom-box tool zooms into an area; <b>PRICE + / −</b> stretch the price scale; <b>Default</b> goes back to the full view. <b>VOL MAX</b> sets the volume scale (or drag the volume axis); hovering a day shows its volume.</p>
-    <p><b>Drawing:</b> trend lines, horizontal lines, zones, text and bubbles (⌫ Erase removes one). Drawings are saved per ticker and come back next time.</p>
+    <p><b>Drawing:</b> trend lines, ✏️ freehand (hold the mouse button and draw, e.g. a step up or step down), horizontal lines, zones, text and bubbles (⌫ Erase removes one). Pick a <b>color dot</b> first to draw in that color (Auto = lines cyan, zones yellow); <b>🎨 Recolor</b> + a dot + a click changes an existing drawing. Drawings are saved per ticker and come back next time.</p>
     <p><b>Candle patterns:</b> <b>Off / Strong / All</b> marks patterns (hammer, doji, engulfing, morning star …). Click a marker for what it means, the volume compared to normal, and a 3-level plan for undecided candles.</p>
     <p><b>Export</b> saves the chart as PNG or PDF. The <b>ⓘ How it works</b> button on the chart explains every control.</p>`],
   ['journal', 'Journal', 'journal', `
