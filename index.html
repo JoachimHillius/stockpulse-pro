@@ -1421,6 +1421,7 @@ select option{background:var(--bg2);}
 
 <!-- ============ PAGE: ADMIN (accounts) ============ -->
 <div id="page-admin" class="page"></div>
+<div id="page-guide" class="page"></div>
 
 <!-- ============ PAGE: SETTINGS ============ -->
 <div id="page-settings" class="page">
@@ -20904,6 +20905,7 @@ async function spaEnter() {
   if (me.role !== 'admin' && me.users_open !== true) { SPA.mode = 'waiting'; spaShow(); return; }
   document.getElementById('spa-gate')?.remove();
   spaApply();
+  if (me.role !== 'admin' && !me.welcomed_at) setTimeout(spaWelcome, 600);
 }
 function spaAllowed(k) { const f = (SPA.me && SPA.me.features) || {}; return SPA.me?.role === 'admin' || f.all === true || f[k] === true; }
 function spaApply() {   // header chip, Admin tab, and (for users) only the tabs they have
@@ -20937,8 +20939,108 @@ function spaMenu() {
   const admin = SPA.me?.role === 'admin';
   document.getElementById('spa-chip').insertAdjacentHTML('beforeend', `<div id="spa-menu" style="position:absolute;right:0;top:110%;z-index:9900;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;min-width:170px;box-shadow:0 8px 20px rgba(0,0,0,.4);">
     <div style="padding:8px 12px;font-size:11px;color:#8090a0;border-bottom:1px solid var(--border2);">${spaEsc(SPA.me.email)}</div>
-    ${[['My account', "goPage('settings',null)"], ...(admin ? [['Admin', "goPage('admin',document.getElementById('spa-admin-btn'));spaAdminLoad()"]] : []), ['Sign out', 'spaSignOut()']]
+    ${[['User guide', 'spaGuide()'], ['My account', "goPage('settings',null)"], ...(admin ? [['Admin', "goPage('admin',document.getElementById('spa-admin-btn'));spaAdminLoad()"]] : []), ['Sign out', 'spaSignOut()']]
       .map(([l, a]) => `<div onclick="document.getElementById('spa-menu').remove();${a}" style="padding:8px 12px;cursor:pointer;font-size:12px;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">${l}</div>`).join('')}</div>`);
+}
+// ---- User guide (name menu → User guide) + one-time welcome for new users (STEP 61) ----
+// Each tab's section only shows when the user has that tab (Admin → tick boxes); the admin sees everything.
+const SPA_GUIDE = [
+  ['start', 'Getting started', null, `
+    <p><b>Your personal link</b> is <code>propsst.evolutionx4u.com/<i>yourname</i></code> (shown on <b>My account</b>). Use it to sign in, and share it: anyone who creates an account from it is counted as your referral.</p>
+    <p><b>Sign in</b> with your name (the part after the <code>/</code>) or your email, plus your password. <b>Forgot password?</b> on the sign-in screen emails you a reset link.</p>
+    <p><b>The name menu</b> (top right, 👤) has <b>User guide</b> (this page), <b>My account</b> (your name, email, phone and personal link) and <b>Sign out</b>.</p>
+    <p><b>Your data is yours:</b> your Watchlist, Journal, plans and chart drawings are only visible to you.</p>
+    <p><b>More tabs:</b> you start with Watchlist and Journal. Other tabs are switched on for you by the admin; when one is, it appears in the top bar and in this guide.</p>`],
+  ['watchlist', 'Watchlist', 'watchlist', `
+    <p>Your main list of stocks. It starts empty — fill it first, everything else (Journal watch lists, plans) picks from it.</p>
+    <p><b>+ Add tickers</b> adds many at once, three ways:</p>
+    <ol><li><b>Type</b> tickers, e.g. <code>AAPL, TSLA NVDA</code>, then <b>Show</b>.</li>
+      <li><b>Starter list:</b> <b>Penny stocks</b> (the admin's penny list — stocks that traded under $10 in the last 12 months, they stay on it even above $10), <b>Nasdaq-100</b> or <b>S&amp;P 500</b>. Updated every Sunday.</li>
+      <li><b>Upload</b> a CSV or Excel file (a column headed Symbol or Ticker works best) or a <b>screenshot</b> of a stock list. Screenshots are read on your own computer — check the result.</li></ol>
+    <p>You always see a <b>preview</b> first: new tickers are ticked, ones already on your list are greyed out. Untick anything you don't want, then <b>Add … to my Watchlist</b>. New tickers get their prices within a few minutes.</p>
+    <p><b>+ Add Stock</b> adds a single ticker and lets you choose its sector.</p>
+    <p><b>Finding stocks:</b> <b>Find</b> searches ticker or name; the sector buttons (Tech, Energy …) filter; <b>Price $</b> min / max limits the price range, <b>Penny</b> = $0.40–$3.00; <b>Options</b> Yes / Low / No filters by options trading; <b>Score ↓</b> sorts everything by Breakout Score. <b>By Sector</b> / <b>Combined RSI</b> switch the layout.</p>
+    <p><b>Click a ticker</b> for its card: company description, latest news, trend and a 📈 chart. <b>⬇ CSV</b> and <b>🖨 Print / PDF</b> export the rows you see. To remove a ticker or change its sector, use the controls on its row.</p>`],
+  ['chart', 'Charts', 'watchlist|journal', `
+    <p>Open a chart with 📈 (Watchlist card, Journal watch list or plan).</p>
+    <p><b>Moving averages:</b> 3 yellow · 8 purple · 15 green · 50 blue · 100 white/black · 200 red — switch each on or off at the top.</p>
+    <p><b>Zoom:</b> the zoom-box tool zooms into an area; <b>PRICE + / −</b> stretch the price scale; <b>Default</b> goes back to the full view. <b>VOL MAX</b> sets the volume scale (or drag the volume axis); hovering a day shows its volume.</p>
+    <p><b>Drawing:</b> trend lines, horizontal lines, zones, text and bubbles (⌫ Erase removes one). Drawings are saved per ticker and come back next time.</p>
+    <p><b>Candle patterns:</b> <b>Off / Strong / All</b> marks patterns (hammer, doji, engulfing, morning star …). Click a marker for what it means, the volume compared to normal, and a 3-level plan for undecided candles.</p>
+    <p><b>Export</b> saves the chart as PNG or PDF. The <b>ⓘ How it works</b> button on the chart explains every control.</p>`],
+  ['journal', 'Journal', 'journal', `
+    <p>Your trading routine, in the order you use it:</p>
+    <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
+      <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. A plan section only shows for kinds on that day's watch list.</li>
+      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
+      <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
+      <li><b>Weekly Audit</b> — review the week: what worked, what to change.</li>
+      <li><b>Analytics</b> — win rate, results by setup and period.</li></ol>
+    <p>Pick the date at the top to look at or fill in another day. Downloads (PDF / Excel) export the day, week, month or analytics view; a blank plan can be printed as a fillable PDF or Excel sheet and uploaded back.</p>`],
+  ['morning', 'Morning Brief', 'morning', `<p>A quick start to the day: S&amp;P 500, Nasdaq (QQQ), Russell (IWM) and the VIX fear index, plus today's top options flow. <b>↻ Refresh</b> pulls the latest.</p>`],
+  ['news', 'News Scanner', 'news', `<p>Scans news for the watched tickers. <b>▶ Start</b> / <b>■ Stop</b> switch the automatic scan on and off; <b>Scan Now</b> runs it once.</p>`],
+  ['momentum', 'Momentum Watchlist', 'momentum', `<p>A swing-trade list with each stock's move over several periods. <b>★ Nuggets</b> highlights the strongest; <b>⬆ Import CSV</b> adds a list; <b>↻ Sync Hist</b> loads price history; ⊞ opens the Market Map.</p>`],
+  ['scanners', 'Scanners', 'scanners', `<p>Tickers picked up from scanner services, one view per source (XGPT / Iris, Momentum, 10X) or <b>All</b>.</p>`],
+  ['flow', 'Options Flow', 'flow', `<p>Large options trades from uploaded OMEN CSV files (<b>Upload OMEN CSV</b>), with the call/put balance per ticker.</p>`],
+  ['flowpredict', 'Flow Predictor', 'flowpredict', `<p>Turns the options flow into a weekly direction call per ticker (bullish / bearish, with conviction).</p>`],
+  ['toscsv', 'ThinkorSwim CSV', 'toscsv', `<p>Upload option-chain exports from ThinkorSwim; each upload is kept as a snapshot so you can compare tickers and dates.</p>`],
+  ['history', 'History / Outlook', 'history', `<p>A 30-day log of pattern calls and what happened after them: total calls, win rate, average gain and best call. <b>Scan Now</b> adds the newest. The ? button explains how to read it.</p>`],
+  ['earnings', 'Earnings', 'earnings', `<p>Log earnings: the date and the closes before and after. The page shows each stock's usual earnings move and whether it tends to go up or down.</p>`],
+  ['tradelog', 'Trade Log', 'tradelog', `<p>The log of closed trades (sales) with their results.</p>`],
+  ['map', 'Map', 'map', `<p>The Market Map: a popup showing how each sector is doing (also the ⊞ Map button on the Watchlist). <b>↻</b> refreshes it.</p>`],
+  ['rangescan', 'Range Scan', 'rangescan', `<p>Finds stocks at or near an all-time high, a 90-day high, or a 30 / 60 / 90-day low (near = within 2% by default). Filter by source and sector; sort by signal.</p>`],
+  ['sp_penny', 'Single Pattern Penny', 'sp_penny', `<p>Penny stocks ($0.40–$10) with a reversal signal: 3 straight down days, then a candle closing in the top 25% of its range with a long lower wick, on volume above its 50-day average. Each signal has an entry, target and stop.</p>`],
+  ['sp_large', 'Single Pattern Large', 'sp_large', `<p>Stocks over $10 with options: 5 straight down days, then a doji, on volume above its 20-day average. Each signal has an entry, target (close + 2× the 10-day range) and stop (a close below the signal day's low).</p>`],
+  ['telegram', 'Telegram News', 'telegram', `<p>The news and alerts sent to Telegram, per ticker, with volume. <b>+ Add</b> next to a ticker puts it on your Watchlist.</p>`],
+  ['admin', 'Admin', '@admin', `
+    <p><b>Admin</b> (top bar) lists every account: name and personal link, email and phone, who referred them, sign-up date and email check, last visit.</p>
+    <p><b>Tabs:</b> tick a box to switch a tab on for that user (it appears for them on their next page load). New users start with Watchlist and Journal.</p>
+    <p><b>Block</b> stops a user from using the app; <b>Release</b> lets them back in.</p>`],
+];
+function spaGuideOn(need) {
+  if (!need) return true;
+  if (need === '@admin') return SPA.me?.role === 'admin';
+  return need.split('|').some(k => spaAllowed(k));
+}
+function spaGuide(sec) {
+  const page = document.getElementById('page-guide'); if (!page) return;
+  const secs = SPA_GUIDE.filter(([, , need]) => spaGuideOn(need));
+  page.innerHTML = `<div style="display:flex;gap:22px;padding:14px 18px;max-width:1100px;">
+    <div style="flex:0 0 190px;position:sticky;top:10px;align-self:flex-start;">
+      <div style="font-size:14px;font-weight:700;letter-spacing:1px;color:var(--cyan);margin-bottom:10px;">USER GUIDE</div>
+      ${secs.map(([id, t]) => `<a href="#" onclick="document.getElementById('sg-${id}').scrollIntoView({behavior:'smooth',block:'start'});return false;" style="display:block;padding:5px 8px;color:var(--text);text-decoration:none;font-size:12px;border-radius:4px;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">${t}</a>`).join('')}
+    </div>
+    <div id="sg-body" style="flex:1;min-width:0;font-size:13px;line-height:1.6;color:var(--text);">
+      ${secs.map(([id, t, , h]) => `<section id="sg-${id}" class="card" style="margin-bottom:14px;padding:14px 18px;scroll-margin-top:10px;">
+        <h3 style="margin:0 0 6px;color:var(--cyan);font-size:14px;letter-spacing:.5px;">${t}</h3>${h}</section>`).join('')}
+    </div></div>
+    <style>#sg-body p{margin:6px 0;} #sg-body ol{margin:6px 0;padding-left:22px;} #sg-body li{margin:3px 0;} #sg-body code{background:var(--bg3);padding:1px 5px;border-radius:3px;}</style>`;
+  goPage('guide', null);
+  if (sec) setTimeout(() => document.getElementById('sg-' + sec)?.scrollIntoView({ block: 'start' }), 50); else window.scrollTo(0, 0);
+}
+function spaWelcome() {
+  if (document.getElementById('spa-welcome') || !SPA.me) return;
+  const m = document.createElement('div'); m.id = 'spa-welcome';
+  m.style.cssText = 'position:fixed;inset:0;z-index:9850;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+  const step = (n, t, d) => `<div style="display:flex;gap:12px;margin:10px 0;"><div style="flex:0 0 26px;height:26px;border-radius:50%;background:var(--cyan);color:#002233;font-weight:700;display:flex;align-items:center;justify-content:center;">${n}</div><div><b>${t}</b><div style="font-size:12px;color:var(--text2);">${d}</div></div></div>`;
+  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--cyan);border-radius:10px;max-width:520px;width:100%;padding:20px 22px;color:var(--text);">
+    <h2 style="margin:0 0 4px;font-size:18px;">Welcome to StockPulse Pro, ${spaEsc(SPA.me.first_name || '')}!</h2>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Here's how it works, in four steps:</div>
+    ${step(1, 'Fill your Watchlist', 'Watchlist → <b>+ Add tickers</b>: type tickers, pick a starter list (penny stocks, Nasdaq-100, S&amp;P 500) or upload a CSV, Excel file or screenshot.')}
+    ${step(2, 'Pick the day\'s short list', 'Journal → <b>Watchlist</b>: up to 20 large caps and 10 penny stocks you want to watch today.')}
+    ${step(3, 'Plan your trades', 'Journal → <b>Plan</b>: entry, stop and size for each pick, with your trading rules.')}
+    ${step(4, 'Log and review', 'Journal → <b>Today</b> for your trades, then <b>Calendar</b>, <b>Weekly Audit</b> and <b>Analytics</b> to see what works.')}
+    <div style="font-size:12px;color:var(--text2);margin-top:8px;">You can open the full guide any time from the name menu (👤, top right) → <b>User guide</b>.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-ghost btn-sm" onclick="spaWelcomeDone(true)">Open the user guide</button>
+      <button class="btn btn-cyan btn-sm" onclick="spaWelcomeDone(false)">Let's go</button></div></div>`;
+  document.body.appendChild(m);
+}
+async function spaWelcomeDone(guide) {
+  document.getElementById('spa-welcome')?.remove();
+  if (SPA.me) SPA.me.welcomed_at = new Date().toISOString();
+  try { const c = await spaClient(); await c.rpc('sp_welcomed'); } catch (_) {}
+  if (guide) spaGuide(); else goPage('watchlist', null);
 }
 async function spaSignOut() { const c = await spaClient(); await c.auth.signOut(); location.href = '/'; }
 // ---- the sign-in / sign-up screen ----
