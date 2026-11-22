@@ -778,7 +778,7 @@ select option{background:var(--bg2);}
       <input type="number" id="wl-price-min" class="wl-price-in" min="0.1" max="1000" step="0.01" placeholder="min" oninput="_wlPriceInput()" onkeydown="if(event.key==='Enter')_wlPriceInput(true)"/>
       <span style="color:#8090a0;">–</span>
       <input type="number" id="wl-price-max" class="wl-price-in" min="0.1" max="1000" step="0.01" placeholder="max" oninput="_wlPriceInput()" onkeydown="if(event.key==='Enter')_wlPriceInput(true)"/>
-      <button class="fbtn wl-price-btn" id="wl-price-penny" onclick="setWlPriceRange(0.4, 3)" title="Penny stocks: $0.40 – $3.00">Penny</button>
+      <button class="fbtn wl-price-btn" id="wl-price-penny" onclick="setWlPriceRange(WL_PENNY_MIN, WL_PENNY_MAX)" title="Penny stocks: $0.10 – $10.00">Penny</button>
       <button class="fbtn wl-price-btn" id="wl-score-btn" onclick="toggleWlScoreSort()" title="One list, highest Breakout Score first (click again to go back to By Sector)">Score ↓</button>
       <button class="fbtn wl-price-btn" id="wl-price-clear" onclick="setWlPriceRange(null, null)" title="Clear price range" style="display:none;">✕</button>
     </span>
@@ -2613,7 +2613,11 @@ function setTapePeriod(p,btn){
   renderTape();
 }
 function renderTape(){
-  const syms=[...new Set(['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SMCI','BTDR','MARA'])];
+  let syms=[...new Set(['SPY','QQQ','IWM','TSLA','NVDA','AAPL','META','MSFT','AMZN','GOOGL','AMD','PLTR','COIN','GLD','XOM','FCX','MSTR','SOFI','RIVN','SMCI','BTDR','MARA'])];
+  // users (not the admin): only the strip tickers that are on their own Watchlist; no strip when none are
+  if(typeof SPA==='object'&&SPA.me&&SPA.me.role!=='admin'){const mine=new Set((_userWatchlist||[]).map(r=>r.symbol));syms=syms.filter(s=>mine.has(s));}
+  const tw=document.querySelector('.tape-wrap');if(tw)tw.style.display=syms.length?'':'none';
+  if(!syms.length)return;
   const scale=PERIOD_SCALE[tapePeriod]||1;
   const all=syms.map(s=>{const q=getQ(s);return{s,p:q.p,dp:parseFloat(((q.dp||0)*scale).toFixed(2)),t:q.t||0,loading:!!q.loading,stale:!!q.stale};});
   const gainers=[...all].filter(x=>x.dp>0).sort((a,b)=>b.dp-a.dp);
@@ -3491,8 +3495,8 @@ function setWlOptFilter(value) {
   renderWatchlist();
 }
 
-// Price range filter ($0.10 – $1,000). null = no limit on that side. "Penny" preset = $0.40 – $3.00.
-const WL_PRICE_FLOOR = 0.1, WL_PRICE_CEIL = 1000, WL_PENNY_MIN = 0.4, WL_PENNY_MAX = 3;
+// Price range filter ($0.10 – $1,000). null = no limit on that side. "Penny" preset = $0.10 – $10.00.
+const WL_PRICE_FLOOR = 0.1, WL_PRICE_CEIL = 1000, WL_PENNY_MIN = 0.1, WL_PENNY_MAX = 10;
 let _wlPriceMin = null, _wlPriceMax = null;
 function _wlClampPrice(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -7502,18 +7506,26 @@ const WLA_LISTS = { penny: 'Penny stocks', ndx: 'Nasdaq-100', spx: 'S&P 500' };
 const WLA_STOP = new Set(('A I AM PM ET USD THE AND FOR ALL BUY SELL OR TO OF IN ON AT BY IS IT AN AS BE NO YES NEW LOW HIGH OPEN CLOSE LAST VOL VOLUME PRICE CHG CHANGE NET TOTAL DAY WEEK MONTH YEAR TOP TICKER SYMBOL NAME QTY EST EPS PE MKT CAP AVG MAX MIN UP DOWN NYSE NASDAQ AMEX OTC ETF INC CORP LTD CO LLC PLC GROUP SHARES TIME DATE BID ASK MARK').split(' '));
 let WLA = null;
 function wlaEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-function wlaHave() { return new Set([...(_userWatchlist || []).map(r => r.symbol), ...(spaWlTable() === 'user_watchlist' && typeof WATCHLIST === 'object' ? Object.values(WATCHLIST).flat() : [])]); }
-async function wlAddtOpen() {
+function wlaHave() {
+  if (WLA && WLA.target) return new Set(WLA.target.syms || []);
+  return new Set([...(_userWatchlist || []).map(r => r.symbol), ...(spaWlTable() === 'user_watchlist' && typeof WATCHLIST === 'object' ? Object.values(WATCHLIST).flat() : [])]);
+}
+// starter lists offered: the admin gets all three (for himself and for any user); users only the penny list (large caps on request)
+function wlaLists() { return SPA.me && SPA.me.role === 'admin' ? ['penny', 'ndx', 'spx'] : ['penny']; }
+async function wlAddtOpen(target) {   // target = { id, name } → the admin adds to that user's Watchlist (Admin page)
   document.getElementById('wl-addt')?.remove();
-  WLA = { rows: [], sel: new Set(), src: '', f: '', counts: {}, busy: '' };
+  WLA = { rows: [], sel: new Set(), src: '', f: '', counts: {}, busy: target ? 'Loading ' + target.name + "'s Watchlist…" : '', target: target || null };
   const m = document.createElement('div'); m.id = 'wl-addt';
   m.style.cssText = 'position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;';
   m.onclick = e => { if (e.target === m) m.remove(); };
   document.body.appendChild(m); wlaRender();
   try { const supa = await getSupabaseAsync();
-    await Promise.all(Object.keys(WLA_LISTS).map(async l => { const { count } = await supa.from('sp_starter').select('symbol', { count: 'exact', head: true }).eq('list', l); WLA.counts[l] = count; }));
+    if (WLA.target) { let all = [];
+      for (let f = 0; f < 20000; f += 1000) { const { data, error } = await supa.rpc('sp_admin_wl', { p_user: WLA.target.id }).range(f, f + 999); if (error) throw error; all = all.concat(data || []); if (!data || data.length < 1000) break; }
+      WLA.target.syms = all.map(x => typeof x === 'string' ? x : (x.sp_admin_wl || x.symbol)); WLA.busy = ''; }
+    await Promise.all(wlaLists().map(async l => { const { count } = await supa.from('sp_starter').select('symbol', { count: 'exact', head: true }).eq('list', l); WLA.counts[l] = count; }));
     wlaRender();
-  } catch (_) {}
+  } catch (e) { if (WLA.target) { WLA.busy = 'Could not load ' + WLA.target.name + "'s Watchlist: " + (e.message || e); wlaRender(); } }
 }
 function wlaSet(rows, src) {   // rows: [{symbol, name?, close?}] → preview; new tickers start ticked, ones already on the Watchlist are shown greyed
   const have = wlaHave(), seen = new Set();
@@ -7588,6 +7600,11 @@ async function wlaAdd() {
   const syms = [...WLA.sel]; if (!syms.length) return;
   WLA.busy = 'Adding ' + syms.length + ' tickers…'; wlaRender();
   try { const supa = await getSupabaseAsync(), tbl = spaWlTable(), oc = tbl === 'user_watchlist' ? 'symbol' : 'user_id,symbol';
+    if (WLA.target) {   // admin → another user's Watchlist
+      let n = 0; for (let i = 0; i < syms.length; i += 500) { const { data, error } = await supa.rpc('sp_admin_wl_add', { p_user: WLA.target.id, p_symbols: syms.slice(i, i + 500) }); if (error) throw error; n += Number(data || 0); }
+      const who = WLA.target.name; document.getElementById('wl-addt')?.remove();
+      showToast(who, `${n} ticker${n === 1 ? '' : 's'} added to ${who}'s Watchlist ✓`, 'info'); return;
+    }
     for (let i = 0; i < syms.length; i += 500) {
       const { error } = await supa.from(tbl).upsert(syms.slice(i, i + 500).map(symbol => ({ symbol, sector: SECTOR_BY_SYMBOL[symbol] || 'Custom' })), { onConflict: oc, ignoreDuplicates: true });
       if (error) throw error;
@@ -7604,18 +7621,18 @@ function wlaRender() {
   const shown = list.slice(0, 2000), nOn = WLA.rows.filter(r => r.on).length;
   const lb = l => `<button class="fbtn" onclick="wlaList('${l}')">${WLA_LISTS[l]}${WLA.counts[l] != null ? ' · ' + WLA.counts[l].toLocaleString() : ''}</button>`;
   m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--cyan);border-radius:10px;max-width:820px;width:94%;max-height:86vh;display:flex;flex-direction:column;padding:16px 18px;color:var(--text);">
-    <div style="display:flex;align-items:center;"><h3 style="margin:0;color:var(--cyan);letter-spacing:1px;font-size:14px;">ADD TICKERS TO YOUR WATCHLIST</h3>
+    <div style="display:flex;align-items:center;"><h3 style="margin:0;color:var(--cyan);letter-spacing:1px;font-size:14px;">${WLA.target ? `ADD TICKERS TO ${wlaEsc(WLA.target.name).toUpperCase()}'S WATCHLIST` : 'ADD TICKERS TO YOUR WATCHLIST'}</h3>
       <button onclick="document.getElementById('wl-addt').remove()" style="background:transparent;border:none;color:#888;cursor:pointer;font-size:20px;margin-left:auto;">×</button></div>
-    <div style="font-size:11px;color:var(--text2);margin:4px 0 10px;">Pick one way below. You'll see the tickers first and can untick any before adding.</div>
+    <div style="font-size:11px;color:var(--text2);margin:4px 0 10px;">${WLA.target && WLA.target.syms ? `${wlaEsc(WLA.target.name)} has ${WLA.target.syms.length.toLocaleString()} tickers now. ` : ''}Pick one way below. You'll see the tickers first and can untick any before adding.</div>
     <div style="display:grid;grid-template-columns:110px 1fr;gap:8px 10px;align-items:center;font-size:12px;">
       <b>1 · Type</b><div style="display:flex;gap:6px;"><input id="wla-type" value="${wlaEsc(typed)}" placeholder="e.g. AAPL, TSLA NVDA AKAN" style="flex:1;text-transform:uppercase;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;" onkeydown="if(event.key==='Enter')wlaTyped()"/><button class="fbtn" onclick="wlaTyped()">Show</button></div>
-      <b>2 · Starter list</b><div style="display:flex;gap:6px;flex-wrap:wrap;">${lb('penny')}${lb('ndx')}${lb('spx')}</div>
+      <b>2 · Starter list</b><div style="display:flex;gap:6px;flex-wrap:wrap;">${wlaLists().map(lb).join('')}</div>
       <b>3 · Upload</b><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><label class="fbtn" style="cursor:pointer;">📄 CSV / Excel / screenshot…<input type="file" accept=".csv,.txt,.xlsx,.xls,.xlsm,.ods,image/*" style="display:none;" onchange="wlaFile(this)"></label>
         <span style="color:var(--text3);font-size:10.5px;">Any column with tickers works. Screenshots are read on your computer; check the list before adding.</span></div>
     </div>
     ${WLA.busy ? `<div style="margin-top:12px;color:var(--amber);font-size:12px;">${wlaEsc(WLA.busy)}</div>` : ''}
     ${WLA.rows.length ? `<div style="display:flex;gap:6px;align-items:center;margin:12px 0 6px;flex-wrap:wrap;font-size:11.5px;">
-        <span><b>${wlaEsc(WLA.src)}</b> · ${WLA.rows.length.toLocaleString()} tickers${nOn ? ` · ${nOn.toLocaleString()} already on your Watchlist` : ''}</span>
+        <span><b>${wlaEsc(WLA.src)}</b> · ${WLA.rows.length.toLocaleString()} tickers${nOn ? ` · ${nOn.toLocaleString()} already on ${WLA.target ? wlaEsc(WLA.target.name) + "'s" : 'your'} Watchlist` : ''}</span>
         <button class="fbtn" onclick="wlaAll(true)">Tick all</button><button class="fbtn" onclick="wlaAll(false)">Untick all</button>
         <input class="wl-price-in" id="wla-f" style="width:130px;text-transform:uppercase;margin-left:auto;" placeholder="🔍 Filter" value="${wlaEsc(WLA.f)}" oninput="WLA.f=this.value.trim().toUpperCase();wlaRender();const e=document.getElementById('wla-f');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
       <div style="overflow:auto;flex:1;min-height:120px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px;align-content:start;">
@@ -7625,7 +7642,7 @@ function wlaRender() {
         ${list.length > shown.length ? `<div style="color:var(--text3);font-size:11px;">… ${list.length - shown.length} more — use the filter</div>` : ''}</div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('wl-addt').remove()">Cancel</button>
-        <button class="btn btn-cyan btn-sm" ${WLA.sel.size && !WLA.busy ? '' : 'disabled style="opacity:.45;cursor:not-allowed;"'} onclick="wlaAdd()">Add ${WLA.sel.size ? WLA.sel.size.toLocaleString() + ' ' : ''}to my Watchlist</button></div>` : ''}
+        <button class="btn btn-cyan btn-sm" ${WLA.sel.size && !WLA.busy ? '' : 'disabled style="opacity:.45;cursor:not-allowed;"'} onclick="wlaAdd()">Add ${WLA.sel.size ? WLA.sel.size.toLocaleString() + ' ' : ''}to ${WLA.target ? wlaEsc(WLA.target.name) + "'s" : 'my'} Watchlist</button></div>` : ''}
   </div>`;
 }
 async function removeUserTicker(symbol){
@@ -20922,7 +20939,7 @@ function spaApply() {   // header chip, Admin tab, and (for users) only the tabs
   }
   if (!admin) {
     if (typeof WATCHLIST === 'object') Object.keys(WATCHLIST).forEach(k => delete WATCHLIST[k]);   // the built-in tickers are the admin's
-    if (typeof loadUserWatchlist === 'function') loadUserWatchlist().then(() => { if (typeof renderWatchlist === 'function') renderWatchlist(); }).catch(() => {});
+    if (typeof loadUserWatchlist === 'function') loadUserWatchlist().then(() => { if (typeof renderWatchlist === 'function') renderWatchlist(); if (typeof renderTape === 'function') renderTape(); }).catch(() => {});
     document.querySelectorAll('.nav-btn').forEach(b => {
       const oc = b.getAttribute('onclick') || '';
       const f = SPA_FEATURES.find(([, , m]) => oc.includes(m));
@@ -20952,14 +20969,14 @@ const SPA_GUIDE = [
     <p><b>Your data is yours:</b> your Watchlist, Journal, plans and chart drawings are only visible to you.</p>
     <p><b>More tabs:</b> you start with Watchlist and Journal. Other tabs are switched on for you by the admin; when one is, it appears in the top bar and in this guide.</p>`],
   ['watchlist', 'Watchlist', 'watchlist', `
-    <p>Your main list of stocks. It starts empty — fill it first, everything else (Journal watch lists, plans) picks from it.</p>
+    <p>Your main list of stocks. It starts with the <b>penny stocks list</b> already on it; everything else (Journal watch lists, plans) picks from it. Remove what you don't want and add your own.</p>
     <p><b>+ Add tickers</b> adds many at once, three ways:</p>
     <ol><li><b>Type</b> tickers, e.g. <code>AAPL, TSLA NVDA</code>, then <b>Show</b>.</li>
-      <li><b>Starter list:</b> <b>Penny stocks</b> (the admin's penny list — stocks that traded under $10 in the last 12 months, they stay on it even above $10), <b>Nasdaq-100</b> or <b>S&amp;P 500</b>. Updated every Sunday.</li>
+      <li><b>Starter list:</b> <b>Penny stocks</b> — stocks that traded under $10 in the last 12 months (they stay on it even above $10), updated every Sunday. Use it to bring back penny stocks you removed or pick up new ones. Want large caps (Nasdaq-100, S&amp;P 500)? Ask the admin to add them for you.</li>
       <li><b>Upload</b> a CSV or Excel file (a column headed Symbol or Ticker works best) or a <b>screenshot</b> of a stock list. Screenshots are read on your own computer — check the result.</li></ol>
     <p>You always see a <b>preview</b> first: new tickers are ticked, ones already on your list are greyed out. Untick anything you don't want, then <b>Add … to my Watchlist</b>. New tickers get their prices within a few minutes.</p>
     <p><b>+ Add Stock</b> adds a single ticker and lets you choose its sector.</p>
-    <p><b>Finding stocks:</b> <b>Find</b> searches ticker or name; the sector buttons (Tech, Energy …) filter; <b>Price $</b> min / max limits the price range, <b>Penny</b> = $0.40–$3.00; <b>Options</b> Yes / Low / No filters by options trading; <b>Score ↓</b> sorts everything by Breakout Score. <b>By Sector</b> / <b>Combined RSI</b> switch the layout.</p>
+    <p><b>Finding stocks:</b> <b>Find</b> searches ticker or name; the sector buttons (Tech, Energy …) filter; <b>Price $</b> min / max limits the price range, <b>Penny</b> = $0.10–$10.00; <b>Options</b> Yes / Low / No filters by options trading; <b>Score ↓</b> sorts everything by Breakout Score. <b>By Sector</b> / <b>Combined RSI</b> switch the layout.</p>
     <p><b>Click a ticker</b> for its card: company description, latest news, trend and a 📈 chart. <b>⬇ CSV</b> and <b>🖨 Print / PDF</b> export the rows you see. To remove a ticker or change its sector, use the controls on its row.</p>`],
   ['chart', 'Charts', 'watchlist|journal', `
     <p>Open a chart with 📈 (Watchlist card, Journal watch list or plan).</p>
@@ -20994,7 +21011,8 @@ const SPA_GUIDE = [
   ['telegram', 'Telegram News', 'telegram', `<p>The news and alerts sent to Telegram, per ticker, with volume. <b>+ Add</b> next to a ticker puts it on your Watchlist.</p>`],
   ['admin', 'Admin', '@admin', `
     <p><b>Admin</b> (top bar) lists every account: name and personal link, email and phone, who referred them, sign-up date and email check, last visit.</p>
-    <p><b>Tabs:</b> tick a box to switch a tab on for that user (it appears for them on their next page load). New users start with Watchlist and Journal.</p>
+    <p><b>Tabs:</b> tick a box to switch a tab on for that user (it appears for them on their next page load). New users start with Watchlist and Journal, and their Watchlist starts with the penny stocks list.</p>
+    <p><b>+ Tickers</b> (under a user's name) adds to that user's Watchlist: type tickers, pick a starter list (penny stocks, Nasdaq-100, S&amp;P 500) or upload a file. Users themselves only get the penny list, so large caps go through you.</p>
     <p><b>Block</b> stops a user from using the app; <b>Release</b> lets them back in.</p>`],
 ];
 function spaGuideOn(need) {
@@ -21026,7 +21044,7 @@ function spaWelcome() {
   m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--cyan);border-radius:10px;max-width:520px;width:100%;padding:20px 22px;color:var(--text);">
     <h2 style="margin:0 0 4px;font-size:18px;">Welcome to StockPulse Pro, ${spaEsc(SPA.me.first_name || '')}!</h2>
     <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Here's how it works, in four steps:</div>
-    ${step(1, 'Fill your Watchlist', 'Watchlist → <b>+ Add tickers</b>: type tickers, pick a starter list (penny stocks, Nasdaq-100, S&amp;P 500) or upload a CSV, Excel file or screenshot.')}
+    ${step(1, 'Your Watchlist is ready', 'It already has the penny stocks list. <b>+ Add tickers</b> adds your own: type them or upload a CSV, Excel file or screenshot. Large caps: ask the admin.')}
     ${step(2, 'Pick the day\'s short list', 'Journal → <b>Watchlist</b>: up to 20 large caps and 10 penny stocks you want to watch today.')}
     ${step(3, 'Plan your trades', 'Journal → <b>Plan</b>: entry, stop and size for each pick, with your trading rules.')}
     ${step(4, 'Log and review', 'Journal → <b>Today</b> for your trades, then <b>Calendar</b>, <b>Weekly Audit</b> and <b>Analytics</b> to see what works.')}
@@ -21159,7 +21177,8 @@ function spaAdminRender() {
   const rows = us.map(u => {
     const isA = u.role === 'admin', f = u.features || {};
     const feats = isA ? '<span style="color:var(--amber);">all (admin)</span>' : SPA_FEATURES.map(([k, l]) => `<label style="display:inline-flex;align-items:center;gap:3px;margin:0 8px 3px 0;white-space:nowrap;font-size:11px;"><input type="checkbox" ${f[k] ? 'checked' : ''} onchange="spaAdminFeat('${u.id}','${k}',this.checked)">${l}</label>`).join('');
-    return `<tr>${td(`<b>${spaEsc([u.first_name, u.last_name].filter(Boolean).join(' ') || '—')}</b>${isA ? ' <span style="color:var(--amber);font-size:10px;">ADMIN</span>' : ''}<div style="color:#8090a0;font-size:11px;">/${spaEsc(u.username)}</div>`)}
+    const nm = spaEsc(u.first_name || u.username).replace(/'/g, '');
+    return `<tr>${td(`<b>${spaEsc([u.first_name, u.last_name].filter(Boolean).join(' ') || '—')}</b>${isA ? ' <span style="color:var(--amber);font-size:10px;">ADMIN</span>' : ''}<div style="color:#8090a0;font-size:11px;">/${spaEsc(u.username)}</div>${isA ? '' : `<button class="btn btn-sm" style="margin-top:4px;color:var(--cyan);border-color:var(--cyan);" title="Add tickers or a starter list (penny stocks, Nasdaq-100, S&amp;P 500) to this user's Watchlist" onclick="wlAddtOpen({id:'${u.id}',name:'${nm}'})">+ Tickers</button>`}`)}
       ${td(`${spaEsc(u.email)}<div style="color:#8090a0;font-size:11px;">${spaEsc(u.phone || '')}</div>`)}
       ${td(u.referred_handle ? '/' + spaEsc(u.referred_handle) : '—')}${td(String(u.referrals || 0), 'text-align:center;')}
       ${td(`${d(u.created_at)}<div style="font-size:11px;color:${u.email_verified_at ? 'var(--green)' : 'var(--amber)'};">${u.email_verified_at ? 'verified' : 'not verified'}</div>`)}
