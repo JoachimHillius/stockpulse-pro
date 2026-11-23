@@ -18571,6 +18571,12 @@ function jrNewCard(kind) {
   jrRender();
   setTimeout(() => { const el = document.getElementById('jr-sym-' + k); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }, 30);
 }
+// Broker the trade was placed with (click again to clear).
+const JR_BROKERS = ['IBKR', 'Schwab', 'Webull', 'Sage'];
+function jrBrokerHtml(k) {
+  const e = JR.edit[k];
+  return `<div class="jr-seg" title="Broker used for this trade">${JR_BROKERS.map(b => `<button class="${e.broker === b ? 'on' : ''}" onclick="jrSet('${k}','broker',JR.edit['${k}'].broker === '${b}' ? null : '${b}',true)">${b}</button>`).join('')}</div>`;
+}
 function jrSegHtml(k, field, opts) {
   const e = JR.edit[k];
   return `<div class="jr-seg">${opts.map(([v, l]) => `<button class="${e[field] === v ? 'on' : ''}" onclick="jrSet('${k}','${field}','${v}',true)">${l}</button>`).join('')}</div>`;
@@ -18766,7 +18772,7 @@ function jrCardHtml(k, n) {
   const resSel = `<select onchange="jrSet('${k}','_ovr',this.value)">${[['', 'Auto'], ['clean', 'Clean'], ['warning', 'Warning'], ['fail', 'Fail']]
     .map(([v, l]) => `<option value="${v}" ${(e._ovr || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   return `<div class="jr-card jr-tc ${e.kind}" id="jr-card-${k}">
-    <h3>#${n}${e.source === 'sheet' ? ' · <span style="text-transform:none;">imported from your sheet</span>' : ''}${jrCardSwitchHtml(k)}
+    <h3>#${n}${e.source === 'sheet' ? ' · <span style="text-transform:none;">imported from your sheet</span>' : ''}${jrCardSwitchHtml(k)}<span style="margin-left:8px;text-transform:none;letter-spacing:0;">${jrBrokerHtml(k)}</span>
       <span class="jr-sp" id="jr-st-${k}" style="text-transform:none;letter-spacing:0;"></span>
       <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
       <button class="jr-btn sm" onclick="jrCardToggle('${k}')" title="Fold this trade to one line">▾ Collapse</button>
@@ -18798,11 +18804,12 @@ function jrCardQuickHtml(k, n) {   // the one-line card
       ${f('qty', '0', 54)}${f('entry', '0.00', 62)}${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${f('exit', '0.00', 62)}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
       <div class="jr-f" style="flex:none;width:76px;"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div><div style="min-height:12px;margin-top:2px;white-space:nowrap;font-size:9px;">${tag.replace('class="jr-tag', 'style="font-size:9px;padding:0 4px;" class="jr-tag')}</div></div>
       <span class="jr-sp"></span>
-      <div style="display:flex;gap:5px;align-items:center;padding-top:16px;">
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;padding-top:16px;"><div style="display:flex;gap:5px;align-items:center;">
         <span id="jr-st-${k}" style="font-size:11px;"></span><button class="jr-btn sm" onclick="jrCardSwitch('${k}')" title="Wrong kind? Move this trade to ${P ? 'Options' : 'Penny'} — everything typed stays">⇄ ${P ? 'Options' : 'Penny'}</button>
         <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
         <button class="jr-btn sm" onclick="jrCardToggle('${k}')" title="Show everything: dates, ${P ? 'plan levels' : 'type, strike, expiration'}, add-ons, rules, notes">▸ Expand</button>
         <button class="jr-btn del sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></div>
+        ${jrBrokerHtml(k)}</div>
     </div>
     ${filledAdds ? `<div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k, true)}</div>` : ''}</div>`;
 }
@@ -18947,7 +18954,7 @@ async function jrSaveCard(k) {
     plan_stop_usd: e._u_plan_stop_pct ? n(e.plan_stop_usd) : null, plan_target_usd: e.kind === 'option' && e._u_plan_target_pct ? n(e.plan_target_usd) : null,
     plan_target_pct: e.kind === 'option' && e.plan_target_pct !== 'run' ? (e._u_plan_target_pct ? lv.targetPct : n(e.plan_target_pct)) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
     plan_target: e.kind === 'option' ? lv.target : n(e.plan_target),
-    stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
+    broker: e.broker || null, stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
     setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: quick ? null : v.res, notes: String(e.notes || '').trim() || null,
     buys: v.buys.length > 1 ? v.buys : null, updated_at: new Date().toISOString() };
   const supa = await getSupabaseAsync();
@@ -21318,7 +21325,7 @@ const SPA_GUIDE = [
     <p>Your trading routine, in the order you use it:</p>
     <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
       <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. Each plan shows one line (plus filled add-ons and the Total); <b>▸</b> opens the empty add-on line, rules and notes, <b>▸ Expand all / ▾ Collapse all</b> do every plan, and <b>⇄</b> moves a plan between Penny and Options. <b>✓ Taken → Today</b> puts the trade on Today as soon as you're in; from then on the plan and Today stay the same — edit either one (Today has the same add-on lines). A plan section only shows for kinds on that day's watch list.</li>
-      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, and <b>Penny | Options</b> switches a trade that went into the wrong kind (everything typed stays). Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
+      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, <b>⇄ Penny / Options</b> switches a trade that went into the wrong kind (everything typed stays), and <b>IBKR | Schwab | Webull | Sage</b> records the broker (click again to clear). The entry / exit time fills in from your computer's clock when you type the price — click it to change it. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
       <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
       <li><b>Weekly Audit</b> — review the week: what worked, what to change.</li>
       <li><b>Analytics</b> — win rate, results by setup and period.</li></ol>
@@ -21344,7 +21351,7 @@ const SPA_GUIDE = [
     <p><b>+ Tickers</b> (under a user's name) adds to that user's Watchlist: type tickers, pick a starter list (penny stocks, Nasdaq-100, S&amp;P 500) or upload a file. Users themselves only get the penny list, so large caps go through you.</p>
     <p><b>Block</b> stops a user from using the app; <b>Release</b> lets them back in.</p>
     <p><b>Telegram (you only):</b> 🔔 on a Watchlist row sets a price alarm (above / below) — checked every 5 minutes, sent to Telegram once, even with the app closed; armed alarms are listed under the Watchlist toolbar (✕ removes one).
-    Every 15 minutes (4 AM – 8 PM ET) 📋 POSITIONS lists your open trades and today's plans with price, ⬆️ ➡️ ⬇️ since the last update, P&amp;L and the distance to the stop; 🚨 / 🎯 come right away when an open penny trade reaches its stop / target (options show the stock price only).</p>`],
+    Every 15 minutes (4 AM – 8 PM ET) 📋 POSITIONS lists your open trades and today's plans with price, ⬆️ ➡️ ⬇️ since the last update, P&amp;L and the distance to the stop; 🚨 / 🎯 come right away when an open penny trade reaches its stop / target (options show the stock price only). Weekdays at 12:00 PM and 3:50 PM ET, ⏰ CHECK YOUR OPEN POSITIONS lists every journal trade that is still open, with its broker.</p>`],
 ];
 function spaGuideOn(need) {
   if (!need) return true;
