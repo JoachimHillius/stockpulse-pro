@@ -19189,18 +19189,29 @@ function jrStats(ts) {
 // Plans on the same day share the budget top to bottom: what plan 1 risks at its stop is taken off what plan 2 can use.
 const JR_PLAN_STOP = { penny: [5, 10, 15, 20], option: [10, 15, 20, 25] };
 function jrPlanBudget(kind, d) { return jrDayLeft(kind, d).max; }   // already lowered by today's losses
+// STEP 65: add-on buys — p.adds = [{ qty, price }, …] on top of the first line (p.qty @ p.price). The stop is on the AVERAGE price of the whole position.
+function jrPlanTot(p) {
+  const lines = [{ qty: jrNum(p.qty), price: jrNum(p.price) }, ...(Array.isArray(p.adds) ? p.adds : []).map(a => ({ qty: jrNum(a && a.qty), price: jrNum(a && a.price) }))].filter(l => l.qty && l.price != null);
+  const q = lines.reduce((t, l) => t + l.qty, 0), cost = lines.reduce((t, l) => t + l.qty * l.price, 0);
+  return { n: lines.length, q: q || null, avg: q ? Math.round(cost / q * 10000) / 10000 : null, cost: q ? Math.round(cost * 100) / 100 : null, lines };
+}
 function jrPlanCalc(d) {
   const out = {};
   for (const kind of ['penny', 'option']) {
     const budget = jrPlanBudget(kind, d), mult = kind === 'option' ? 100 : 1; let used = 0;
     (JR.plans || []).filter(p => p.d === d && p.kind === kind).forEach(p => {
-      const px = jrNum(p.price), sp = jrNum(p.stop_pct), q = jrNum(p.qty), left = Math.max(0, budget - used);
+      const T = jrPlanTot(p), adds = T.n > 1, sp = jrNum(p.stop_pct), left = Math.max(0, budget - used);
+      const px1 = jrNum(p.price), q1 = jrNum(p.qty);
+      const px = adds ? T.avg : px1, q = adds ? T.q : q1;                                    // with add-ons: the whole position at its average price
       const per = px != null && sp != null ? px * mult * sp / 100 : null;                  // loss per share / contract at the stop
-      const max = per ? Math.floor(left / per) : null, risk = per && q ? Math.round(per * q * 100) / 100 : null;
+      const per1 = px1 != null && sp != null ? px1 * mult * sp / 100 : null;
+      const max = per1 ? Math.floor(left / per1) : null, risk = per && q ? Math.round(per * q * 100) / 100 : null;
       const stop = px != null && sp != null ? Math.round(px * (1 - sp / 100) * 10000) / 10000 : null;
+      const stop1 = px1 != null && sp != null ? Math.round(px1 * (1 - sp / 100) * 10000) / 10000 : null, risk1 = per1 && q1 ? Math.round(per1 * q1 * 100) / 100 : null;
       const must = kind === 'option' && px != null && q ? Math.max(0, Math.round((px - left / (q * 100)) * 100) / 100) : null;
       const scale = kind === 'option' && px != null ? Array.from({ length: Math.min(Math.max(max || 0, 1), 10) }, (_, i) => ({ n: i + 1, must: Math.max(0, Math.round((px - left / ((i + 1) * 100)) * 100) / 100), risk: per ? Math.round(per * (i + 1)) : null })) : [];
-      out[p.id] = { budget, left, per, max, risk, stop, must, scale, over: risk != null && risk > left, ruleSize: kind === 'penny' && per ? Math.floor(budget / 3 / per) : null };
+      out[p.id] = { budget, left, per, max, risk, stop, must, scale, over: risk != null && risk > left, ruleSize: kind === 'penny' && per1 ? Math.floor(budget / 3 / per1) : null,
+        adds, tot: T, stop1, risk1 };
       if (risk != null) used += Math.min(risk, left);
     });
     const dl = jrDayLeft(kind, d);
@@ -19453,14 +19464,15 @@ function jrPlanHtml() {
     const body = rows.map((p, i) => { const x = c[p.id] || {};
       return `<tr>
         <td>${i + 1}</td><td>${inp(p, 'symbol', 'TICKER', 80, 'text-transform:uppercase;font-weight:700;')}${!P && (p.strike || p.expiry || p.entry_trigger) ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;white-space:nowrap;">${jrEsc([p.strike ? p.strike + (p.opt_type === 'put' ? ' P' : p.opt_type === 'call' ? ' C' : '') : '', p.expiry ? 'exp ' + jrShowMD(p.expiry) : '', p.entry_trigger ? 'entry ' + p.entry_trigger : '', p.status || ''].filter(Boolean).join(' · '))}</div>` : ''}${P && p.session ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;">${{ pre: 'Pre-market', reg: 'Regular', post: 'After-hours' }[p.session] || ''}</div>` : ''}</td>
-        <td>${inp(p, 'price', P ? '2.00' : '2.21', 70)}</td><td>${sel(p)}</td><td>${px(x.stop)}</td>
+        <td>${inp(p, 'price', P ? '2.00' : '2.21', 70)}</td><td>${sel(p)}</td><td>${px(x.adds ? x.stop1 : x.stop)}</td>
         <td style="font-weight:700;color:var(--cyan);font-size:13px;">${x.max == null ? '—' : x.max.toLocaleString('en-US')}${P && x.ruleSize != null ? `<div style="font-size:10px;color:var(--text3);font-weight:400;">rule ⅓: ${x.ruleSize.toLocaleString('en-US')}</div>` : ''}</td>
         <td>${inp(p, 'qty', '0', 60)}</td>
-        <td class="${x.over ? 'jr-neg' : ''}">${money(x.risk)}${x.over ? ' ✗' : ''}</td>
+        ${x.adds ? `<td>${money(x.risk1)}</td>${P ? '' : '<td></td>'}<td style="color:var(--text3);font-size:10.5px;">see Total ↓</td>` : `<td class="${x.over ? 'jr-neg' : ''}">${money(x.risk)}${x.over ? ' ✗' : ''}</td>
         ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
-        <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td>
+        <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td>`}
         <td>${inp(p, 'exit_price', 'exit', 64)}${p.trade_id ? `<div style="font-size:10px;margin-top:2px;white-space:nowrap;"><a href="#" onclick="jrTab('today');return false;" style="color:var(--green);">✓ on Today</a>${(() => { const t = (JR.trades || []).find(t => t.id === p.trade_id); return t && t.pnl != null ? ` <b class="${t.pnl >= 0 ? 'jr-pos' : 'jr-neg'}">${t.pnl >= 0 ? '+' : '−'}$${Math.abs(t.pnl).toFixed(2)}</b>` : ''; })()}</div>` : ''}</td>
         <td style="white-space:nowrap;">${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
+        ${jrPlanAddRows(p, x, P, money, px)}
         ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${jrPlanNotesRow(p)}${jrPlanRulesRow(p)}`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
         <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${b.lost && b.budget < b.cap ? `Budget $${b.budget} (only this much left today — already −$${b.lost} of $${b.limit})` : P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${b.limit} daily${b.lost ? ` · −$${b.lost} lost today` : ''})`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
@@ -19478,6 +19490,51 @@ function jrPlanHtml() {
   return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Plan your trades before you take them. <b>Max</b> = the most you could take with the budget left (plans share the day's budget, top to bottom).
     ${''}Penny: budget ÷ (price × stop %). Options: budget ÷ (premium × 100 × stop %) · <b>Must stop</b> = the lowest premium out for the planned contracts.</div>
     ${show('penny') ? sec('penny', 'Penny stocks — plan', 'var(--green)') : ''}${show('option') ? sec('option', 'Options — plan', 'var(--cyan)') : ''}`;
+}
+// Add-on lines under a plan: each filled line opens the next empty one (up to 5 add-ons); Total = all lines at the average price.
+function jrPlanAddRows(p, x, P, money, px) {
+  if (jrNum(p.price) == null || !jrNum(p.qty)) return '';                       // the first line comes first
+  const adds = Array.isArray(p.adds) ? p.adds : [], full = a => a && jrNum(a.qty) && jrNum(a.price) != null;
+  const show = adds.length < 5 && (!adds.length || full(adds[adds.length - 1])) ? adds.concat([{}]) : adds;
+  const rest = P ? 4 : 5, unit = P ? 'shares' : 'contracts', mult = P ? 1 : 100;
+  const ai = (i, f, v, ph, w) => `<input value="${jrEsc(v == null ? '' : (f === 'price' ? jrPx2(v) : v))}" placeholder="${ph}" style="width:${w}px;" onchange="jrPlanAddSet(${p.id},${i},'${f}',this.value)">`;
+  let h = show.map((a, i) => { const done = full(a);
+    return `<tr class="jr-addrow" style="background:rgba(0,212,255,.035);"><td></td>
+      <td style="text-align:right;font-size:11px;color:var(--text2);white-space:nowrap;">${done ? '' : '+ '}Add-on ${i + 1}</td>
+      <td>${ai(i, 'price', a.price, P ? 'price' : 'premium', 70)}</td><td></td><td></td><td></td>
+      <td>${ai(i, 'qty', a.qty, P ? 'shares' : 'contracts', 60)}</td>
+      <td colspan="${rest}" style="font-size:11px;color:var(--text2);">${done ? `cost $${(jrNum(a.qty) * jrNum(a.price) * mult).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+        <button class="jr-btn del sm" style="margin-left:8px;" onclick="jrPlanAddDel(${p.id},${i})" title="Remove this add-on">✕</button>` : `<span style="color:var(--text3);">fill in price and ${unit} to add to the position</span>`}</td></tr>`; }).join('');
+  if (x.adds) {
+    const t = x.tot;
+    h += `<tr class="jr-addtot" style="background:rgba(0,212,255,.08);font-weight:700;"><td></td>
+      <td style="text-align:right;white-space:nowrap;">Total · avg</td><td style="color:var(--cyan);">${px(t.avg)}</td><td></td>
+      <td title="Stop on the average price">${px(x.stop)}</td><td></td>
+      <td style="color:var(--cyan);">${t.q.toLocaleString('en-US')} <span style="font-weight:400;font-size:10.5px;color:var(--text2);">${unit} · cost $${(t.cost * mult).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span></td>
+      <td class="${x.over ? 'jr-neg' : ''}">${money(x.risk)}${x.over ? ' ✗' : ''}</td>
+      ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : 'any'}</td>`}
+      <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td><td colspan="2" style="font-weight:400;font-size:10.5px;color:var(--text2);">${t.n} buys · the exit closes the whole position</td></tr>`;
+  }
+  return h;
+}
+async function jrPlanAddSave(p) {
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_plans').update({ adds: p.adds, updated_at: new Date().toISOString() }).eq('id', p.id);
+  if (error) { showToast('Journal', 'Add-on not saved: ' + error.message, 'error'); return; }
+  if (p.trade_id) jrPlanToToday(p);
+}
+function jrPlanAddSet(id, i, f, v) {
+  const p = (JR.plans || []).find(x => x.id === id); if (!p) return;
+  p.adds = Array.isArray(p.adds) ? p.adds.slice() : [];
+  while (p.adds.length <= i) p.adds.push({});
+  p.adds[i] = { ...p.adds[i], [f]: jrNum(v) };
+  p.adds = p.adds.filter((a, k) => k <= i || (a && (a.qty != null || a.price != null)));
+  jrRender(); jrPlanAddSave(p);
+}
+function jrPlanAddDel(id, i) {
+  const p = (JR.plans || []).find(x => x.id === id); if (!p) return;
+  p.adds = (Array.isArray(p.adds) ? p.adds : []).filter((_, k) => k !== i);
+  jrRender(); jrPlanAddSave(p);
 }
 async function jrPlanAdd(kind) {
   const supa = await getSupabaseAsync();
@@ -19501,14 +19558,16 @@ function jrPlanToToday(p) {   // one at a time per plan, so quick edits never cr
 }
 async function _jrPlanToToday(p) {
   const n = jrNum, kind = p.kind === 'penny' ? 'penny' : 'option', sym = String(p.symbol || '').trim().toUpperCase();
-  const entry = n(p.price), qty = n(p.qty), exit = n(p.exit_price), sp = n(p.stop_pct);
+  const T = jrPlanTot(p), multi = T.n > 1;
+  const entry = multi ? T.avg : n(p.price), qty = multi ? T.q : n(p.qty), exit = n(p.exit_price), sp = n(p.stop_pct);
+  const buys = multi ? 'Buys: ' + T.lines.map(l => `${l.qty} @ $${l.price}`).join(' + ') + ` → ${T.q} @ avg $${T.avg}` : '';
   if (!sym || entry == null || !qty) { if (exit != null) showToast('Journal', `To send it to Today, fill in the ticker, ${kind === 'penny' ? 'entry price and planned shares' : 'premium in and planned contracts'} first.`, 'error'); return; }
   const tg = String(p.target ?? '').replace(/[%$\s]/g, ''), tgN = tg === '' || isNaN(+tg) ? null : +tg;
   const row = { d: p.d, kind, symbol: sym, session: p.session || null, qty, entry, exit, plan_entry: entry, plan_tol: n(p.plan_tol),
     plan_stop_pct: sp, plan_stop: sp != null ? Math.round(entry * (1 - sp / 100) * 10000) / 10000 : null,
     plan_target_pct: kind === 'option' ? tgN : null, plan_target: kind === 'penny' ? tgN : (tgN != null ? Math.round(entry * (1 + tgN / 100) * 10000) / 10000 : null),
     opt_type: p.opt_type || null, expiry: p.expiry || null, strike: p.strike ? String(p.strike) : null, stock_entry: n(p.stock_price),
-    rules: { ...(p.rules || {}) }, notes: p.notes || null, source: 'plan', updated_at: new Date().toISOString() };
+    rules: { ...(p.rules || {}) }, notes: [p.notes, buys].filter(Boolean).join('\n') || null, source: 'plan', updated_at: new Date().toISOString() };
   const ec = jrExpiryCheck(row); if (ec) row.rules.expiry = ec.ok;
   row.result = jrAutoResult(row);
   const supa = await getSupabaseAsync();
@@ -19534,9 +19593,10 @@ function jrPlanCsv() {
   const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
   if (!ps.length) { showToast('Journal', 'No plans on this day yet', 'info'); return; }
   const q = v => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-  const lines = [['Date', 'Type', 'Ticker', 'Price / premium', 'Stop %', 'Stop at', 'Max shares / contracts', 'Planned', 'Loss at stop', 'Must stop (options)', 'Budget left', 'Notes'].join(',')];
-  ps.forEach(p => { const x = c[p.id] || {};
-    lines.push([d, p.kind === 'penny' ? 'Penny' : 'Option', p.symbol, p.price, p.stop_pct, x.stop, x.max, p.qty, x.risk, x.must, x.left, p.notes].map(q).join(',')); });
+  const lines = [['Date', 'Type', 'Ticker', 'Price / premium', 'Stop %', 'Stop at', 'Max shares / contracts', 'Planned', 'Add-ons', 'Total qty', 'Avg price', 'Loss at stop', 'Must stop (options)', 'Budget left', 'Notes'].join(',')];
+  ps.forEach(p => { const x = c[p.id] || {}, t = x.tot || {};
+    const ad = (p.adds || []).filter(a => a && a.qty && a.price != null).map(a => `${a.qty} @ ${a.price}`).join(' + ');
+    lines.push([d, p.kind === 'penny' ? 'Penny' : 'Option', p.symbol, p.price, p.stop_pct, x.stop, x.max, p.qty, ad, t.q, t.avg, x.risk, x.must, x.left, p.notes].map(q).join(',')); });
   lines.push('');
   lines.push(`Penny budget,${c.penny.budget},planned at stop,${Math.round(c.penny.used)},left,${Math.round(c.penny.left)}`);
   lines.push(`Options budget (80% of daily),${c.option.budget},planned at stop,${Math.round(c.option.used)},left,${Math.round(c.option.left)}`);
@@ -19662,6 +19722,7 @@ function jrPlanRowFrom(kind, get, d) {   // get(key) → raw text of that column
     row.entry_trigger = s(get('entry_trigger')) || null; row.stock_price = n(get('stock_price')); row.exit_price = n(get('exit_price'));
     const p2 = { qty: n(get('p2_qty')), stock: n(get('p2_stock')), premium_in: n(get('p2_in')), premium_out: n(get('p2_out')) };
     row.pos2 = Object.values(p2).some(v => v != null) ? p2 : null;
+    if (p2.qty && p2.premium_in != null) row.adds = [{ qty: p2.qty, price: p2.premium_in }];
   }
   return row.symbol && /^[A-Z][A-Z0-9.\-]{0,7}$/.test(row.symbol) ? row : null;   // a real ticker, not the help line under the table
 }
@@ -21041,7 +21102,7 @@ const SPA_GUIDE = [
   ['journal', 'Journal', 'journal', `
     <p>Your trading routine, in the order you use it:</p>
     <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
-      <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. A plan section only shows for kinds on that day's watch list.</li>
+      <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. A plan section only shows for kinds on that day's watch list.</li>
       <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
       <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
       <li><b>Weekly Audit</b> — review the week: what worked, what to change.</li>
