@@ -18403,6 +18403,7 @@ body.light-mode .jr-d .mk{color:#7a8798;} body.light-mode .jr-d .mk .up{color:#3
 @keyframes jrMicPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,.6);}50%{box-shadow:0 0 0 5px rgba(0,212,255,0);}}
 .jr-plan input,.jr-plan select,.jr-plan textarea{background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 6px;font-family:inherit;font-size:12px;box-sizing:border-box;}
 .jr-plan select{width:auto;}
+.jr-plan tbody.jr-pgrp>tr:first-child>td{border-top:2px solid rgba(255,255,255,.55);}
 .jr-plan .jr-chk input{width:15px;height:15px;padding:0;margin:1px 0 0;flex:none;background:none;accent-color:var(--green);}
 .jr-sticky{position:sticky;top:var(--hdr-h,141px);z-index:150;background:var(--bg);margin:-16px -20px 0;padding:12px 20px 12px;box-shadow:0 6px 8px -4px rgba(0,0,0,0.45);}
 /* Analytics: raised 3D cards (light top edge, soft drop shadow, lifts on hover) */
@@ -18466,13 +18467,15 @@ function jrRender() {
   if (typeof _syncStickyOffset === 'function') _syncStickyOffset();
   root.innerHTML = `<div class="${JR.tab === 'today' ? 'jr-sticky' : ''}"><div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'plan' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    ${(JR.watch || []).some(w => w.d === JR.d && w.kind === 'penny') ? `<button class="jr-btn g" onclick="jrPlanAddMenu('penny',this)" title="Plan a penny stock from today's watch list">+ Penny plan ▾</button>` : ''}${(JR.watch || []).some(w => w.d === JR.d && w.kind === 'large') ? `<button class="jr-btn" onclick="jrPlanAddMenu('option',this)" title="Plan an options trade on a large cap from today's watch list">+ Options plan ▾</button>` : ''}
+    <button class="jr-btn g" onclick="jrPlanAddMenu('penny',this)" title="Plan a penny stock: pick one from today's watch list or type a ticker">+ Penny plan ▾</button><button class="jr-btn" onclick="jrPlanAddMenu('option',this)" title="Plan an options trade on a large cap from today's watch list">+ Options plan ▾</button>
+    <button class="jr-btn" onclick="jrPlanAll(true)" title="Open every plan: add-on line, rules, notes">▸ Expand all</button><button class="jr-btn" onclick="jrPlanAll(false)" title="Fold every plan to its first line">▾ Collapse all</button>
     <button class="jr-btn" onclick="jrPlanCsv()" title="Download this day's plan as a spreadsheet (opens in Excel / Numbers / Google Sheets)">⬇ Spreadsheet</button>
     <button class="jr-btn" onclick="jrPlanUploadPick()" title="Upload a filled-in plan: the fillable PDF or the spreadsheet from Download PDF → Empty trade plans">⬆ Upload filled plan</button>` : ''}${JR.tab === 'watch' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
     <button class="jr-btn" onclick="jrWatchCopy()" title="Copy the most recent earlier list to this day (keeps your notes; stays within 20 / 10)">⧉ Copy previous day</button>` : ''}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : JR.tab === 'plan' || JR.tab === 'watch' ? '' : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button>
+    <button class="jr-btn" onclick="jrCardAll(true)" title="Open every trade of this day">▸ Expand all</button><button class="jr-btn" onclick="jrCardAll(false)" title="Fold every trade to one line">▾ Collapse all</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : JR.tab === 'plan' || JR.tab === 'watch' ? '' : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
   if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
 }
 function jrSetDate(d) {
@@ -18579,27 +18582,39 @@ function jrEditOf(t) {
   const bs = Array.isArray(t.buys) ? t.buys.filter(b => b && jrNum(b.qty) && jrNum(b.price) != null) : [];
   if (bs.length > 1) { e.qty = jrNum(bs[0].qty); e.entry = jrNum(bs[0].price); e.adds = bs.slice(1).map(b => ({ qty: jrNum(b.qty), price: jrNum(b.price) })); } else e.adds = [];
   const en = jrNum(t.entry);
-  if (e.plan_stop_pct == null && t.plan_stop != null && en) e.plan_stop_pct = Math.round((1 - t.plan_stop / en) * 1000) / 10;
-  if (t.kind === 'option' && e.plan_target_pct == null && t.plan_target != null && en) e.plan_target_pct = Math.round((t.plan_target / en - 1) * 1000) / 10;
+  if (jrNum(t.plan_stop_usd) != null) { e._u_plan_stop_pct = true; e._o_plan_stop_pct = true; e.plan_stop_pct = null; }
+  if (jrNum(t.plan_target_usd) != null) { e._u_plan_target_pct = true; e._o_plan_target_pct = true; e.plan_target_pct = null; }
+  if (!e._u_plan_stop_pct && e.plan_stop_pct == null && t.plan_stop != null && en) e.plan_stop_pct = Math.round((1 - t.plan_stop / en) * 1000) / 10;
+  if (t.kind === 'option' && !e._u_plan_target_pct && e.plan_target_pct == null && t.plan_target != null && en) e.plan_target_pct = Math.round((t.plan_target / en - 1) * 1000) / 10;
   if (t.target_run) e.plan_target_pct = 'run';
   return e;
 }
 // ± tolerance / stop % / target % pickers: a list plus "Other" (type your own number).
-function jrPick(k, field, opts, fmt, extra = []) {
+// usdField: "Other…" also offers % or $ — $ = a dollar amount for the whole position (e.g. $50).
+function jrPick(k, field, opts, fmt, extra = [], usdField) {
   const e = JR.edit[k], cur = e[field], inList = cur == null || cur === '' || opts.some(o => +o === +cur) || extra.some(([v]) => v === cur);
-  const other = e['_o_' + field] || !inList;
-  return `<div style="display:flex;gap:4px;"><select onchange="jrPickSet('${k}','${field}',this.value)">
+  const usd = !!(usdField && e['_u_' + field]), other = e['_o_' + field] || !inList || usd;
+  const unit = usdField && other ? `<div class="jr-seg" title="Type a percent or a dollar amount"><button class="${usd ? '' : 'on'}" onclick="jrPickUnit('${k}','${field}','${usdField}',false)">%</button><button class="${usd ? 'on' : ''}" onclick="jrPickUnit('${k}','${field}','${usdField}',true)">$</button></div>` : '';
+  return `<div style="display:flex;gap:4px;align-items:center;"><select ${unit ? 'style="width:auto;flex:none;"' : ''} onchange="jrPickSet('${k}','${field}',this.value)">
       <option value="" ${cur == null || cur === '' ? 'selected' : ''}>—</option>
       ${opts.map(o => `<option value="${o}" ${!other && +o === +cur ? 'selected' : ''}>${fmt(o)}</option>`).join('')}
       ${extra.map(([v, l]) => `<option value="${v}" ${!other && cur === v ? 'selected' : ''}>${l}</option>`).join('')}
       <option value="__o" ${other ? 'selected' : ''}>Other…</option></select>
-    ${other ? `<input type="number" step="any" style="width:70px;" value="${jrEsc(cur ?? '')}" placeholder="${fmt('').trim() || '#'}" oninput="jrSet('${k}','${field}',this.value)">` : ''}</div>`;
+    ${other && usd ? `<input type="number" step="any" style="width:70px;" value="${jrEsc(e[usdField] ?? '')}" placeholder="$" oninput="jrSet('${k}','${usdField}',this.value)">`
+      : other ? `<input type="number" step="any" style="width:70px;" value="${jrEsc(cur ?? '')}" placeholder="${fmt('').trim() || '#'}" oninput="jrSet('${k}','${field}',this.value)">` : ''}${unit}</div>`;
+}
+function jrPickUnit(k, field, usdField, on) {
+  const e = JR.edit[k]; if (!!e['_u_' + field] === on) return;
+  e['_u_' + field] = on; e['_o_' + field] = true; e[field] = null; e[usdField] = null;
+  if (field === 'plan_target_pct') e.target_run = false;
+  jrSet(k, field, null, true);
 }
 function jrPickSet(k, field, v) {
   const e = JR.edit[k];
   if (v === '__o') { e['_o_' + field] = true; jrSet(k, field, e[field] ?? '', true); return; }
-  e['_o_' + field] = false;
-  if (field === 'plan_target_pct') e.target_run = v === 'run';
+  e['_o_' + field] = false; e['_u_' + field] = false;
+  if (field === 'plan_stop_pct') e.plan_stop_usd = null;
+  if (field === 'plan_target_pct') { e.target_run = v === 'run'; e.plan_target_usd = null; }
   jrSet(k, field, v === '' || v === 'run' ? (v === 'run' ? 'run' : null) : Number(v), true);
 }
 // What's left of the day's risk after today's saved trades (net loss so far), and the most one more trade may lose:
@@ -18651,6 +18666,20 @@ function jrDateF(k, field, label, after) {
       oninput="const m=jrDateMask(this.value);if(m!==this.value&&!(event.inputType||'').startsWith('delete'))this.value=m;jrDateIn('${k}','${field}',this.value,${after ? 1 : 0})"
       onblur="if(JR.edit['${k}']&&JR.edit['${k}'].${field}&&!JR.edit['${k}']._bad_${field}){this.value=jrShowMDY(JR.edit['${k}'].${field});JR.edit['${k}']._r_${field}=this.value;}"><div id="jr-dh-${k}-${field}" style="font-size:9.5px;color:var(--text3);min-height:12px;">${e[field] ? jrLongD(e[field]) : ''}</div></div>`;
 }
+// STEP 69: date · time in one box. The time comes from this computer's clock when the entry / exit price is typed; both stay editable.
+function jrNowHM() { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+function jrDateTimeF(k, field, tfield, label, after) {
+  const e = JR.edit[k], raw = e['_r_' + field], tm = e[tfield] ? String(e[tfield]).slice(0, 5) : '';
+  return `<div class="jr-f" style="flex:none;"><label>${label}</label>
+    <div style="display:flex;align-items:stretch;background:var(--bg3);border:1px solid var(--border2);border-radius:5px;">
+      <input type="text" inputmode="numeric" maxlength="10" placeholder="MM/DD/YY" value="${jrEsc(raw ?? jrShowMDY(e[field]))}" style="width:74px;padding:5px 4px 5px 7px;border:none;border-radius:5px 0 0 5px;background:transparent;"
+        oninput="const m=jrDateMask(this.value);if(m!==this.value&&!(event.inputType||'').startsWith('delete'))this.value=m;jrDateIn('${k}','${field}',this.value,${after ? 1 : 0})"
+        onblur="if(JR.edit['${k}']&&JR.edit['${k}'].${field}&&!JR.edit['${k}']._bad_${field}){this.value=jrShowMDY(JR.edit['${k}'].${field});JR.edit['${k}']._r_${field}=this.value;}">
+      <span style="width:1px;background:var(--border2);margin:4px 0;"></span>
+      <input type="time" id="jr-tm-${k}-${tfield}" value="${tm}" title="Time (filled in from this computer's clock — change it if needed)" style="width:106px;border:none;border-radius:0 5px 5px 0;background:transparent;padding-right:2px;"
+        onchange="jrSet('${k}','${tfield}',this.value||null)">
+    </div><div id="jr-dh-${k}-${field}" style="font-size:9.5px;color:var(--text3);min-height:12px;">${e[field] ? jrLongD(e[field]) : ''}</div></div>`;
+}
 function jrDateIn(k, field, v, after) {
   const e = JR.edit[k]; e['_r_' + field] = v;
   const iso = jrParseMD(v, field === 'd' ? jrToday() : e.d, !!after);
@@ -18685,8 +18714,26 @@ function jrDayResultHtml(d) {
   return `<div class="jr-card" style="margin-top:10px;padding:9px 14px;border-left:4px solid ${all.net > 0 ? 'var(--green)' : all.net < 0 ? 'var(--red)' : 'var(--border2)'};">
     ${line("TODAY'S RESULT", all, true)}${P.length ? line('Penny', jrDayResult(P)) : ''}${O.length ? line('Options', jrDayResult(O)) : ''}</div>`;
 }
+// STEP 69: a trade card is one line until you expand it (▸): ticker · session · shares / contracts · entry · exit · P&L.
+function jrCardToggle(k) { const e = JR.edit[k]; if (!e) return; e._open = !e._open; jrRender(); }
+function jrCardAll(open) { Object.values(JR.edit).forEach(e => { if ((e._origD || e.d) === JR.d) e._open = open; }); jrRender(); }
+// ⇄ Penny ↔ Options: everything typed so far stays; only the kind-specific defaults change.
+function jrCardSwitch(k) {
+  const e = JR.edit[k]; if (!e) return;
+  const to = e.kind === 'penny' ? 'option' : 'penny';
+  if (to === 'option') { e.opt_type = e.opt_type || 'call'; e.setup = e.setup || 'scalp'; if (e.stop_used === '10' || e.stop_used === '15' || e.stop_used === 'gt15') e.stop_used = '20'; if (Number(e.plan_stop_pct) === 10) e.plan_stop_pct = 20; }
+  else { if (e.stop_used === '20' || e.stop_used === '25' || e.stop_used === 'none') e.stop_used = '10'; if (Number(e.plan_stop_pct) === 20) e.plan_stop_pct = 10; }
+  e.kind = to; e._dirty = true; jrRender(); jrMarkDirty(k);
+  showToast(String(e.symbol || 'Trade').toUpperCase(), `Moved to ${to === 'penny' ? 'Penny' : 'Options'} — click Save to keep it`, 'info');
+}
+function jrCardSwitchHtml(k) {
+  const e = JR.edit[k];
+  return `<span class="jr-seg" title="Wrong kind? Switch it — everything you typed stays" style="margin-left:6px;">
+    <button class="${e.kind === 'penny' ? 'on' : ''}" onclick="${e.kind === 'penny' ? '' : `jrCardSwitch('${k}')`}">Penny</button><button class="${e.kind === 'option' ? 'on' : ''}" onclick="${e.kind === 'option' ? '' : `jrCardSwitch('${k}')`}">Options</button></span>`;
+}
 function jrCardHtml(k, n) {
   const e = JR.edit[k], P = e.kind === 'penny';
+  if (!e._open) return jrCardQuickHtml(k, n);
   const PX = ['entry', 'exit', 'stock_entry', 'plan_target', 'plan_entry', 'plan_stop'];
   const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(PX.includes(field) ? jrPx2(e[field]) : (e[field] ?? ''))}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"${PX.includes(field) ? ` onblur="jrPxBlur(this,'${k}','${field}')"` : ''}></div>`;
   const ec = jrExpiryCheck({ ...e, exit: jrNum(e.exit) });
@@ -18694,34 +18741,35 @@ function jrCardHtml(k, n) {
     ? `<label class="jr-chk" title="Worked out from the entry date, exit date and expiration" style="flex-wrap:wrap;"><input type="checkbox" disabled ${ec.ok ? 'checked' : ''}>${i + 1} ${l}<div style="flex-basis:100%;padding-left:22px;" class="${ec.ok ? 'jr-pos' : 'jr-neg'}"><b>auto ${ec.ok ? '✓ kept' : '✗ broken'}</b> · ${ec.why}</div></label>`
     : `<label class="jr-chk"><input type="checkbox" ${e.rules[rk] ? 'checked' : ''} onchange="jrRule('${k}','${rk}',this.checked)">${i + 1} ${l}</label>`).join('');
   const tolF = `<div class="jr-f" style="flex:none;min-width:150px;"><label>Planned entry ±</label>${jrPick(k, 'plan_tol', JR_TOL, o => o === '' ? '$' : '± $' + Number(o).toFixed(2))}<div class="jr-auto" id="jr-pe-${k}" style="margin-top:3px;"></div></div>`;
-  const stopF = `<div class="jr-f" style="flex:none;min-width:150px;"><label>Stop (% below ${P ? 'entry' : 'premium in'})</label>${jrPick(k, 'plan_stop_pct', JR_STOP_PCT[e.kind], o => o === '' ? '%' : o + '%')}<div class="jr-auto" id="jr-ps-${k}" style="margin-top:3px;"></div></div>`;
+  const stopF = `<div class="jr-f" style="flex:none;min-width:150px;"><label>Stop (% or $ below ${P ? 'entry' : 'premium in'})</label>${jrPick(k, 'plan_stop_pct', JR_STOP_PCT[e.kind], o => o === '' ? '%' : o + '%', [], 'plan_stop_usd')}<div class="jr-auto" id="jr-ps-${k}" style="margin-top:3px;"></div></div>`;
   const sym = `<div class="jr-f" style="min-width:110px;"><label>Ticker</label><input id="jr-sym-${k}" type="text" autocomplete="off" value="${jrEsc(e.symbol)}" placeholder="type A…"
      style="text-transform:uppercase;font-weight:700;" oninput="jrSymInput('${k}',this.value)" onkeydown="jrSymKey(event,'${k}')" onblur="setTimeout(()=>jrSymClose('${k}'),180)"><div class="jr-dd" id="jr-dd-${k}" style="display:none;"></div></div>`;
   const top = P ? `${sym}
       <div class="jr-f" style="flex:none;"><label>Session</label>${jrSegHtml(k, 'session', [['pre', 'Pre'], ['reg', 'Regular'], ['post', 'After']])}</div>
-      ${jrDateF(k, 'd', 'Entry date', false)}${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${f('exit', 'Exit', 'number', '0.00')}
-      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>${jrDateF(k, 'exit_date', 'Exit date', true)}`
+      ${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${f('exit', 'Exit', 'number', '0.00')}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`
     : `${sym}
       <div class="jr-f" style="flex:none;"><label>Type</label>${jrSegHtml(k, 'opt_type', [['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread']])}</div>
-      ${jrDateF(k, 'd', 'Entry date', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
+      ${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
       ${f('entry', 'Premium in', 'number', '0.00')}${f('exit', 'Premium out', 'number', '0.00')}
       <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>
     </div><div id="jr-max-${k}" style="margin-top:6px;font-size:11.5px;"></div><div class="jr-row" style="margin-top:8px;">`;
-  const mid = P ? `${tolF}${stopF}${f('plan_target', 'Target', 'number', '0.00')}
+  const mid = P ? `${tolF}${stopF}${f('plan_target', 'Target', 'number', '0.00').replace(/<\/div>$/, `<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>`)}
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
       <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
-    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${jrDateF(k, 'exit_date', 'Exit date', true)}
+    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
       <div class="jr-f" style="flex:none;"><label>Setup</label>${jrSegHtml(k, 'setup', [['scalp', 'Scalp'], ['power', 'Power hour'], ['spread', 'Spread'], ['other', 'Other']])}</div>
     </div><div class="jr-row" style="margin-top:8px;">
-      ${tolF}${stopF}<div class="jr-f" style="flex:none;min-width:150px;"><label>Target (% above premium in)</label>${jrPick(k, 'plan_target_pct', JR_TGT_PCT, o => o === '' ? '%' : '+' + o + '%', [['run', 'Let it run']])}<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>
+      ${tolF}${stopF}<div class="jr-f" style="flex:none;min-width:150px;"><label>Target (% or $ above premium in)</label>${jrPick(k, 'plan_target_pct', JR_TGT_PCT, o => o === '' ? '%' : '+' + o + '%', [['run', 'Let it run']], 'plan_target_usd')}<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['20', '20%'], ['25', '25%'], ['none', 'No stop']])}</div>
       <div class="jr-f"><label>Size check (25% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`;
   const resSel = `<select onchange="jrSet('${k}','_ovr',this.value)">${[['', 'Auto'], ['clean', 'Clean'], ['warning', 'Warning'], ['fail', 'Fail']]
     .map(([v, l]) => `<option value="${v}" ${(e._ovr || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   return `<div class="jr-card jr-tc ${e.kind}" id="jr-card-${k}">
-    <h3>#${n} · ${P ? 'Penny' : 'Options'}${e.source === 'sheet' ? ' · <span style="text-transform:none;">imported from your sheet</span>' : ''}
+    <h3>#${n}${e.source === 'sheet' ? ' · <span style="text-transform:none;">imported from your sheet</span>' : ''}${jrCardSwitchHtml(k)}
       <span class="jr-sp" id="jr-st-${k}" style="text-transform:none;letter-spacing:0;"></span>
       <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
+      <button class="jr-btn sm" onclick="jrCardToggle('${k}')" title="Fold this trade to one line">▾ Collapse</button>
       <button class="jr-btn del sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></h3>
     <div class="jr-row">${top}</div>
     <div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k)}</div>
@@ -18734,10 +18782,34 @@ function jrCardHtml(k, n) {
       </div>
     </div></div>`;
 }
-function jrCardAddsHtml(k) {
+function jrCardQuickHtml(k, n) {   // the one-line card
+  const e = JR.edit[k], P = e.kind === 'penny';
+  const f = (field, ph, w) => `<div class="jr-f" style="flex:none;"><label>${{ qty: P ? 'Shares' : 'Contracts', entry: P ? 'Entry' : 'Premium in', exit: P ? 'Exit' : 'Premium out' }[field]}</label>
+    <input type="number" step="any" style="width:${w}px;" value="${jrEsc(field === 'qty' ? (e[field] ?? '') : jrPx2(e[field]))}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"${field !== 'qty' ? ` onblur="jrPxBlur(this,'${k}','${field}')"` : ''}></div>`;
+  const sym = `<div class="jr-f" style="flex:none;width:86px;"><label>Ticker</label><input id="jr-sym-${k}" type="text" autocomplete="off" value="${jrEsc(e.symbol)}" placeholder="type A…"
+     style="text-transform:uppercase;font-weight:700;" oninput="jrSymInput('${k}',this.value)" onkeydown="jrSymKey(event,'${k}')" onblur="setTimeout(()=>jrSymClose('${k}'),180)"><div class="jr-dd" id="jr-dd-${k}" style="display:none;"></div></div>`;
+  const filledAdds = (e.adds || []).some(a => a && jrNum(a.qty) && jrNum(a.price) != null);
+  const tag = e.id && !e._dirty ? (e.result ? `<span class="jr-tag ${e.result}">${e.result.toUpperCase()}</span>` : '<span class="jr-tag none">NOT REVIEWED</span>') : '';
+  return `<div class="jr-card jr-tc jr-quick ${e.kind}" id="jr-card-${k}" style="padding:8px 12px;">
+    <div class="jr-row" style="align-items:flex-start;gap:8px;flex-wrap:wrap;">
+      <div style="font-weight:700;color:var(--text2);padding-top:22px;">#${n}</div>
+      ${sym}
+      <div class="jr-f" style="flex:none;"><label>Session</label>${jrSegHtml(k, 'session', [['pre', 'Pre'], ['reg', 'Reg'], ['post', 'After']])}</div>
+      ${f('qty', '0', 54)}${f('entry', '0.00', 62)}${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${f('exit', '0.00', 62)}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
+      <div class="jr-f" style="flex:none;width:76px;"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div><div style="min-height:12px;margin-top:2px;white-space:nowrap;font-size:9px;">${tag.replace('class="jr-tag', 'style="font-size:9px;padding:0 4px;" class="jr-tag')}</div></div>
+      <span class="jr-sp"></span>
+      <div style="display:flex;gap:5px;align-items:center;padding-top:16px;">
+        <span id="jr-st-${k}" style="font-size:11px;"></span><button class="jr-btn sm" onclick="jrCardSwitch('${k}')" title="Wrong kind? Move this trade to ${P ? 'Options' : 'Penny'} — everything typed stays">⇄ ${P ? 'Options' : 'Penny'}</button>
+        <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
+        <button class="jr-btn sm" onclick="jrCardToggle('${k}')" title="Show everything: dates, ${P ? 'plan levels' : 'type, strike, expiration'}, add-ons, rules, notes">▸ Expand</button>
+        <button class="jr-btn del sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></div>
+    </div>
+    ${filledAdds ? `<div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k, true)}</div>` : ''}</div>`;
+}
+function jrCardAddsHtml(k, noBlank) {
   const e = JR.edit[k]; if (!e || jrNum(e.entry) == null || !jrNum(e.qty)) return '';
   const P = e.kind === 'penny', unit = P ? 'shares' : 'contracts', mult = P ? 1 : 100, adds = Array.isArray(e.adds) ? e.adds : [];
-  const full = a => a && jrNum(a.qty) && jrNum(a.price) != null, show = adds.length < 5 && (!adds.length || full(adds[adds.length - 1])) ? adds.concat([{}]) : adds;
+  const full = a => a && jrNum(a.qty) && jrNum(a.price) != null, show = !noBlank && adds.length < 5 && (!adds.length || full(adds[adds.length - 1])) ? adds.concat([{}]) : adds.filter(full);
   const v = jrCardVals(e), pxf = x => x == null ? '—' : '$' + (x < 1 ? Number(x).toFixed(4) : Number(x).toFixed(2));
   const inp = (i, f, val, ph) => `<input type="number" step="any" value="${jrEsc(val == null ? '' : val)}" placeholder="${ph}" style="width:90px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" onchange="jrCardAddSet('${k}',${i},'${f}',this.value)">`;
   return `<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px dashed var(--border2);border-radius:6px;background:rgba(0,212,255,.035);">
@@ -18759,12 +18831,17 @@ function jrCardAddDel(k, i) { const e = JR.edit[k]; if (!e) return; e.adds = (e.
 function jrCardAddsRedraw(k) {   // redraw now (a filled line opens the next one) and keep the cursor where it was
   const ab = document.getElementById('jr-adds-' + k); if (!ab) return;
   const ae = document.activeElement, key = ae && ab.contains(ae) ? ae.getAttribute('onchange') : null;
-  ab.innerHTML = jrCardAddsHtml(k);
+  ab.innerHTML = jrCardAddsHtml(k, !(JR.edit[k] || {})._open);
   if (key) { const n = [...ab.querySelectorAll('input')].find(x => x.getAttribute('onchange') === key); if (n) n.focus(); }
 }
 function jrSet(k, field, val, rerender) {
   const e = JR.edit[k]; if (!e) return;
   e[field] = val; e._dirty = true;
+  if (field === 'entry' && jrNum(val) != null && !e.entry_time) e.entry_time = jrNowHM();   // computer clock, editable
+  if (field === 'exit' && jrNum(val) != null) {
+    if (!e.exit_time) e.exit_time = jrNowHM();
+    if (!e.exit_date && jrToday() !== e.d) { e.exit_date = jrToday(); e._r_exit_date = jrShowMDY(e.exit_date); }   // out on a later day
+  }
   if (rerender) jrRender(); else jrRefreshCard(k);
   jrMarkDirty(k);
 }
@@ -18774,9 +18851,12 @@ function jrSaveAllBtn() { const b = document.getElementById('jr-saveall'); if (b
 // Planned levels from the actual entry: zone = entry ± tolerance, stop = entry − stop %, option target = entry + target %.
 function jrPlanLevels(e) {
   const en = jrNum(e.entry), tol = jrNum(e.plan_tol), sp = jrNum(e.plan_stop_pct), tp = e.plan_target_pct === 'run' ? null : jrNum(e.plan_target_pct);
-  const r4 = x => Math.round(x * 10000) / 10000;
-  return { lo: en != null && tol != null ? r4(Math.max(0, en - tol)) : null, hi: en != null && tol != null ? r4(en + tol) : null,
-    stop: en != null && sp != null ? r4(en * (1 - sp / 100)) : null, target: e.kind === 'option' && en != null && tp != null ? r4(en * (1 + tp / 100)) : null };
+  const r4 = x => Math.round(x * 10000) / 10000, q = jrNum(e.qty), m = e.kind === 'option' ? 100 : 1;
+  const su = e._u_plan_stop_pct ? jrNum(e.plan_stop_usd) : null, tu = e._u_plan_target_pct ? jrNum(e.plan_target_usd) : null;   // $ for the whole position
+  const stop = en == null ? null : su != null ? (q ? r4(Math.max(0, en - su / (q * m))) : null) : sp != null ? r4(en * (1 - sp / 100)) : null;
+  const target = e.kind !== 'option' || en == null ? null : tu != null ? (q ? r4(en + tu / (q * m)) : null) : tp != null ? r4(en * (1 + tp / 100)) : null;
+  return { lo: en != null && tol != null ? r4(Math.max(0, en - tol)) : null, hi: en != null && tol != null ? r4(en + tol) : null, stop, target,
+    stopPct: stop != null && en ? Math.round((1 - stop / en) * 1000) / 10 : null, targetPct: target != null && en ? Math.round((target / en - 1) * 1000) / 10 : null };
 }
 function jrCardBuys(e) {   // first buy (Shares / Entry) + filled add-on lines → [{ qty, price }]
   return [{ qty: jrNum(e.qty), price: jrNum(e.entry) }, ...(Array.isArray(e.adds) ? e.adds : []).map(a => ({ qty: jrNum(a && a.qty), price: jrNum(a && a.price) }))].filter(b => b.qty && b.price != null);
@@ -18792,10 +18872,11 @@ function jrCardVals(e) {
 function jrRefreshCard(k) {
   const e = JR.edit[k]; if (!e) return;
   const v = jrCardVals(e), risk = jrRiskFor(e.d);
-  const ab = document.getElementById('jr-adds-' + k); if (ab && !ab.contains(document.activeElement)) ab.innerHTML = jrCardAddsHtml(k);
+  const ab = document.getElementById('jr-adds-' + k); if (ab && !ab.contains(document.activeElement)) ab.innerHTML = jrCardAddsHtml(k, !e._open);
+  ['entry_time', 'exit_time'].forEach(tf => { const el = document.getElementById(`jr-tm-${k}-${tf}`); if (el && el !== document.activeElement) el.value = e[tf] ? String(e[tf]).slice(0, 5) : ''; });
   const pe = document.getElementById('jr-pnl-' + k);
   if (pe) { pe.textContent = jrMoney(v.pnl); pe.className = 'jr-auto ' + (v.pnl > 0 ? 'jr-pos' : v.pnl < 0 ? 'jr-neg' : ''); }
-  const lv = jrPlanLevels({ ...e, entry: v.entry }), px = x => x == null ? '—' : '$' + (x < 1 ? x.toFixed(4) : x.toFixed(2));
+  const lv = jrPlanLevels({ ...e, entry: v.entry, qty: v.qty }), px = x => x == null ? '—' : '$' + (x < 1 ? x.toFixed(4) : x.toFixed(2));
   // Options: max loss per trade = 80% of the daily risk → lowest premium out (stop) allowed for these contracts
   const mxEl = document.getElementById('jr-max-' + k);
   if (mxEl) {
@@ -18804,7 +18885,7 @@ function jrRefreshCard(k) {
       const ML = jrDayLeft('option', e.d, e.id), daily = ML.limit, maxLoss = ML.max, cost = v.entry * v.qty * 100, drop = maxLoss / (v.qty * 100);
       const floor = Math.max(0, Math.round((v.entry - drop) * 100) / 100), pct = Math.min(100, Math.round(maxLoss / cost * 100));
       const bad = [];
-      if (lv.stop != null && lv.stop < floor) bad.push(`your ${e.plan_stop_pct}% stop (${px(lv.stop)}) is below $${floor.toFixed(2)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
+      if (lv.stop != null && lv.stop < floor) bad.push(`your ${e._u_plan_stop_pct ? '$' + jrNum(e.plan_stop_usd) : e.plan_stop_pct + '%'} stop (${px(lv.stop)}) is below $${floor.toFixed(2)} → loss would be $${Math.round((v.entry - lv.stop) * v.qty * 100)}`);
       if (v.exit != null && v.exit < floor) bad.push(`premium out ${px(v.exit)} is below $${floor.toFixed(2)} → lost $${Math.round((v.entry - v.exit) * v.qty * 100)}, more than $${maxLoss}`);
       mxEl.innerHTML = `<span style="padding:4px 9px;border-radius:5px;display:inline-block;${bad.length ? 'background:rgba(255,80,80,.12);border:1px solid var(--red);' : 'background:rgba(255,176,32,.08);border:1px solid var(--amber);'}">
         ${bad.length ? '⚠️' : '🛡️'} <b>Max loss ${'$' + maxLoss}</b> ${ML.max < ML.cap ? `(only $${ML.left} left today — already −$${ML.used} of $${daily})` : `(80% of $${daily} daily${ML.used ? ` · −$${ML.used} lost today` : ''})`} · cost ${'$' + Math.round(cost).toLocaleString('en-US')} ·
@@ -18819,10 +18900,18 @@ function jrRefreshCard(k) {
   const sEl = document.getElementById('jr-ps-' + k);
   if (sEl) {
     const low = must != null && lv.stop != null && lv.stop < must;
-    sEl.innerHTML = `${lv.stop != null ? `stop ${px(lv.stop)}` : '—'}${must != null ? ` · <b class="${low ? 'jr-neg' : 'jr-amb'}" title="Lowest stop for ${v.qty} contract${v.qty > 1 ? 's' : ''} at ${px(v.entry)}: max loss $${mustML.max}${mustML.max < mustML.cap ? ` (what's left today after −$${mustML.used})` : ` = 80% of $${mustML.limit} daily`}">must stop ${must > 0 ? '$' + must.toFixed(2) : '— any'}${low ? ' ✗' : ''}</b>` : ''}`;
+    const mul = e.kind === 'option' ? 100 : 1, sLoss = lv.stop != null && v.entry != null && v.qty ? Math.round((v.entry - lv.stop) * v.qty * mul) : null;
+    sEl.innerHTML = `${lv.stop != null ? `stop ${px(lv.stop)}${sLoss != null ? ` · <span class="jr-neg">−$${sLoss.toLocaleString('en-US')}</span>` : ''}${e._u_plan_stop_pct && lv.stopPct != null ? ` (−${lv.stopPct}%)` : ''}` : e._u_plan_stop_pct && jrNum(e.plan_stop_usd) != null ? 'enter shares + entry' : '—'}${must != null ? ` · <b class="${low ? 'jr-neg' : 'jr-amb'}" title="Lowest stop for ${v.qty} contract${v.qty > 1 ? 's' : ''} at ${px(v.entry)}: max loss $${mustML.max}${mustML.max < mustML.cap ? ` (what's left today after −$${mustML.used})` : ` = 80% of $${mustML.limit} daily`}">must stop ${must > 0 ? '$' + must.toFixed(2) : '— any'}${low ? ' ✗' : ''}</b>` : ''}`;
     sEl.style.whiteSpace = 'normal';
   }
-  const tEl = document.getElementById('jr-pt-' + k); if (tEl) tEl.textContent = e.target_run || e.plan_target_pct === 'run' ? 'let it run' : lv.target != null ? `target ${px(lv.target)}` : '—';
+  const tEl = document.getElementById('jr-pt-' + k);
+  if (tEl) {
+    const tg = e.kind === 'option' ? lv.target : jrNum(e.plan_target), mul = e.kind === 'option' ? 100 : 1;
+    const gain = tg != null && v.entry != null && v.qty ? Math.round((tg - v.entry) * v.qty * mul) : null;
+    tEl.innerHTML = e.kind === 'option' && (e.target_run || e.plan_target_pct === 'run') ? 'let it run' : tg != null
+      ? `${e.kind === 'option' ? `target ${px(tg)}` : ''}${gain != null ? `${e.kind === 'option' ? ' · ' : ''}<span class="${gain >= 0 ? 'jr-pos' : 'jr-neg'}">${gain >= 0 ? '+' : '−'}$${Math.abs(gain).toLocaleString('en-US')}</span>` : ''}${e._u_plan_target_pct && lv.targetPct != null ? ` (+${lv.targetPct}%)` : ''}`
+      : e._u_plan_target_pct && jrNum(e.plan_target_usd) != null ? 'enter contracts + premium' : '—';
+  }
   const se = document.getElementById('jr-size-' + k);
   if (se) {
     const px = v.entry ?? jrNum(e.plan_entry);
@@ -18847,16 +18936,19 @@ async function jrSaveCard(k) {
   if (!sym) { showToast('Journal', 'Ticker is required', 'error'); return false; }
   const bad = ['d', 'exit_date', 'expiry'].find(fl => e['_bad_' + fl]);
   if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type MM/DD/YY, e.g. 11/20/26)`, 'error'); return false; }
-  if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
-  const n = jrNum, lv = jrPlanLevels({ ...e, entry: v.entry }), ecs = jrExpiryCheck({ ...e, exit: v.exit }), wasNew = !e.id;
+  const quick = !e._open && !e._ovr && !Object.values(e.rules || {}).some(Boolean);   // saved from the one-line card before any rule was ticked
+  if (!quick && v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
+  const n = jrNum, lv = jrPlanLevels({ ...e, entry: v.entry, qty: v.qty }), ecs = jrExpiryCheck({ ...e, exit: v.exit }), wasNew = !e.id;
   const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
+    entry_time: e.entry_time ? String(e.entry_time).slice(0, 5) : null, exit_time: v.exit != null && e.exit_time ? String(e.exit_time).slice(0, 5) : null,
     exit_date: e.exit_date && e.exit_date !== e.d ? e.exit_date : null,
     plan_entry: n(e.plan_tol) != null ? v.entry : n(e.plan_entry), plan_tol: n(e.plan_tol),
-    plan_stop_pct: n(e.plan_stop_pct), plan_stop: lv.stop ?? (n(e.plan_stop_pct) == null ? n(e.plan_stop) : null),
-    plan_target_pct: e.kind === 'option' && e.plan_target_pct !== 'run' ? n(e.plan_target_pct) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
+    plan_stop_pct: e._u_plan_stop_pct ? lv.stopPct : n(e.plan_stop_pct), plan_stop: lv.stop ?? (n(e.plan_stop_pct) == null && !e._u_plan_stop_pct ? n(e.plan_stop) : null),
+    plan_stop_usd: e._u_plan_stop_pct ? n(e.plan_stop_usd) : null, plan_target_usd: e.kind === 'option' && e._u_plan_target_pct ? n(e.plan_target_usd) : null,
+    plan_target_pct: e.kind === 'option' && e.plan_target_pct !== 'run' ? (e._u_plan_target_pct ? lv.targetPct : n(e.plan_target_pct)) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
     plan_target: e.kind === 'option' ? lv.target : n(e.plan_target),
     stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
-    setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: v.res, notes: String(e.notes || '').trim() || null,
+    setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: quick ? null : v.res, notes: String(e.notes || '').trim() || null,
     buys: v.buys.length > 1 ? v.buys : null, updated_at: new Date().toISOString() };
   const supa = await getSupabaseAsync();
   const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
@@ -19546,6 +19638,25 @@ async function jrPlanRule(id, k, on) {
   const { error } = await supa.from('jr_plans').update({ rules: p.rules, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) showToast('Journal', 'Rules not saved: ' + error.message, 'error'); else if (p.trade_id) jrPlanToToday(p);
 }
+// STEP 69: a plan shows its first line (+ filled add-ons + Total) until you expand it; rules, notes and the empty add-on line only when open.
+function jrPlanOpen(id) { try { return (JSON.parse(localStorage.getItem('jr_plan_open') || '[]')).includes(id); } catch (_) { return false; } }
+function jrPlanOpenSet(ids, open) {
+  let a = []; try { a = JSON.parse(localStorage.getItem('jr_plan_open') || '[]'); } catch (_) { }
+  ids.forEach(id => { a = a.filter(x => x !== id); if (open) a.push(id); });
+  try { localStorage.setItem('jr_plan_open', JSON.stringify(a.slice(-300))); } catch (_) { }
+}
+function jrPlanToggle(id) { jrPlanOpenSet([id], !jrPlanOpen(id)); jrRender(); }
+function jrPlanAll(open) { jrPlanOpenSet((JR.plans || []).filter(p => p.d === JR.d).map(p => p.id), open); jrRender(); }
+async function jrPlanSwitch(id) {   // ⇄ Penny ↔ Options: the plan keeps everything typed so far
+  const p = (JR.plans || []).find(x => x.id === id); if (!p) return;
+  p.kind = p.kind === 'penny' ? 'option' : 'penny';
+  jrRender();
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_plans').update({ kind: p.kind, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) { showToast('Journal', 'Not switched: ' + error.message, 'error'); return; }
+  showToast(String(p.symbol || 'Plan'), `Moved to ${p.kind === 'penny' ? 'Penny' : 'Options'} ✓`, 'info');
+  if (p.trade_id) jrPlanToToday(p);
+}
 function jrPlanHtml() {
   const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
   const money = v => v == null ? '—' : '$' + (Math.abs(v) < 1 && v !== 0 ? Number(v).toFixed(2) : Math.round(v).toLocaleString('en-US'));
@@ -19555,8 +19666,8 @@ function jrPlanHtml() {
   const inp = (p, f, ph, w = 80, extra = '') => `<input value="${jrEsc(f === 'price' ? jrPx2(p[f]) : (p[f] ?? ''))}" placeholder="${ph}" style="width:${w}px;${extra}" onchange="jrPlanSet(${p.id},'${f}',this.value)">`;
   const sec = (kind, title, color) => {
     const rows = ps.filter(p => p.kind === kind), b = c[kind], P = kind === 'penny';
-    const body = rows.map((p, i) => { const x = c[p.id] || {};
-      return `<tr>
+    const body = rows.map((p, i) => { const x = c[p.id] || {}, open = jrPlanOpen(p.id);
+      return `<tbody class="jr-pgrp"><tr>
         <td>${i + 1}</td><td>${inp(p, 'symbol', 'TICKER', 80, 'text-transform:uppercase;font-weight:700;')}${!P && (p.strike || p.expiry || p.entry_trigger) ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;white-space:nowrap;">${jrEsc([p.strike ? p.strike + (p.opt_type === 'put' ? ' P' : p.opt_type === 'call' ? ' C' : '') : '', p.expiry ? 'exp ' + jrShowMD(p.expiry) : '', p.entry_trigger ? 'entry ' + p.entry_trigger : '', p.status || ''].filter(Boolean).join(' · '))}</div>` : ''}${P && p.session ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;">${{ pre: 'Pre-market', reg: 'Regular', post: 'After-hours' }[p.session] || ''}</div>` : ''}</td>
         <td>${inp(p, 'price', P ? '2.00' : '2.21', 70)}</td><td>${sel(p)}</td><td>${px(x.adds ? x.stop1 : x.stop)}</td>
         <td style="font-weight:700;color:var(--cyan);font-size:13px;">${x.max == null ? '—' : x.max.toLocaleString('en-US')}${P && x.ruleSize != null ? `<div style="font-size:10px;color:var(--text3);font-weight:400;">rule ⅓: ${x.ruleSize.toLocaleString('en-US')}</div>` : ''}</td>
@@ -19565,9 +19676,11 @@ function jrPlanHtml() {
         ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
         <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td>`}
         <td>${inp(p, 'exit_price', 'exit', 64)}${p.trade_id ? `<div style="font-size:10px;margin-top:2px;white-space:nowrap;"><a href="#" onclick="jrTab('today');return false;" style="color:var(--green);">✓ on Today</a>${(() => { const t = (JR.trades || []).find(t => t.id === p.trade_id); return t && t.pnl != null ? ` <b class="${t.pnl >= 0 ? 'jr-pos' : 'jr-neg'}">${t.pnl >= 0 ? '+' : '−'}$${Math.abs(t.pnl).toFixed(2)}</b>` : ''; })()}</div>` : ''}</td>
-        <td style="white-space:nowrap;">${!p.trade_id && p.symbol && jrNum(p.price) != null && jrNum(p.qty) ? `<button class="jr-btn g sm" onclick="jrPlanTaken(${p.id})" title="You took this trade: put it on Today now (open until you fill in the exit). After that, the plan and Today stay the same.">✓ Taken → Today</button> ` : ''}${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
-        ${jrPlanAddRows(p, x, P, money, px)}
-        ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${jrPlanNotesRow(p)}${jrPlanRulesRow(p)}`; }).join('');
+        <td style="white-space:nowrap;">${!p.trade_id && p.symbol && jrNum(p.price) != null && jrNum(p.qty) ? `<button class="jr-btn g sm" onclick="jrPlanTaken(${p.id})" title="You took this trade: put it on Today now (open until you fill in the exit). After that, the plan and Today stay the same.">✓ Taken → Today</button> ` : ''}${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn sm" onclick="jrPlanSwitch(${p.id})" title="Wrong kind? Move this plan to ${P ? 'Options' : 'Penny'} — everything stays">⇄ ${P ? 'Options' : 'Penny'}</button>
+          <button class="jr-btn sm" onclick="jrPlanToggle(${p.id})" title="${open ? 'Fold to the first line' : 'Show the add-on line, rules and notes'}">${open ? '▾' : '▸'}</button>
+          <button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
+        ${jrPlanAddRows(p, x, P, money, px, open)}
+        ${open && !P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${open ? jrPlanNotesRow(p) + jrPlanRulesRow(p) : ''}</tbody>`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
         <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${b.lost && b.budget < b.cap ? `Budget $${b.budget} (only this much left today — already −$${b.lost} of $${b.limit})` : P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${b.limit} daily${b.lost ? ` · −$${b.lost} lost today` : ''})`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
       ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Entry price' : 'Premium in'}</th><th>Stop %</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th title="What's left of the day's budget after this plan's loss at the stop">Budget left</th><th title="Fill in when you're out — the trade goes to Today automatically">${P ? 'Exit price' : 'Premium out'}</th><th></th></tr>${body}</table>`
@@ -19586,10 +19699,10 @@ function jrPlanHtml() {
     ${show('penny') ? sec('penny', 'Penny stocks — plan', 'var(--green)') : ''}${show('option') ? sec('option', 'Options — plan', 'var(--cyan)') : ''}`;
 }
 // Add-on lines under a plan: each filled line opens the next empty one (up to 5 add-ons); Total = all lines at the average price.
-function jrPlanAddRows(p, x, P, money, px) {
+function jrPlanAddRows(p, x, P, money, px, open = true) {
   if (jrNum(p.price) == null || !jrNum(p.qty)) return '';                       // the first line comes first
   const adds = Array.isArray(p.adds) ? p.adds : [], full = a => a && jrNum(a.qty) && jrNum(a.price) != null;
-  const show = adds.length < 5 && (!adds.length || full(adds[adds.length - 1])) ? adds.concat([{}]) : adds;
+  const show = !open ? adds.filter(full) : adds.length < 5 && (!adds.length || full(adds[adds.length - 1])) ? adds.concat([{}]) : adds;   // folded: only filled add-ons
   const rest = P ? 4 : 5, unit = P ? 'shares' : 'contracts', mult = P ? 1 : 100;
   const ai = (i, f, v, ph, w) => `<input value="${jrEsc(v == null ? '' : (f === 'price' ? jrPx2(v) : v))}" placeholder="${ph}" style="width:${w}px;" onchange="jrPlanAddSet(${p.id},${i},'${f}',this.value)">`;
   let h = show.map((a, i) => { const done = full(a);
@@ -19667,9 +19780,13 @@ async function _jrPlanToToday(p) {
   row.result = jrAutoResult(row);
   const supa = await getSupabaseAsync();
   let data = null, error = null;
-  if (p.trade_id) ({ data, error } = await supa.from('jr_trades').update(row).eq('id', p.trade_id).select());
+  if (p.trade_id) {
+    const cur = (JR.trades || []).find(t => t.id === p.trade_id);
+    const upd = row.exit != null && cur && !cur.exit_time ? { ...row, exit_time: jrNowHM() } : row;   // the exit filled on the plan → exit time now
+    ({ data, error } = await supa.from('jr_trades').update(upd).eq('id', p.trade_id).select());
+  }
   if (!error && !(data && data.length)) {   // new (or the Today trade was deleted): create it and link the plan to it
-    ({ data, error } = await supa.from('jr_trades').insert(row).select());
+    ({ data, error } = await supa.from('jr_trades').insert({ ...row, entry_time: jrNowHM(), exit_time: row.exit != null ? jrNowHM() : null }).select());
     if (!error && data && data[0]) { p.trade_id = data[0].id; const lk = await supa.from('jr_plans').update({ trade_id: p.trade_id }).eq('id', p.id);
       if (lk.error) showToast('Journal', 'Trade is on Today, but the plan could not be linked: ' + lk.error.message, 'error');
       showToast(sym, exit == null ? 'On Today now ✓ — open position (fill in the exit when you are out)' : `On Today now ✓ — ${row.result.toUpperCase()}${row.result === 'fail' ? ' (check the rules / add a note)' : ''}`, 'info'); }
@@ -21200,8 +21317,8 @@ const SPA_GUIDE = [
   ['journal', 'Journal', 'journal', `
     <p>Your trading routine, in the order you use it:</p>
     <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
-      <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. <b>✓ Taken → Today</b> puts the trade on Today as soon as you're in; from then on the plan and Today stay the same — edit either one (Today has the same add-on lines). A plan section only shows for kinds on that day's watch list.</li>
-      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
+      <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. Each plan shows one line (plus filled add-ons and the Total); <b>▸</b> opens the empty add-on line, rules and notes, <b>▸ Expand all / ▾ Collapse all</b> do every plan, and <b>⇄</b> moves a plan between Penny and Options. <b>✓ Taken → Today</b> puts the trade on Today as soon as you're in; from then on the plan and Today stay the same — edit either one (Today has the same add-on lines). A plan section only shows for kinds on that day's watch list.</li>
+      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, and <b>Penny | Options</b> switches a trade that went into the wrong kind (everything typed stays). Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
       <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
       <li><b>Weekly Audit</b> — review the week: what worked, what to change.</li>
       <li><b>Analytics</b> — win rate, results by setup and period.</li></ol>
