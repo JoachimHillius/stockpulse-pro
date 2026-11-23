@@ -18530,10 +18530,13 @@ function jrTodayHtml() {
   const inp = (k, ph) => `<input type="number" step="any" value="${m[k] ?? ''}" placeholder="${ph}" onchange="jrSaveDay('${k}',this.value)">`;
   const trend = ['up', 'down', 'side'].map((k, i) => `<button class="${m.trend === k ? 'on' : ''}" onclick="jrSaveDay('trend','${k}')">${['▲ Up', '▼ Down', '▶ Sideways'][i]}</button>`).join('');
   // cards: saved trades of the day + new unsaved cards
-  for (const t of tr) if (!JR.edit['t' + t.id]) JR.edit['t' + t.id] = jrEditOf(t);
+  for (const t of tr) {
+    if (t.scalp_group) { const gk = 'g' + t.scalp_group; if (!JR.edit[gk]) JR.edit[gk] = jrScalpEditOf(tr.filter(x => x.scalp_group === t.scalp_group)); continue; }
+    if (!JR.edit['t' + t.id]) JR.edit['t' + t.id] = jrEditOf(t);
+  }
   const keys = Object.keys(JR.edit).filter(k => (JR.edit[k]._origD || JR.edit[k].d) === d && !JR.edit[k]._deleted);   // a card stays on its page until saved
-  const sec = (kind, label, color) => { const ks = keys.filter(k => JR.edit[k].kind === kind); return ks.length ? `<div style="margin-top:${kind === 'option' ? 28 : 6}px;">
-      <div style="font-size:13px;font-weight:700;letter-spacing:1px;color:${color};border-bottom:2px solid ${color};padding-bottom:4px;margin-bottom:10px;">${label} · ${ks.length} trade${ks.length > 1 ? 's' : ''}</div>
+  const sec = (kind, label, color) => { const ks = keys.filter(k => JR.edit[k].kind === kind), nt = ks.reduce((a, k) => a + (JR.edit[k].scalp ? (JR.edit[k].rounds || []).length || 1 : 1), 0); return ks.length ? `<div style="margin-top:${kind === 'option' ? 28 : 6}px;">
+      <div style="font-size:13px;font-weight:700;letter-spacing:1px;color:${color};border-bottom:2px solid ${color};padding-bottom:4px;margin-bottom:10px;">${label} · ${nt} trade${nt > 1 ? 's' : ''}</div>
       <div class="jr-cards" style="margin-top:0;">${ks.map((k, i) => jrCardHtml(k, i + 1)).join('')}</div></div>` : ''; };
   const cards = sec('penny', 'PENNY STOCKS', 'var(--green)') + sec('option', 'OPTIONS', 'var(--cyan)');
   return `
@@ -18590,6 +18593,107 @@ function jrBrokerHtml(k) {
 function jrSegHtml(k, field, opts) {
   const e = JR.edit[k];
   return `<div class="jr-seg">${opts.map(([v, l]) => `<button class="${e[field] === v ? 'on' : ''}" onclick="jrSet('${k}','${field}','${v}',true)">${l}</button>`).join('')}</div>`;
+}
+// ---------- Options scalping: one card, one line per round (each round is saved as its own trade, same scalp_group) ----------
+function jrScalpEditOf(ts) {
+  ts = ts.slice().sort((a, b) => String(a.entry_time || '').localeCompare(String(b.entry_time || '')) || a.id - b.id);
+  const e = jrEditOf(ts[0]), hm = x => x ? String(x).slice(0, 5) : null;
+  Object.assign(e, { _k: 'g' + ts[0].scalp_group, id: null, scalp: true, scalp_group: ts[0].scalp_group, qty: null, entry: null, exit: null, entry_time: null, exit_time: null, adds: [], _dirty: false,
+    rounds: ts.map(t => ({ id: t.id, opt_type: t.opt_type === 'put' ? 'put' : 'call', qty: jrNum(t.qty), entry: jrNum(t.entry), exit: jrNum(t.exit), entry_time: hm(t.entry_time), exit_time: hm(t.exit_time), result: t.result || null, saved: true })) });
+  return e;
+}
+function jrScalpCur(e) {   // the round being worked on (last one with numbers) — drives max loss / stop / size checks
+  const rs = (e.rounds || []).filter(r => jrNum(r.qty) || jrNum(r.entry) != null), r = rs[rs.length - 1] || (e.rounds || [])[0] || {};
+  return { ...e, scalp: false, adds: [], qty: r.qty, entry: r.entry, exit: r.exit, opt_type: r.opt_type || 'call' };
+}
+function jrScalp(k, on) {
+  const e = JR.edit[k]; if (!e || !!e.scalp === on) return;
+  if (on) {
+    e.scalp = true; e.setup = e.setup || 'scalp';
+    e.rounds = [{ id: e.id || null, opt_type: e.opt_type === 'put' ? 'put' : 'call', qty: e.qty ?? null, entry: e.entry ?? null, exit: e.exit ?? null, entry_time: e.entry_time || null, exit_time: e.exit_time || null }];
+    e.adds = [];
+  } else {
+    const rs = e.rounds || [];
+    if (rs.length > 1 && !confirm(`Turn scalping off? Only round 1 stays on this card — the other ${rs.length - 1} round${rs.length > 2 ? 's are' : ' is'} removed when you save.`)) return;
+    const r = rs[0] || {};
+    e._delIds = (e._delIds || []).concat(rs.slice(1).map(x => x.id).filter(Boolean));
+    Object.assign(e, { scalp: false, id: r.id || null, opt_type: r.opt_type || 'call', qty: r.qty ?? null, entry: r.entry ?? null, exit: r.exit ?? null, entry_time: r.entry_time || null, exit_time: r.exit_time || null, rounds: null });
+  }
+  e._dirty = true; jrRender(); jrMarkDirty(k);
+}
+function jrTypeSegHtml(k) {
+  const e = JR.edit[k], cur = e.scalp ? 'scalp' : e.opt_type;
+  return `<div class="jr-seg">${[['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread'], ['scalp', 'Scalping']].map(([v, l]) => `<button class="${cur === v ? 'on' : ''}" onclick="${v === 'scalp' ? `jrScalp('${k}',true)` : `if(JR.edit['${k}'].scalp)jrScalp('${k}',false);if(!JR.edit['${k}'].scalp)jrSet('${k}','opt_type','${v}',true)`}">${l}</button>`).join('')}</div>`;
+}
+function jrRoundPnl(r) { const q = jrNum(r.qty), a = jrNum(r.entry), b = jrNum(r.exit); return q && a != null && b != null ? Math.round((b - a) * q * 100 * 100) / 100 : null; }
+function jrRoundsHtml(k) {
+  const e = JR.edit[k], rs = e.rounds || [];
+  const tm = (i, f) => `<input type="time" id="jr-rtm-${k}-${i}-${f}" value="${e.rounds[i][f] || ''}" style="width:106px;padding:4px 2px 4px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:inherit;color-scheme:dark;" onchange="jrRound('${k}',${i},'${f}',this.value||null)">`;
+  const num = (i, f, ph, w) => `<input type="number" step="any" ${f === 'entry' ? `id="jr-ri-${k}-${i}"` : ''} value="${jrEsc(f === 'qty' ? (rs[i][f] ?? '') : jrPx2(rs[i][f]))}" placeholder="${ph}" style="width:${w}px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" oninput="jrRound('${k}',${i},'${f}',this.value)">`;
+  const lines = rs.map((r, i) => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <b style="width:26px;color:var(--text2);">R${i + 1}</b>
+      <div class="jr-seg">${[['call', 'Call'], ['put', 'Put']].map(([v, l]) => `<button class="${r.opt_type === v ? 'on' : ''}" onclick="jrRound('${k}',${i},'opt_type','${v}')">${l}</button>`).join('')}</div>
+      ${num(i, 'qty', 'contracts', 80)}<span style="color:var(--text3);">in</span>${num(i, 'entry', '0.00', 66)}${tm(i, 'entry_time')}
+      <span style="color:var(--text3);">→ out</span>${num(i, 'exit', '0.00', 66)}${tm(i, 'exit_time')}
+      <span id="jr-rp-${k}-${i}" style="min-width:74px;font-weight:700;"></span>
+      ${r.saved && !e._dirty ? (r.result ? `<span class="jr-tag ${r.result}">${r.result.toUpperCase()}</span>` : '<span class="jr-tag none">NOT REVIEWED</span>') : ''}
+      <button class="jr-btn del sm" onclick="jrRoundDel('${k}',${i})" title="Remove this round">✕</button></div>`).join('');
+  return `<div style="display:flex;flex-direction:column;gap:5px;padding:7px 9px;border:1px dashed var(--border2);border-radius:6px;background:rgba(0,212,255,.035);">
+    <div style="font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.5px;">Scalping rounds — each round counts as its own trade · same rules and notes</div>
+    ${lines}
+    <div style="display:flex;gap:10px;align-items:center;"><button class="jr-btn g sm" onclick="jrRoundAdd('${k}')">+ Next round</button><span id="jr-rtot-${k}" style="font-size:12px;"></span></div></div>`;
+}
+function jrRound(k, i, f, val) {
+  const e = JR.edit[k], r = e && e.rounds && e.rounds[i]; if (!r) return;
+  r[f] = val; r.saved = r.saved && f !== 'opt_type' ? r.saved : r.saved; e._dirty = true;
+  if (f === 'entry' && jrNum(val) != null && !r.entry_time) r.entry_time = jrNowHM();   // computer clock, editable
+  if (f === 'exit' && jrNum(val) != null && !r.exit_time) r.exit_time = jrNowHM();
+  if (f === 'opt_type') jrRender(); else jrRefreshCard(k);
+  jrMarkDirty(k);
+}
+function jrRoundAdd(k) {
+  const e = JR.edit[k], last = (e.rounds || [])[e.rounds.length - 1] || {};
+  e.rounds.push({ id: null, opt_type: last.opt_type || 'call', qty: last.qty ?? null, entry: null, exit: null, entry_time: null, exit_time: null });
+  e._dirty = true; jrRender(); jrMarkDirty(k);
+  setTimeout(() => { const el = document.getElementById(`jr-ri-${k}-${e.rounds.length - 1}`); if (el) el.focus(); }, 30);
+}
+function jrRoundDel(k, i) {
+  const e = JR.edit[k], r = e.rounds[i]; if (!r) return;
+  if (r.id) e._delIds = (e._delIds || []).concat(r.id);
+  e.rounds.splice(i, 1); if (!e.rounds.length) e.rounds.push({ id: null, opt_type: r.opt_type || 'call', qty: null, entry: null, exit: null });
+  e._dirty = true; jrRender(); jrMarkDirty(k);
+}
+async function jrSaveScalp(k, sym) {
+  const e = JR.edit[k], n = jrNum;
+  const rs = (e.rounds || []).filter(r => n(r.qty) && n(r.entry) != null);
+  if (!rs.length) { showToast('Journal', `${sym}: fill in contracts and premium in for round 1`, 'error'); return false; }
+  const quick = !e._open && !e._ovr && !Object.values(e.rules || {}).some(Boolean);
+  const group = e.scalp_group || ('sg' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+  const rows = rs.map(r => {
+    const e2 = { ...e, scalp: false, adds: [], id: r.id || null, opt_type: r.opt_type || 'call', qty: r.qty, entry: r.entry, exit: r.exit, entry_time: r.entry_time, exit_time: r.exit_time, exit_date: null };
+    const v2 = jrCardVals(e2);
+    return { r, v2, row: { ...jrTradeRow(e2, v2, sym, quick), scalp_group: group, setup: e.setup || 'scalp' } };
+  });
+  const bad = rows.find(x => !quick && x.v2.res === 'fail');
+  if (bad && !String(e.notes || '').trim()) { showToast('Journal', `${sym} round ${rs.indexOf(bad.r) + 1} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
+  const supa = await getSupabaseAsync(), saved = [];
+  const drop = (e._delIds || []).concat((e.rounds || []).filter(r => r.id && !rs.includes(r)).map(r => r.id));
+  for (const x of rows) {
+    const q = x.r.id ? supa.from('jr_trades').update(x.row).eq('id', x.r.id).select() : supa.from('jr_trades').insert(x.row).select();
+    const { data, error } = await q;
+    if (error) { showToast('Journal', 'Not saved: ' + error.message, 'error'); return false; }
+    const t = data[0]; x.r.id = t.id; saved.push({ ...t, qty: n(t.qty), entry: n(t.entry), exit: n(t.exit), pnl: n(t.pnl) });
+  }
+  if (drop.length) { const { error } = await supa.from('jr_trades').delete().in('id', drop); if (error) showToast('Journal', 'A removed round was not deleted: ' + error.message, 'error'); }
+  const ids = new Set(saved.map(t => t.id).concat(drop));
+  JR.trades = JR.trades.filter(t => !ids.has(t.id)).concat(saved).sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id);
+  const wasOpen = e._open; delete JR.edit[k]; delete JR.edit['g' + group];
+  if (saved[0].d !== JR.d) JR.d = saved[0].d;
+  JR.edit['g' + group] = jrScalpEditOf(saved); JR.edit['g' + group]._open = wasOpen;
+  showToast(sym, `Scalping saved ✓ — ${saved.length} round${saved.length > 1 ? 's' : ''}`, 'info');
+  jrRender();
+  const st = document.getElementById('jr-st-g' + group); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
+  return true;
 }
 // Saved row → editable card state (derives the % for older trades that only have $ levels).
 function jrEditOf(t) {
@@ -18743,7 +18847,7 @@ function jrCardSwitch(k) {
   showToast(String(e.symbol || 'Trade').toUpperCase(), `Moved to ${to === 'penny' ? 'Penny' : 'Options'} — click Save to keep it`, 'info');
 }
 function jrCardSwitchHtml(k) {
-  const e = JR.edit[k];
+  const e = JR.edit[k]; if (e.scalp) return '';
   return `<span class="jr-seg" title="Wrong kind? Switch it — everything you typed stays" style="margin-left:6px;">
     <button class="${e.kind === 'penny' ? 'on' : ''}" onclick="${e.kind === 'penny' ? '' : `jrCardSwitch('${k}')`}">Penny</button><button class="${e.kind === 'option' ? 'on' : ''}" onclick="${e.kind === 'option' ? '' : `jrCardSwitch('${k}')`}">Options</button></span>`;
 }
@@ -18767,15 +18871,16 @@ function jrCardHtml(k, n) {
       ${f('qty', 'Shares', 'number', '0')}${f('entry', 'Entry', 'number', '0.00')}${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${f('exit', 'Exit', 'number', '0.00')}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
       <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`
     : `${sym}
-      <div class="jr-f" style="flex:none;"><label>Type</label>${jrSegHtml(k, 'opt_type', [['call', 'Call'], ['put', 'Put'], ['spread', 'Debit spread']])}</div>
-      ${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
+      <div class="jr-f" style="flex:none;"><label>Type</label>${jrTypeSegHtml(k)}</div>
+      ${e.scalp ? `${jrDateF(k, 'd', 'Date', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}`
+      : `${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
       ${f('entry', 'Premium in', 'number', '0.00')}${f('exit', 'Premium out', 'number', '0.00')}
-      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>
+      <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`}
     </div><div id="jr-max-${k}" style="margin-top:6px;font-size:11.5px;"></div><div class="jr-row" style="margin-top:8px;">`;
   const mid = P ? `${tolF}${stopF}${f('plan_target', 'Target', 'number', '0.00').replace(/<\/div>$/, `<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>`)}
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
       <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
-    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
+    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${e.scalp ? '' : jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
       <div class="jr-f" style="flex:none;"><label>Setup</label>${jrSegHtml(k, 'setup', [['scalp', 'Scalp'], ['power', 'Power hour'], ['spread', 'Spread'], ['other', 'Other']])}</div>
     </div><div class="jr-row" style="margin-top:8px;">
       ${tolF}${stopF}<div class="jr-f" style="flex:none;min-width:150px;"><label>Target (% or $ above premium in)</label>${jrPick(k, 'plan_target_pct', JR_TGT_PCT, o => o === '' ? '%' : '+' + o + '%', [['run', 'Let it run']], 'plan_target_usd')}<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>
@@ -18790,7 +18895,7 @@ function jrCardHtml(k, n) {
       <button class="jr-btn sm" onclick="jrCardToggle('${k}')" title="Fold this trade to one line">▾ Collapse</button>
       <button class="jr-btn del sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></h3>
     <div class="jr-row">${top}</div>
-    <div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k)}</div>
+    ${e.scalp ? `<div id="jr-rounds-${k}" style="margin-top:6px;">${jrRoundsHtml(k)}</div>` : `<div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k)}</div>`}
     <div class="jr-row" style="margin-top:8px;">${mid}</div>
     <div class="jr-row" style="margin-top:10px;align-items:flex-start;">
       <div style="flex:1;min-width:280px;"><div style="font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Rules — tick each rule you kept</div>${rules}</div>
@@ -18813,17 +18918,20 @@ function jrCardQuickHtml(k, n) {   // the one-line card
       <div style="font-weight:700;color:var(--text2);padding-top:22px;">#${n}</div>
       ${sym}
       <div class="jr-f" style="flex:none;"><label>Session</label>${jrSegHtml(k, 'session', [['pre', 'Pre'], ['reg', 'Reg'], ['post', 'After']])}</div>
-      ${f('qty', '0', 54)}${f('entry', '0.00', 62)}${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${f('exit', '0.00', 62)}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
-      <div class="jr-f" style="flex:none;width:76px;"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div><div style="min-height:12px;margin-top:2px;white-space:nowrap;font-size:9px;">${tag.replace('class="jr-tag', 'style="font-size:9px;padding:0 4px;" class="jr-tag')}</div></div>
+      ${e.scalp ? `<div class="jr-f" style="flex:none;"><label>Type</label><div class="jr-seg"><button class="on">Scalping</button></div></div>
+      <div class="jr-f" style="flex:none;width:96px;"><label>Strike</label><input type="text" value="${jrEsc(e.strike ?? '')}" placeholder="182.5" oninput="jrSet('${k}','strike',this.value)"></div>
+      <div class="jr-f" style="flex:none;"><label>Rounds P&amp;L</label><div class="jr-auto" id="jr-rtq-${k}" style="min-width:90px;"></div></div>`
+      : `${f('qty', '0', 54)}${f('entry', '0.00', 62)}${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${f('exit', '0.00', 62)}${jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
+      <div class="jr-f" style="flex:none;width:76px;"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div><div style="min-height:12px;margin-top:2px;white-space:nowrap;font-size:9px;">${tag.replace('class="jr-tag', 'style="font-size:9px;padding:0 4px;" class="jr-tag')}</div></div>`}
       <span class="jr-sp"></span>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;padding-top:16px;"><div style="display:flex;gap:5px;align-items:center;">
-        <span id="jr-st-${k}" style="font-size:11px;"></span><button class="jr-btn sm" onclick="jrCardSwitch('${k}')" title="Wrong kind? Move this trade to ${P ? 'Options' : 'Penny'} — everything typed stays">⇄ ${P ? 'Options' : 'Penny'}</button>
+        <span id="jr-st-${k}" style="font-size:11px;"></span><button class="jr-btn sm" ${e.scalp ? 'style="display:none;"' : ''} onclick="jrCardSwitch('${k}')" title="Wrong kind? Move this trade to ${P ? 'Options' : 'Penny'} — everything typed stays">⇄ ${P ? 'Options' : 'Penny'}</button>
         <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
         <button class="jr-btn sm" onclick="jrCardToggle('${k}')" title="Show everything: dates, ${P ? 'plan levels' : 'type, strike, expiration'}, add-ons, rules, notes">▸ Expand</button>
         <button class="jr-btn del sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></div>
         ${jrBrokerHtml(k)}</div>
     </div>
-    ${filledAdds ? `<div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k, true)}</div>` : ''}</div>`;
+    ${e.scalp ? `<div id="jr-rounds-${k}" style="margin-top:6px;">${jrRoundsHtml(k)}</div>` : filledAdds ? `<div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k, true)}</div>` : ''}</div>`;
 }
 function jrCardAddsHtml(k, noBlank) {
   const e = JR.edit[k]; if (!e || jrNum(e.entry) == null || !jrNum(e.qty)) return '';
@@ -18890,7 +18998,19 @@ function jrCardVals(e) {
 }
 function jrRefreshCard(k) {
   const e = JR.edit[k]; if (!e) return;
-  const v = jrCardVals(e), risk = jrRiskFor(e.d);
+  const v = jrCardVals(e.scalp ? jrScalpCur(e) : e), risk = jrRiskFor(e.d);
+  if (e.scalp) {
+    let tot = 0, nOk = 0;
+    (e.rounds || []).forEach((r, i) => {
+      const p = jrRoundPnl(r), el = document.getElementById(`jr-rp-${k}-${i}`);
+      if (p != null) { tot += p; nOk++; }
+      if (el) { el.textContent = p == null ? (jrNum(r.entry) != null ? 'open' : '') : jrMoney(p); el.className = p > 0 ? 'jr-pos' : p < 0 ? 'jr-neg' : ''; }
+      ['entry_time', 'exit_time'].forEach(tf => { const t = document.getElementById(`jr-rtm-${k}-${i}-${tf}`); if (t && t !== document.activeElement) t.value = r[tf] || ''; });
+    });
+    const txt = nOk ? `${nOk} closed · <b class="${tot > 0 ? 'jr-pos' : tot < 0 ? 'jr-neg' : ''}">${jrMoney(Math.round(tot * 100) / 100)}</b>` : '—';
+    const t1 = document.getElementById('jr-rtot-' + k); if (t1) t1.innerHTML = nOk ? `Total ${txt}` : '';
+    const t2 = document.getElementById('jr-rtq-' + k); if (t2) t2.innerHTML = txt;
+  }
   const ab = document.getElementById('jr-adds-' + k); if (ab && !ab.contains(document.activeElement)) ab.innerHTML = jrCardAddsHtml(k, !e._open);
   ['entry_time', 'exit_time'].forEach(tf => { const el = document.getElementById(`jr-tm-${k}-${tf}`); if (el && el !== document.activeElement) el.value = e[tf] ? String(e[tf]).slice(0, 5) : ''; });
   const pe = document.getElementById('jr-pnl-' + k);
@@ -18958,8 +19078,16 @@ async function jrSaveCard(k) {
   if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type MM/DD/YY, e.g. 11/20/26)`, 'error'); return false; }
   const quick = !e._open && !e._ovr && !Object.values(e.rules || {}).some(Boolean);   // saved from the one-line card before any rule was ticked
   if (!quick && v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
-  const n = jrNum, lv = jrPlanLevels({ ...e, entry: v.entry, qty: v.qty }), ecs = jrExpiryCheck({ ...e, exit: v.exit }), wasNew = !e.id;
-  const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
+  if (e.scalp) return jrSaveScalp(k, sym);
+  const n = jrNum, wasNew = !e.id, row = jrTradeRow(e, v, sym, quick);
+  const supa = await getSupabaseAsync();
+  if (e._delIds && e._delIds.length) { await supa.from('jr_trades').delete().in('id', e._delIds); const dl = new Set(e._delIds); JR.trades = JR.trades.filter(t => !dl.has(t.id)); }
+  const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
+  return jrSaveCardDone(k, e, v, sym, wasNew, q);
+}
+function jrTradeRow(e, v, sym, quick) {
+  const n = jrNum, lv = jrPlanLevels({ ...e, entry: v.entry, qty: v.qty }), ecs = jrExpiryCheck({ ...e, exit: v.exit });
+  return { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
     entry_time: e.entry_time ? String(e.entry_time).slice(0, 5) : null, exit_time: v.exit != null && e.exit_time ? String(e.exit_time).slice(0, 5) : null,
     exit_date: e.exit_date && e.exit_date !== e.d ? e.exit_date : null,
     plan_entry: n(e.plan_tol) != null ? v.entry : n(e.plan_entry), plan_tol: n(e.plan_tol),
@@ -18969,9 +19097,10 @@ async function jrSaveCard(k) {
     plan_target: e.kind === 'option' ? lv.target : n(e.plan_target),
     broker: e.broker || null, stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
     setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(jrSizeCheck(v) ? { size: jrSizeCheck(v).ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: quick ? null : v.res, notes: String(e.notes || '').trim() || null,
-    buys: v.buys.length > 1 ? v.buys : null, updated_at: new Date().toISOString() };
-  const supa = await getSupabaseAsync();
-  const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
+    buys: v.buys.length > 1 ? v.buys : null, scalp_group: null, updated_at: new Date().toISOString() };
+}
+async function jrSaveCardDone(k, e, v, sym, wasNew, q) {
+  const n = jrNum;
   const { data, error } = await q;
   if (error) { showToast('Journal', 'Not saved: ' + error.message, 'error'); return false; }
   const saved = { ...data[0], qty: n(data[0].qty), entry: n(data[0].entry), exit: n(data[0].exit), pnl: n(data[0].pnl) };
@@ -19011,6 +19140,15 @@ async function jrTradeToPlan(t, buys, wasNew) {
 }
 async function jrDeleteCard(k) {
   const e = JR.edit[k]; if (!e) return;
+  if (e.scalp) {
+    const ids = (e.rounds || []).map(r => r.id).filter(Boolean).concat(e._delIds || []);
+    if (!ids.length) { delete JR.edit[k]; jrRender(); return; }
+    if (!confirm(`Delete this ${e.symbol} scalping card — all ${ids.length} round${ids.length > 1 ? 's' : ''}?`)) return;
+    const supa = await getSupabaseAsync();
+    const { error } = await supa.from('jr_trades').delete().in('id', ids);
+    if (error) { showToast('Journal', 'Not deleted: ' + error.message, 'error'); return; }
+    const dl = new Set(ids); JR.trades = JR.trades.filter(t => !dl.has(t.id)); delete JR.edit[k]; jrRender(); return;
+  }
   if (!e.id) { delete JR.edit[k]; jrRender(); return; }
   if (!confirm(`Delete this ${e.symbol} trade from the journal?`)) return;
   const supa = await getSupabaseAsync();
@@ -21338,7 +21476,7 @@ const SPA_GUIDE = [
     <p>Your trading routine, in the order you use it:</p>
     <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
       <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. Each plan shows one line (plus filled add-ons and the Total); <b>▸</b> opens the empty add-on line, rules and notes, <b>▸ Expand all / ▾ Collapse all</b> do every plan, and <b>⇄</b> moves a plan between Penny and Options. <b>✓ Taken → Today</b> puts the trade on Today as soon as you're in; from then on the plan and Today stay the same — edit either one (Today has the same add-on lines). A plan section only shows for kinds on that day's watch list.</li>
-      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, <b>⇄ Penny / Options</b> switches a trade that went into the wrong kind (everything typed stays), and <b>IBKR | Schwab | Webull | Sage</b> records the broker (click again to clear). The entry / exit time fills in from your computer's clock when you type the price — click it to change it. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
+      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, <b>⇄ Penny / Options</b> switches a trade that went into the wrong kind (everything typed stays), options <b>Type → Scalping</b> (on ▸ Expand) turns the card into round lines — Call / Put, contracts, in, out (times from the clock) — with <b>+ Next round</b> for the next one on the same ticker; every round is saved as its own trade, with the same rules and notes; and <b>IBKR | Schwab | Webull | Sage</b> records the broker (click again to clear). The entry / exit time fills in from your computer's clock when you type the price — click it to change it. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
       <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
       <li><b>Weekly Audit</b> — review the week: what worked, what to change.</li>
       <li><b>Analytics</b> — win rate, results by setup and period.</li></ol>
