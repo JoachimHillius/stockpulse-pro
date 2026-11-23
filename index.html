@@ -732,6 +732,7 @@ select option{background:var(--bg2);}
     <button class="btn btn-cyan btn-sm" onclick="toggleAddStockPopup()" style="margin-left:8px;">+ Add Stock</button>
     <button class="btn btn-cyan btn-sm" id="wl-addt-btn" onclick="wlAddtOpen()" title="Add many tickers at once: type them, pick a starter list, or upload a CSV / Excel file / screenshot">+ Add tickers</button>
   </div>
+  <div id="wl-alarm-strip" style="display:none;flex-wrap:wrap;gap:6px;align-items:center;font-size:11px;margin:-2px 0 8px;"></div>
   <div id="add-stock-popup" style="display:none;background:var(--bg2);border:1px solid var(--cyan);border-radius:6px;padding:14px;margin-bottom:8px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
       <span style="font-size:12px;font-weight:600;letter-spacing:1px;color:var(--cyan);">ADD STOCK TO WATCHLIST</span>
@@ -3640,6 +3641,29 @@ function _rerenderWlGroup(secId) {
 
 // Price shown for a row, in order: fresh price_live (Yahoo, pre/after-hours aware) -> Finnhub live quote -> price captured by the last RSI scan -> latest stored close -> '—'.
 // Live quotes arrive in throttled batches, so most rows would otherwise show '—' until their turn.
+// 🔔 Watchlist alarm (STEP 68): admin only — the server checks armed alarms every 5 minutes and sends them to Telegram.
+function _wlBell(sym, q, rsi) {
+  if (!(typeof SPA === 'object' && SPA.me && SPA.me.role === 'admin')) return '';
+  const on = (window._alarmsArmed || []).filter(a => a.symbol === sym);
+  const live = _wlPriceLiveInfo(sym), px = live?.price ?? q?.p ?? (rsi?.price != null ? Number(rsi.price) : null) ?? histBaselines[sym]?.latestClose ?? 0;
+  const tip = on.length ? 'Alarm armed: ' + on.map(a => `${a.direction} $${Number(a.level).toFixed(2)}`).join(', ') + ' — click to add another' : 'Set a price alarm (Telegram)';
+  return `<button class="wl-bell" onclick="event.stopPropagation();showAlarmForm('${sym}',${Number(px) || 0},'above')" title="${tip}"
+    style="background:transparent;border:none;cursor:pointer;padding:0 0 0 4px;font-size:11px;opacity:${on.length ? 1 : .28};">🔔</button>`;
+}
+function _wlAlarmStrip() {
+  const el = document.getElementById('wl-alarm-strip'); if (!el) return;
+  const admin = typeof SPA === 'object' && SPA.me && SPA.me.role === 'admin', list = window._alarmsArmed || [];
+  if (!admin || !list.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'flex';
+  el.innerHTML = `<span style="color:var(--amber);font-weight:700;">🔔 Alarms → Telegram:</span>` + list.map(a => `<span style="border:1px solid rgba(255,176,32,.4);border-radius:12px;padding:1px 8px;white-space:nowrap;">
+      <b>${a.symbol}</b> ${a.direction === 'above' ? '⬆️ above' : '⬇️ below'} $${Number(a.level).toFixed(Number(a.level) < 1 ? 4 : 2)}${a.note ? ' · ' + String(a.note).replace(/[<>&"]/g, '') : ''}
+      <button onclick="wlAlarmDel(${a.id})" title="Remove this alarm" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:12px;padding:0 0 0 4px;">✕</button></span>`).join('');
+}
+async function wlAlarmDel(id) {
+  const supa = await getSupabaseAsync(); const { error } = await supa.from('alarms').delete().eq('id', id);
+  if (error) { showToast('Alarms', 'Not removed: ' + error.message, 'error'); return; }
+  await loadArmedAlarmCount(); if (typeof renderWatchlist === 'function') renderWatchlist();
+}
 function _wlPriceCell(sym, q, rsi) {
   const live = _wlPriceLiveInfo(sym);
   if (live) return `<span class="wl-price-cell" title="${live.title}">${fmtPrice(sym, live.price)}</span>`;
@@ -3703,7 +3727,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
     // Compact sector select on every row (built-in, user and RSI-only): writes public.sector_override.
     const sectorEditHtml = _wlRowSectorSelect(sym, sector, sectorNeedsEdit);
     return `<div class="wl-dense-row" data-sym="${sym}" data-sector="${String(sector).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" onclick="showHoverPopup('${sym}',this)" style="cursor:pointer;">
-      <span class="wl-sym-cell">${sym}${_wlRsiBadge(rsi?.rsi_1d)}</span>
+      <span class="wl-sym-cell">${sym}${_wlRsiBadge(rsi?.rsi_1d)}${_wlBell(sym, q, rsi)}</span>
       <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}><span class="wl-name-txt">${COMPANY_NAMES[sym] || ''}</span>${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:2px;flex:0 0 auto;" title="Remove from watchlist">×</button>` : ''}</span>
       ${priceCellHtml}
       <span class="pct-cell ${netClr}" style="text-align:right;">${netVal == null ? '—' : (netVal >= 0 ? '+' : '') + Number(netVal).toFixed(2)}</span>
@@ -9627,7 +9651,8 @@ async function loadArmedAlarmCount() {
   ]);
   _armedCount     = armedRes.count  || 0;
   _triggeredCount = trigRes.count   || 0;
-  _updateAlarmBadge();
+  try { const { data } = await supa.from('alarms').select('id,symbol,level,direction,note').eq('status', 'armed').order('symbol'); window._alarmsArmed = data || []; } catch (_) {}
+  _updateAlarmBadge(); _wlAlarmStrip();
 }
 
 function _updateAlarmBadge() {
@@ -9661,8 +9686,8 @@ async function armAlarm(symbol, level, direction, note) {
     }
     return;
   }
-  showToast(symbol, `🔔 Armed: ${direction} $${Number(level).toFixed(2)}${note ? ' · ' + note : ''}`, 'info');
-  loadArmedAlarmCount();
+  showToast(symbol, `🔔 Armed: ${direction} $${Number(level).toFixed(2)}${note ? ' · ' + note : ''} — Telegram tells you when it hits (checked every 5 min)`, 'info');
+  await loadArmedAlarmCount(); if (typeof renderWatchlist === 'function') renderWatchlist();
 }
 
 function showAlarmForm(symbol, level, direction) {
@@ -9740,6 +9765,9 @@ async function fetchPriceForAlarm(symbol) {
 }
 
 async function checkAlarmsNow() {
+  // STEP 68: armed alarms are checked on the server every 5 minutes and sent to Telegram (public.alarm_check), even with the app closed.
+  // Here we only refresh the list / badge, so the browser never marks an alarm as triggered before Telegram has it.
+  return loadArmedAlarmCount();
   if (!isInTradingWindow()) return;
   if (!localStorage.getItem('sp_fh')) return;
   const supa = await getSupabaseAsync();
@@ -21132,6 +21160,7 @@ function spaApply() {   // header chip, Admin tab, and (for users) only the tabs
     const first = SPA_FEATURES.find(([k]) => spaAllowed(k));
     if (first) { const b = [...document.querySelectorAll('.nav-btn')].find(x => (x.getAttribute('onclick') || '').includes(first[2])); b?.click(); }
   }
+  if (admin && typeof loadArmedAlarmCount === 'function') loadArmedAlarmCount().then(() => { if (typeof renderWatchlist === 'function') renderWatchlist(); }).catch(() => {});   // 🔔 Watchlist alarms
   spaAccountCard();
 }
 function spaMenu() {
@@ -21196,7 +21225,9 @@ const SPA_GUIDE = [
     <p><b>Admin</b> (top bar) lists every account: name and personal link, email and phone, who referred them, sign-up date and email check, last visit.</p>
     <p><b>Tabs:</b> tick a box to switch a tab on for that user (it appears for them on their next page load). New users start with Watchlist and Journal, and their Watchlist starts with the penny stocks list.</p>
     <p><b>+ Tickers</b> (under a user's name) adds to that user's Watchlist: type tickers, pick a starter list (penny stocks, Nasdaq-100, S&amp;P 500) or upload a file. Users themselves only get the penny list, so large caps go through you.</p>
-    <p><b>Block</b> stops a user from using the app; <b>Release</b> lets them back in.</p>`],
+    <p><b>Block</b> stops a user from using the app; <b>Release</b> lets them back in.</p>
+    <p><b>Telegram (you only):</b> 🔔 on a Watchlist row sets a price alarm (above / below) — checked every 5 minutes, sent to Telegram once, even with the app closed; armed alarms are listed under the Watchlist toolbar (✕ removes one).
+    Every 15 minutes (4 AM – 8 PM ET) 📋 POSITIONS lists your open trades and today's plans with price, ⬆️ ➡️ ⬇️ since the last update, P&amp;L and the distance to the stop; 🚨 / 🎯 come right away when an open penny trade reaches its stop / target (options show the stock price only).</p>`],
 ];
 function spaGuideOn(need) {
   if (!need) return true;
