@@ -18547,6 +18547,9 @@ function jrSegHtml(k, field, opts) {
 // Saved row → editable card state (derives the % for older trades that only have $ levels).
 function jrEditOf(t) {
   const e = { ...t, rules: { ...(t.rules || {}) }, _ovr: t.rules?._ovr || '', _k: 't' + t.id, _origD: t.d };
+  // several buys: the card shows the first buy in Shares / Entry and the rest as add-on lines (the saved qty / entry are the total and the average)
+  const bs = Array.isArray(t.buys) ? t.buys.filter(b => b && jrNum(b.qty) && jrNum(b.price) != null) : [];
+  if (bs.length > 1) { e.qty = jrNum(bs[0].qty); e.entry = jrNum(bs[0].price); e.adds = bs.slice(1).map(b => ({ qty: jrNum(b.qty), price: jrNum(b.price) })); } else e.adds = [];
   const en = jrNum(t.entry);
   if (e.plan_stop_pct == null && t.plan_stop != null && en) e.plan_stop_pct = Math.round((1 - t.plan_stop / en) * 1000) / 10;
   if (t.kind === 'option' && e.plan_target_pct == null && t.plan_target != null && en) e.plan_target_pct = Math.round((t.plan_target / en - 1) * 1000) / 10;
@@ -18693,6 +18696,7 @@ function jrCardHtml(k, n) {
       <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
       <button class="jr-btn del sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></h3>
     <div class="jr-row">${top}</div>
+    <div id="jr-adds-${k}" style="margin-top:6px;">${jrCardAddsHtml(k)}</div>
     <div class="jr-row" style="margin-top:8px;">${mid}</div>
     <div class="jr-row" style="margin-top:10px;align-items:flex-start;">
       <div style="flex:1;min-width:280px;"><div style="font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Rules — tick each rule you kept</div>${rules}</div>
@@ -18701,6 +18705,34 @@ function jrCardHtml(k, n) {
         <div class="jr-f"><label>Notes / why the deviation</label><div class="jr-micw"><textarea oninput="jrSet('${k}','notes',this.value)" placeholder="What happened, why, next time I will…">${jrEsc(e.notes)}</textarea>${jrMicBtn()}</div></div>
       </div>
     </div></div>`;
+}
+function jrCardAddsHtml(k) {
+  const e = JR.edit[k]; if (!e || jrNum(e.entry) == null || !jrNum(e.qty)) return '';
+  const P = e.kind === 'penny', unit = P ? 'shares' : 'contracts', mult = P ? 1 : 100, adds = Array.isArray(e.adds) ? e.adds : [];
+  const full = a => a && jrNum(a.qty) && jrNum(a.price) != null, show = adds.length < 5 && (!adds.length || full(adds[adds.length - 1])) ? adds.concat([{}]) : adds;
+  const v = jrCardVals(e), pxf = x => x == null ? '—' : '$' + (x < 1 ? Number(x).toFixed(4) : Number(x).toFixed(2));
+  const inp = (i, f, val, ph) => `<input type="number" step="any" value="${jrEsc(val == null ? '' : val)}" placeholder="${ph}" style="width:90px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" onchange="jrCardAddSet('${k}',${i},'${f}',this.value)">`;
+  return `<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px dashed var(--border2);border-radius:6px;background:rgba(0,212,255,.035);">
+    ${show.map((a, i) => `<div style="display:flex;gap:8px;align-items:center;font-size:11.5px;"><span style="width:78px;color:var(--text2);">${full(a) ? '' : '+ '}Add-on ${i + 1}</span>
+      ${inp(i, 'qty', a.qty, unit)}<span style="color:var(--text3);">@</span>${inp(i, 'price', a.price, P ? 'price' : 'premium')}
+      ${full(a) ? `<span style="color:var(--text2);">cost $${(jrNum(a.qty) * jrNum(a.price) * mult).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span><button class="jr-btn del sm" onclick="jrCardAddDel('${k}',${i})" title="Remove this add-on">✕</button>` : `<span style="color:var(--text3);">bought more? fill in ${unit} and price</span>`}</div>`).join('')}
+    ${v.multi ? `<div style="font-size:12px;font-weight:700;padding-top:4px;border-top:1px solid var(--border);">Total <span style="color:var(--cyan);">${v.qty.toLocaleString('en-US')} ${unit}</span> · avg <span style="color:var(--cyan);">${pxf(v.entry)}</span>
+      · cost $${(v.qty * v.entry * mult).toLocaleString('en-US', { maximumFractionDigits: 2 })} <span style="font-weight:400;color:var(--text2);">· ${v.buys.length} buys · P&amp;L, stop and the plan use the total and the average</span></div>` : ''}</div>`;
+}
+function jrCardAddSet(k, i, f, val) {
+  const e = JR.edit[k]; if (!e) return;
+  e.adds = Array.isArray(e.adds) ? e.adds.slice() : [];
+  while (e.adds.length <= i) e.adds.push({});
+  e.adds[i] = { ...e.adds[i], [f]: jrNum(val) };
+  e.adds = e.adds.filter((a, n) => n <= i || (a && (a.qty != null || a.price != null)));
+  e._dirty = true; jrCardAddsRedraw(k); jrRefreshCard(k); jrMarkDirty(k);
+}
+function jrCardAddDel(k, i) { const e = JR.edit[k]; if (!e) return; e.adds = (e.adds || []).filter((_, n) => n !== i); e._dirty = true; jrCardAddsRedraw(k); jrRefreshCard(k); jrMarkDirty(k); }
+function jrCardAddsRedraw(k) {   // redraw now (a filled line opens the next one) and keep the cursor where it was
+  const ab = document.getElementById('jr-adds-' + k); if (!ab) return;
+  const ae = document.activeElement, key = ae && ab.contains(ae) ? ae.getAttribute('onchange') : null;
+  ab.innerHTML = jrCardAddsHtml(k);
+  if (key) { const n = [...ab.querySelectorAll('input')].find(x => x.getAttribute('onchange') === key); if (n) n.focus(); }
 }
 function jrSet(k, field, val, rerender) {
   const e = JR.edit[k]; if (!e) return;
@@ -18718,8 +18750,12 @@ function jrPlanLevels(e) {
   return { lo: en != null && tol != null ? r4(Math.max(0, en - tol)) : null, hi: en != null && tol != null ? r4(en + tol) : null,
     stop: en != null && sp != null ? r4(en * (1 - sp / 100)) : null, target: e.kind === 'option' && en != null && tp != null ? r4(en * (1 + tp / 100)) : null };
 }
+function jrCardBuys(e) {   // first buy (Shares / Entry) + filled add-on lines → [{ qty, price }]
+  return [{ qty: jrNum(e.qty), price: jrNum(e.entry) }, ...(Array.isArray(e.adds) ? e.adds : []).map(a => ({ qty: jrNum(a && a.qty), price: jrNum(a && a.price) }))].filter(b => b.qty && b.price != null);
+}
 function jrCardVals(e) {
-  const o = { ...e, qty: jrNum(e.qty), entry: jrNum(e.entry), exit: jrNum(e.exit) };
+  const bs = jrCardBuys(e), multi = bs.length > 1, tq = bs.reduce((t, b) => t + b.qty, 0);
+  const o = { ...e, qty: multi ? tq : jrNum(e.qty), entry: multi ? Math.round(bs.reduce((t, b) => t + b.qty * b.price, 0) / tq * 10000) / 10000 : jrNum(e.entry), exit: jrNum(e.exit), buys: bs, multi };
   o.pnl = jrPnl(o);
   o.auto = jrAutoResult(o);
   o.res = e._ovr || o.auto;
@@ -18728,9 +18764,10 @@ function jrCardVals(e) {
 function jrRefreshCard(k) {
   const e = JR.edit[k]; if (!e) return;
   const v = jrCardVals(e), risk = jrRiskFor(e.d);
+  const ab = document.getElementById('jr-adds-' + k); if (ab && !ab.contains(document.activeElement)) ab.innerHTML = jrCardAddsHtml(k);
   const pe = document.getElementById('jr-pnl-' + k);
   if (pe) { pe.textContent = jrMoney(v.pnl); pe.className = 'jr-auto ' + (v.pnl > 0 ? 'jr-pos' : v.pnl < 0 ? 'jr-neg' : ''); }
-  const lv = jrPlanLevels(e), px = x => x == null ? '—' : '$' + (x < 1 ? x.toFixed(4) : x.toFixed(2));
+  const lv = jrPlanLevels({ ...e, entry: v.entry }), px = x => x == null ? '—' : '$' + (x < 1 ? x.toFixed(4) : x.toFixed(2));
   // Options: max loss per trade = 80% of the daily risk → lowest premium out (stop) allowed for these contracts
   const mxEl = document.getElementById('jr-max-' + k);
   if (mxEl) {
@@ -18783,7 +18820,7 @@ async function jrSaveCard(k) {
   const bad = ['d', 'exit_date', 'expiry'].find(fl => e['_bad_' + fl]);
   if (bad) { showToast('Journal', `${sym}: check the ${bad === 'd' ? 'entry date' : bad === 'expiry' ? 'expiration' : 'exit date'} (type MM/DD/YY, e.g. 11/20/26)`, 'error'); return false; }
   if (v.res === 'fail' && !String(e.notes || '').trim()) { showToast('Journal', `${sym} is a FAIL — write in the notes what happened and why before saving.`, 'error'); return false; }
-  const n = jrNum, lv = jrPlanLevels(e), ecs = jrExpiryCheck({ ...e, exit: v.exit });
+  const n = jrNum, lv = jrPlanLevels({ ...e, entry: v.entry }), ecs = jrExpiryCheck({ ...e, exit: v.exit }), wasNew = !e.id;
   const row = { d: e.d, kind: e.kind, symbol: sym, session: e.session || null, qty: v.qty, entry: v.entry, exit: v.exit,
     exit_date: e.exit_date && e.exit_date !== e.d ? e.exit_date : null,
     plan_entry: n(e.plan_tol) != null ? v.entry : n(e.plan_entry), plan_tol: n(e.plan_tol),
@@ -18791,7 +18828,8 @@ async function jrSaveCard(k) {
     plan_target_pct: e.kind === 'option' && e.plan_target_pct !== 'run' ? n(e.plan_target_pct) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
     plan_target: e.kind === 'option' ? lv.target : n(e.plan_target),
     stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
-    setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: v.res, notes: String(e.notes || '').trim() || null, updated_at: new Date().toISOString() };
+    setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: v.res, notes: String(e.notes || '').trim() || null,
+    buys: v.buys.length > 1 ? v.buys : null, updated_at: new Date().toISOString() };
   const supa = await getSupabaseAsync();
   const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
   const { data, error } = await q;
@@ -18800,11 +18838,36 @@ async function jrSaveCard(k) {
   JR.trades = JR.trades.filter(t => t.id !== saved.id).concat(saved).sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.id - b.id);
   delete JR.edit[k];
   JR.edit['t' + saved.id] = jrEditOf(saved);
+  await jrTradeToPlan(saved, v.buys, wasNew);
   if (saved.d !== JR.d) { showToast(sym, `Trade saved ✓ — moved to its entry date ${jrShowMD(saved.d)}`, 'info'); JR.d = saved.d; }
   else showToast(sym, 'Trade saved ✓', 'info');
   jrRender();
   const st = document.getElementById('jr-st-t' + saved.id); if (st) { st.textContent = 'Saved ✓'; st.style.color = 'var(--green)'; }
   return true;
+}
+// Today → Plan: the linked plan takes the trade's numbers (a new trade made on Today gets its plan line too). Older / imported trades are never copied into plans.
+async function jrTradeToPlan(t, buys, wasNew) {
+  try {
+    if (!JR.plans) return;
+    let p = JR.plans.find(x => x.trade_id === t.id);
+    if (!p && !wasNew) return;
+    const bs = buys && buys.length ? buys : (t.qty && t.entry != null ? [{ qty: jrNum(t.qty), price: jrNum(t.entry) }] : []);
+    const f = { d: t.d, kind: t.kind, symbol: t.symbol, price: bs[0] ? bs[0].price : jrNum(t.entry), qty: bs[0] ? bs[0].qty : jrNum(t.qty), adds: bs.slice(1),
+      exit_price: jrNum(t.exit), stop_pct: jrNum(t.plan_stop_pct) ?? (p ? p.stop_pct : null), notes: t.notes || null, session: t.session || null, plan_tol: jrNum(t.plan_tol),
+      opt_type: t.opt_type || null, expiry: t.expiry || null, strike: t.strike || null, stock_price: jrNum(t.stock_entry), updated_at: new Date().toISOString() };
+    if (t.kind === 'option' && t.plan_target_pct != null) f.target = String(t.plan_target_pct);
+    if (t.kind === 'penny' && t.plan_target != null) f.target = String(t.plan_target);
+    const supa = await getSupabaseAsync();
+    if (p) {
+      const { error } = await supa.from('jr_plans').update(f).eq('id', p.id);
+      if (error) { showToast('Journal', 'Trade saved, but the plan was not updated: ' + error.message, 'error'); return; }
+      Object.assign(p, f);
+    } else {
+      const { data, error } = await supa.from('jr_plans').insert({ ...f, trade_id: t.id }).select();
+      if (error) { showToast('Journal', 'Trade saved, but no plan line was made: ' + error.message, 'error'); return; }
+      JR.plans = (JR.plans || []).concat(data || []);
+    }
+  } catch (err) { console.warn('[today→plan]', err); }
 }
 async function jrDeleteCard(k) {
   const e = JR.edit[k]; if (!e) return;
@@ -18813,7 +18876,10 @@ async function jrDeleteCard(k) {
   const supa = await getSupabaseAsync();
   const { error } = await supa.from('jr_trades').delete().eq('id', e.id);
   if (error) { showToast('Journal', 'Not deleted: ' + error.message, 'error'); return; }
-  JR.trades = JR.trades.filter(t => t.id !== e.id); delete JR.edit[k]; jrRender();
+  JR.trades = JR.trades.filter(t => t.id !== e.id); delete JR.edit[k];
+  const lp = (JR.plans || []).find(p => p.trade_id === e.id);   // the plan stays, unlinked (✓ Taken → Today sends it again)
+  if (lp) { lp.trade_id = null; supa.from('jr_plans').update({ trade_id: null }).eq('id', lp.id).then(() => {}); }
+  jrRender();
 }
 
 // ticker search with "add stock"
@@ -19471,7 +19537,7 @@ function jrPlanHtml() {
         ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
         <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td>`}
         <td>${inp(p, 'exit_price', 'exit', 64)}${p.trade_id ? `<div style="font-size:10px;margin-top:2px;white-space:nowrap;"><a href="#" onclick="jrTab('today');return false;" style="color:var(--green);">✓ on Today</a>${(() => { const t = (JR.trades || []).find(t => t.id === p.trade_id); return t && t.pnl != null ? ` <b class="${t.pnl >= 0 ? 'jr-pos' : 'jr-neg'}">${t.pnl >= 0 ? '+' : '−'}$${Math.abs(t.pnl).toFixed(2)}</b>` : ''; })()}</div>` : ''}</td>
-        <td style="white-space:nowrap;">${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
+        <td style="white-space:nowrap;">${!p.trade_id && p.symbol && jrNum(p.price) != null && jrNum(p.qty) ? `<button class="jr-btn g sm" onclick="jrPlanTaken(${p.id})" title="You took this trade: put it on Today now (open until you fill in the exit). After that, the plan and Today stay the same.">✓ Taken → Today</button> ` : ''}${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
         ${jrPlanAddRows(p, x, P, money, px)}
         ${!P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${jrPlanNotesRow(p)}${jrPlanRulesRow(p)}`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
@@ -19517,6 +19583,7 @@ function jrPlanAddRows(p, x, P, money, px) {
   }
   return h;
 }
+function jrPlanTaken(id) { const p = (JR.plans || []).find(x => x.id === id); if (!p) return; p._send = true; jrPlanToToday(p).then(() => { delete p._send; }); }
 async function jrPlanAddSave(p) {
   const supa = await getSupabaseAsync();
   const { error } = await supa.from('jr_plans').update({ adds: p.adds, updated_at: new Date().toISOString() }).eq('id', p.id);
@@ -19549,7 +19616,7 @@ async function jrPlanSet(id, f, v) {
   const supa = await getSupabaseAsync();
   const { error } = await supa.from('jr_plans').update({ [f]: val, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) { showToast('Journal', 'Plan not saved: ' + error.message, 'error'); return; }
-  if (f === 'exit_price' ? val != null || p.trade_id : p.trade_id && ['symbol', 'price', 'qty', 'stop_pct', 'notes'].includes(f)) jrPlanToToday(p);
+  if (f === 'exit_price' ? val != null || p.trade_id : p.trade_id && ['symbol', 'price', 'qty', 'stop_pct', 'notes', 'session', 'strike', 'expiry', 'stock_price', 'target', 'plan_tol'].includes(f)) jrPlanToToday(p);
 }
 // Plan → Today: once the plan has an exit, it becomes the day's trade on Today (created once, kept in step after that — the plan is the place to edit it).
 function jrPlanToToday(p) {   // one at a time per plan, so quick edits never create the trade twice
@@ -19560,14 +19627,14 @@ async function _jrPlanToToday(p) {
   const n = jrNum, kind = p.kind === 'penny' ? 'penny' : 'option', sym = String(p.symbol || '').trim().toUpperCase();
   const T = jrPlanTot(p), multi = T.n > 1;
   const entry = multi ? T.avg : n(p.price), qty = multi ? T.q : n(p.qty), exit = n(p.exit_price), sp = n(p.stop_pct);
-  const buys = multi ? 'Buys: ' + T.lines.map(l => `${l.qty} @ $${l.price}`).join(' + ') + ` → ${T.q} @ avg $${T.avg}` : '';
-  if (!sym || entry == null || !qty) { if (exit != null) showToast('Journal', `To send it to Today, fill in the ticker, ${kind === 'penny' ? 'entry price and planned shares' : 'premium in and planned contracts'} first.`, 'error'); return; }
+  const buys = T.lines.map(l => ({ qty: l.qty, price: l.price }));
+  if (!sym || entry == null || !qty) { if (exit != null || p._send) showToast('Journal', `To send it to Today, fill in the ticker, ${kind === 'penny' ? 'entry price and planned shares' : 'premium in and planned contracts'} first.`, 'error'); return; }
   const tg = String(p.target ?? '').replace(/[%$\s]/g, ''), tgN = tg === '' || isNaN(+tg) ? null : +tg;
   const row = { d: p.d, kind, symbol: sym, session: p.session || null, qty, entry, exit, plan_entry: entry, plan_tol: n(p.plan_tol),
     plan_stop_pct: sp, plan_stop: sp != null ? Math.round(entry * (1 - sp / 100) * 10000) / 10000 : null,
     plan_target_pct: kind === 'option' ? tgN : null, plan_target: kind === 'penny' ? tgN : (tgN != null ? Math.round(entry * (1 + tgN / 100) * 10000) / 10000 : null),
     opt_type: p.opt_type || null, expiry: p.expiry || null, strike: p.strike ? String(p.strike) : null, stock_entry: n(p.stock_price),
-    rules: { ...(p.rules || {}) }, notes: [p.notes, buys].filter(Boolean).join('\n') || null, source: 'plan', updated_at: new Date().toISOString() };
+    buys: buys.length ? buys : null, rules: { ...(p.rules || {}) }, notes: p.notes || null, source: 'plan', updated_at: new Date().toISOString() };
   const ec = jrExpiryCheck(row); if (ec) row.rules.expiry = ec.ok;
   row.result = jrAutoResult(row);
   const supa = await getSupabaseAsync();
@@ -19575,7 +19642,9 @@ async function _jrPlanToToday(p) {
   if (p.trade_id) ({ data, error } = await supa.from('jr_trades').update(row).eq('id', p.trade_id).select());
   if (!error && !(data && data.length)) {   // new (or the Today trade was deleted): create it and link the plan to it
     ({ data, error } = await supa.from('jr_trades').insert(row).select());
-    if (!error && data && data[0]) { p.trade_id = data[0].id; await supa.from('jr_plans').update({ trade_id: p.trade_id }).eq('id', p.id); showToast(sym, `On Today now ✓ — ${row.result.toUpperCase()}${row.result === 'fail' ? ' (check the rules / add a note)' : ''}`, 'info'); }
+    if (!error && data && data[0]) { p.trade_id = data[0].id; const lk = await supa.from('jr_plans').update({ trade_id: p.trade_id }).eq('id', p.id);
+      if (lk.error) showToast('Journal', 'Trade is on Today, but the plan could not be linked: ' + lk.error.message, 'error');
+      showToast(sym, exit == null ? 'On Today now ✓ — open position (fill in the exit when you are out)' : `On Today now ✓ — ${row.result.toUpperCase()}${row.result === 'fail' ? ' (check the rules / add a note)' : ''}`, 'info'); }
   }
   if (error) { showToast('Journal', 'Could not send it to Today: ' + error.message, 'error'); return; }
   const t = data[0], saved = { ...t, qty: n(t.qty), entry: n(t.entry), exit: n(t.exit), pnl: n(t.pnl) };
@@ -21102,7 +21171,7 @@ const SPA_GUIDE = [
   ['journal', 'Journal', 'journal', `
     <p>Your trading routine, in the order you use it:</p>
     <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
-      <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. A plan section only shows for kinds on that day's watch list.</li>
+      <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. <b>✓ Taken → Today</b> puts the trade on Today as soon as you're in; from then on the plan and Today stay the same — edit either one (Today has the same add-on lines). A plan section only shows for kinds on that day's watch list.</li>
       <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
       <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
       <li><b>Weekly Audit</b> — review the week: what worked, what to change.</li>
