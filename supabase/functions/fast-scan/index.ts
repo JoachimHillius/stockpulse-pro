@@ -13,6 +13,8 @@
 //  5 minutes unless it is higher.
 //  Telegram commands (from your chat only): STOP XYZ → no more alerts for XYZ (here and the 👀 / ⚡ spike alerts) until
 //  START XYZ. Several tickers work too: STOP INHD, AKAN. The bot confirms each command.
+//  Buttons (v7, from your chat only): the 🔥 RUNNER alerts (runner_check) carry ➕ Add to Watchlist (→ user_watchlist) and
+//  ✖ Ignore today (→ runner_ignore); the tap is handled here on the next run (within a minute) and the button shows the result.
 //  Every alert carries "📊 Volume today X (pre-market Y) = N% of yesterday's Z": today's running volume vs the previous
 //  day's full volume. Regular session from Yahoo; pre-market and after-hours from Nasdaq's extended-trading data (Yahoo's
 //  free data has no extended-hours volume). Stored in public.vol_accum.
@@ -123,11 +125,29 @@ async function commands(supa: any): Promise<number> {
   const { data: st } = await supa.from('tg_state').select('key,val').in('key', ['tg_poll', 'tg_offset']);
   const s: Record<string, string> = Object.fromEntries((st || []).map((r: any) => [r.key, r.val]));
   if (s.tg_poll !== 'on' || !chat) return 0;
-  const up = await tg('getUpdates', { offset: Number(s.tg_offset || 0), timeout: 0, allowed_updates: ['message', 'channel_post'] });
+  const up = await tg('getUpdates', { offset: Number(s.tg_offset || 0), timeout: 0, allowed_updates: ['message', 'channel_post', 'callback_query'] });
   if (!up.ok) return 0;
   let next = Number(s.tg_offset || 0), n = 0;
   for (const u of up.result || []) {
     next = Math.max(next, u.update_id + 1);
+    if (u.callback_query) {   // a button under a RUNNER alert
+      const cq = u.callback_query, cm = cq.message;
+      const mm = String(cq.data || '').match(/^rw:(add|ign):([A-Z][A-Z.\-]{0,6})$/);
+      if (!cm || String(cm.chat?.id) !== chat || !mm) { await tg('answerCallbackQuery', { callback_query_id: cq.id }); continue; }
+      const sym = mm[2];
+      let note: string;
+      if (mm[1] === 'add') {
+        const { data: sec } = await supa.from('symbol_sectors').select('sector').eq('symbol', sym).maybeSingle();
+        const { error } = await supa.from('user_watchlist').upsert({ symbol: sym, sector: sec?.sector || 'Custom' }, { onConflict: 'symbol', ignoreDuplicates: true });
+        note = error ? `⚠️ ${sym} could not be added` : `✅ ${sym} added to your Watchlist`;
+      } else {
+        const { error } = await supa.from('runner_ignore').upsert({ symbol: sym, d: etParts().date }, { onConflict: 'symbol,d' });
+        note = error ? `⚠️ ${sym} could not be ignored` : `✖ ${sym} ignored for today`;
+      }
+      await tg('answerCallbackQuery', { callback_query_id: cq.id, text: note });
+      await tg('editMessageReplyMarkup', { chat_id: chat, message_id: cm.message_id, reply_markup: { inline_keyboard: [[{ text: note, callback_data: 'rw:done' }]] } });
+      n++; continue;
+    }
     const m = u.message || u.channel_post;
     if (!m || String(m.chat?.id) !== chat) continue;   // only your own chat can give commands
     const cmd = String(m.text || '').trim().match(/^\/?(stop|start)(?:@\w+)?\s+(.+)$/i);
