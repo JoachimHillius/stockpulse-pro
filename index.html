@@ -18277,8 +18277,8 @@ function _rsFlipToTracked(symbol, section) {
 const JR = { tab: 'today', d: null, days: {}, trades: [], risk: [], audit: {}, month: null, filter: 'both', sel: null, edit: {}, seq: 0, loaded: false };
 const JR_RULES = {
   penny: [['plan', 'Plan written before entry'], ['stop_pre', 'Pre-market / after-hours: mental stop honored (no stop orders then)'],
-          ['stop_reg', 'Regular session: hard stop order placed'], ['size', 'Sized from the 15% stop'],
-          ['trail', 'Stop trailed at +1R (or +1R never reached)'], ['nochase', 'No chase · dilution checked']],
+          ['stop_reg', 'Regular session: hard stop order placed'], ['size', 'Position size within my limit'],
+          ['trail', 'Moved my stop up as the price went up'], ['nochase', 'No chase · dilution checked']],
   option: [['market', 'SPY / VIX / trend checked first'], ['plan', 'Plan written before entry'], ['stoporder', 'Stop order placed right after the fill'],
            ['twoloss', '2-losses-in-a-row rule kept'], ['dailymax', 'Daily max loss kept'],
            ['powerhour', 'Power hour (3–4 PM): the wider 25% stop only in the power hour'],
@@ -18306,6 +18306,15 @@ function jrParseMD(v, ref, after) {
 const jrShowMD = iso => { if (!iso) return ''; const [y, mo, da] = iso.split('-').map(Number); return `${mo}/${da}${y !== +jrToday().slice(0, 4) ? '/' + String(y).slice(2) : ''}`; };
 const jrLongD = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric' }) : '';
 // Expiration rule, worked out from entry date, exit date and expiration: true = kept, false = broken, null = can't tell yet.
+// Rule 4 (penny), checked by the app: at a 15% stop the loss stays within ⅓ of the daily penny limit.
+function jrSizeCheck(t) {
+  const q = jrNum(t.qty), en = jrNum(t.entry); if (t.kind !== 'penny' || !q || !en) return null;
+  const per = Math.round(jrRiskFor(t.d).penny_limit / 3), mx = Math.floor(per / (en * 0.15)), loss = Math.round(q * en * 0.15);
+  return { ok: q <= mx, why: `${q} ${q <= mx ? '≤' : '>'} ${mx} shares · loss at a 15% stop $${loss} vs $${per} limit` };
+}
+function jrSizeRuleHtml(sc, i) {
+  return `<input type="checkbox" disabled ${sc && sc.ok ? 'checked' : ''}>${i + 1} Position size within my limit<div style="flex-basis:100%;padding-left:22px;" class="${!sc ? '' : sc.ok ? 'jr-pos' : 'jr-neg'}">${sc ? `<b>auto ${sc.ok ? '✓ kept' : '✗ broken'}</b> · ${sc.why}` : '<span style="color:var(--text3);">auto — fill in shares and entry</span>'}</div>`;
+}
 function jrExpiryCheck(t) {
   if (t.kind !== 'option' || !t.expiry || !t.d) return null;
   const out = t.exit_date || (t.exit != null && t.exit !== '' ? t.d : null); if (!out) return null;
@@ -18327,6 +18336,7 @@ function jrAutoResult(t) {
   const r = { ...(t.rules || {}) }, list = JR_RULES[t.kind];
   const ec = jrExpiryCheck(t); if (ec) r.expiry = ec.ok;   // worked out from the dates when possible
   if (t.stop_used === 'gt15' || t.stop_used === 'none') return 'fail';
+  const sc = jrSizeCheck(t); if (sc) r.size = sc.ok;
   if (JR_HARD[t.kind].some(k => !r[k])) return 'fail';
   if (t.kind === 'penny' && !(r.stop_pre || r.stop_reg || r.stop)) return 'fail';   // r.stop = older trades (one stop row)
   if (list.some(([k]) => !r[k] && !(t.kind === 'penny' && (k === 'stop_pre' || k === 'stop_reg')))) return 'warning';
@@ -18743,7 +18753,9 @@ function jrCardHtml(k, n) {
   const PX = ['entry', 'exit', 'stock_entry', 'plan_target', 'plan_entry', 'plan_stop'];
   const f = (field, label, type = 'number', ph = '', extra = '') => `<div class="jr-f" ${extra}><label>${label}</label><input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${jrEsc(PX.includes(field) ? jrPx2(e[field]) : (e[field] ?? ''))}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"${PX.includes(field) ? ` onblur="jrPxBlur(this,'${k}','${field}')"` : ''}></div>`;
   const ec = jrExpiryCheck({ ...e, exit: jrNum(e.exit) });
-  const rules = JR_RULES[e.kind].map(([rk, l], i) => rk === 'expiry' && ec
+  const rules = JR_RULES[e.kind].map(([rk, l], i) => rk === 'size' && e.kind === 'penny'
+    ? `<label class="jr-chk" id="jr-sz-${k}" title="Checked by the app from shares, entry and your daily penny limit" style="flex-wrap:wrap;">${jrSizeRuleHtml(jrSizeCheck(jrCardVals(e)), i)}</label>`
+    : rk === 'expiry' && ec
     ? `<label class="jr-chk" title="Worked out from the entry date, exit date and expiration" style="flex-wrap:wrap;"><input type="checkbox" disabled ${ec.ok ? 'checked' : ''}>${i + 1} ${l}<div style="flex-basis:100%;padding-left:22px;" class="${ec.ok ? 'jr-pos' : 'jr-neg'}"><b>auto ${ec.ok ? '✓ kept' : '✗ broken'}</b> · ${ec.why}</div></label>`
     : `<label class="jr-chk"><input type="checkbox" ${e.rules[rk] ? 'checked' : ''} onchange="jrRule('${k}','${rk}',this.checked)">${i + 1} ${l}</label>`).join('');
   const tolF = `<div class="jr-f" style="flex:none;min-width:150px;"><label>Planned entry ±</label>${jrPick(k, 'plan_tol', JR_TOL, o => o === '' ? '$' : '± $' + Number(o).toFixed(2))}<div class="jr-auto" id="jr-pe-${k}" style="margin-top:3px;"></div></div>`;
@@ -18919,6 +18931,7 @@ function jrRefreshCard(k) {
       ? `${e.kind === 'option' ? `target ${px(tg)}` : ''}${gain != null ? `${e.kind === 'option' ? ' · ' : ''}<span class="${gain >= 0 ? 'jr-pos' : 'jr-neg'}">${gain >= 0 ? '+' : '−'}$${Math.abs(gain).toLocaleString('en-US')}</span>` : ''}${e._u_plan_target_pct && lv.targetPct != null ? ` (+${lv.targetPct}%)` : ''}`
       : e._u_plan_target_pct && jrNum(e.plan_target_usd) != null ? 'enter contracts + premium' : '—';
   }
+  const szEl = document.getElementById('jr-sz-' + k); if (szEl) szEl.innerHTML = jrSizeRuleHtml(jrSizeCheck(v), JR_RULES.penny.findIndex(([rk]) => rk === 'size'));
   const se = document.getElementById('jr-size-' + k);
   if (se) {
     const px = v.entry ?? jrNum(e.plan_entry);
@@ -18930,7 +18943,7 @@ function jrRefreshCard(k) {
   if (re && e.id && !e._dirty && e.result) { re.innerHTML = `<span class="jr-tag ${e.result}">${e.result.toUpperCase()}</span>${e._ovr || (e.rules || {})._ovr ? ' <span style="color:var(--text3);">(set by hand)</span>' : ''} <span style="color:var(--text3);font-size:11px;">saved</span>`; return; }
   if (re && e.id && !e._dirty && !e.result) { re.innerHTML = '<span class="jr-tag none">NOT REVIEWED</span> <span style="color:var(--text3);font-size:11px;">tick the rules you kept, then Save</span>'; return; }
   if (re) {
-    const ecx = jrExpiryCheck({ ...e, exit: jrNum(e.exit) }), rr = { ...e.rules, ...(ecx ? { expiry: ecx.ok } : {}) }, stopOk = rr.stop_pre || rr.stop_reg || rr.stop;
+    const ecx = jrExpiryCheck({ ...e, exit: jrNum(e.exit) }), scx = jrSizeCheck(v), rr = { ...e.rules, ...(ecx ? { expiry: ecx.ok } : {}), ...(scx ? { size: scx.ok } : {}) }, stopOk = rr.stop_pre || rr.stop_reg || rr.stop;
     const miss = JR_RULES[e.kind].map(([rk], i) => !rr[rk] && !(e.kind === 'penny' && (rk === 'stop_pre' || rk === 'stop_reg') && stopOk) ? i + 1 : null).filter(Boolean);
     const why = [miss.length ? `rule${miss.length > 1 ? 's' : ''} ${miss.join(', ')} not kept` : '', e.stop_used === 'gt15' ? 'past 15% stop' : e.stop_used === 'none' ? 'no stop' : (e.stop_used === '15' || (e.stop_used === '25' && e.setup !== 'power')) ? `${e.stop_used}% stop` : ''].filter(Boolean).join(' · ');
     re.innerHTML = `<span class="jr-tag ${v.res}">${v.res.toUpperCase()}</span>${e._ovr ? ' <span style="color:var(--text3);">(set by hand)</span>' : ''} <span style="color:var(--text3);font-size:11px;">${why}</span>`;
@@ -18955,7 +18968,7 @@ async function jrSaveCard(k) {
     plan_target_pct: e.kind === 'option' && e.plan_target_pct !== 'run' ? (e._u_plan_target_pct ? lv.targetPct : n(e.plan_target_pct)) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
     plan_target: e.kind === 'option' ? lv.target : n(e.plan_target),
     broker: e.broker || null, stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
-    setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: quick ? null : v.res, notes: String(e.notes || '').trim() || null,
+    setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(jrSizeCheck(v) ? { size: jrSizeCheck(v).ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: quick ? null : v.res, notes: String(e.notes || '').trim() || null,
     buys: v.buys.length > 1 ? v.buys : null, updated_at: new Date().toISOString() };
   const supa = await getSupabaseAsync();
   const q = e.id ? supa.from('jr_trades').update(row).eq('id', e.id).select() : supa.from('jr_trades').insert(row).select();
