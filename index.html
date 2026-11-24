@@ -16852,12 +16852,43 @@ let _spRows = null, _spLoading = false, _spTier = 'penny';
 let _spDown = 0;                 // minimum down days among the 5 before the signal (0 = all)
 let _spRsiMin = null, _spRsiMax = null;
 let _spCandle = 0;               // candle filter: max body % of the day's range (0 = all)
+// Volume (latest day, min) and % change (CHG, min / max) filters — kept separately for the Penny and Large tabs.
+let _spVolMin = { penny: 0, large: 0 }, _spChg = { penny: { min: null, max: null }, large: { min: null, max: null } };
 try {
   const st = JSON.parse(localStorage.getItem('sp_single_pattern') || 'null');
   if (st) { _spTier = ['large', 'compare'].includes(st.tier) ? st.tier : 'penny'; _spDown = [0,3,4,5].includes(st.down) ? st.down : 0;
-            _spRsiMin = st.rmin ?? null; _spRsiMax = st.rmax ?? null; _spCandle = st.candle || 0; }
+            _spRsiMin = st.rmin ?? null; _spRsiMax = st.rmax ?? null; _spCandle = st.candle || 0;
+            if (st.vol) _spVolMin = { penny: +st.vol.penny || 0, large: +st.vol.large || 0 };
+            if (st.chg) ['penny', 'large'].forEach(t => { const c = st.chg[t] || {}; _spChg[t] = { min: c.min ?? null, max: c.max ?? null }; }); }
 } catch (e) {}
-function _spSave() { try { localStorage.setItem('sp_single_pattern', JSON.stringify({ tier: _spTier, down: _spDown, rmin: _spRsiMin, rmax: _spRsiMax, candle: _spCandle })); } catch (e) {} }
+function _spSave() { try { localStorage.setItem('sp_single_pattern', JSON.stringify({ tier: _spTier, down: _spDown, rmin: _spRsiMin, rmax: _spRsiMax, candle: _spCandle, vol: _spVolMin, chg: _spChg })); } catch (e) {} }
+function _spVcTier() { return _spTier === 'large' ? 'large' : 'penny'; }
+function _spVolChgPass(r) {
+  const t = r.tier === 'large' || r._added === 'large' ? 'large' : r.tier === 'penny' || r._added === 'penny' ? 'penny' : _spVcTier();
+  const vm = _spVolMin[t] || 0, c = _spChg[t] || {};
+  if (vm) { const x = _spV10[r.symbol]; if (!x || x.v == null || x.v < vm) return false; }
+  if (c.min != null || c.max != null) {
+    const v = r.day_chg_pct == null ? null : Number(r.day_chg_pct); if (v == null || !isFinite(v)) return false;
+    if (c.min != null && v < c.min) return false; if (c.max != null && v > c.max) return false;
+  }
+  return true;
+}
+function _spParseVol(v) {   // "2M", "750k", "1500000" → number
+  const m = String(v || '').trim().toUpperCase().replace(/,/g, '').match(/^([\d.]+)\s*([KMB]?)$/); if (!m) return 0;
+  return Math.round(Number(m[1]) * ({ K: 1e3, M: 1e6, B: 1e9 }[m[2]] || 1)) || 0;
+}
+function spSetVol(n) { _spVolMin[_spVcTier()] = Math.max(0, Number(n) || 0); _spSave(); _spRender(); }
+let _spVolTimer = null;
+function _spVolInput(el) { clearTimeout(_spVolTimer); _spVolTimer = setTimeout(() => spSetVol(_spParseVol(el.value)), 600); }
+function spSetChg(min, max) {
+  const clean = v => (v === '' || v === null || v === undefined || !isFinite(Number(v))) ? null : Number(v);
+  _spChg[_spVcTier()] = { min: clean(min), max: clean(max) }; _spSave(); _spRender();
+}
+let _spChgTimer = null;
+function _spChgInput() {
+  clearTimeout(_spChgTimer);
+  _spChgTimer = setTimeout(() => spSetChg(document.getElementById('sp-chg-min')?.value, document.getElementById('sp-chg-max')?.value), 500);
+}
 
 // MAG 7 + compare list (public.sp_compare, measured live by the sp_compare_rows() RPC).
 let _spCmp = null, _spCmpLoading = false, _spCmpMsg = '';
@@ -16974,10 +17005,12 @@ async function spDownloadPdf() {
     const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
     const txt = h => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.replace(/\s+/g, ' ').trim(); };
     const tier = _spTier === 'large' ? 'LARGE' : 'PENNY';
-    const filt = [_spDown ? `down ${_spDown}+` : '', _spCandle ? `candle ${_spCandle === 10 ? '0' : SP_CANDLE_BINS[SP_CANDLE_BINS.indexOf(_spCandle) - 1]}-${_spCandle}%` : '', (_spRsiMin != null || _spRsiMax != null) ? `RSI ${_spRsiMin ?? ''}-${_spRsiMax ?? ''}` : '', _spFind ? `find "${_spFind}"` : ''].filter(Boolean).join(' · ');
+    const filt = [_spDown ? `down ${_spDown}+` : '', _spCandle ? `candle ${_spCandle === 10 ? '0' : SP_CANDLE_BINS[SP_CANDLE_BINS.indexOf(_spCandle) - 1]}-${_spCandle}%` : '', (_spRsiMin != null || _spRsiMax != null) ? `RSI ${_spRsiMin ?? ''}-${_spRsiMax ?? ''}` : '',
+      _spVolMin[_spVcTier()] ? `volume ${_spFmtVol(_spVolMin[_spVcTier()])}+` : '',
+      (_spChg[_spVcTier()].min != null || _spChg[_spVcTier()].max != null) ? `% chg ${_spChg[_spVcTier()].min ?? ''} to ${_spChg[_spVcTier()].max ?? ''}` : '', _spFind ? `find "${_spFind}"` : ''].filter(Boolean).join(' · ');
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     doc.setFontSize(13); doc.text(`Single Pattern ${tier} — ${now} ET${filt ? ' · ' + filt : ''} · ${_spShown.length} stocks`, 30, 30);
-    const head = [['Ticker', 'Signal', 'Candle', 'Chg', 'Volume', '10D avg', 'Vol x10D', 'Entry', 'Stop', 'Target', 'Latest', 'Since', 'Status', 'Down', 'RSI', 'News', 'Dilution', 'Options', 'Spread']];
+    const head = [['Ticker', 'Signal', 'Candle', '% Chg', 'Volume', '10D avg', 'Vol x10D', 'Entry', 'Stop', 'Target', 'Latest', 'Since', 'Status', 'Down', 'RSI', 'News', 'Dilution', 'Options', 'Spread']];
     const body = _spShown.map(r => { const v = _spV10[r.symbol] || {}, n = _spNews[r.symbol], d = _spDil[r.symbol], x = _spSpr[r.symbol];
       const lv = r.signal_date ? [r.close, r.stop, r.target] : [r.lvl_entry, r.lvl_stop, r.lvl_target];
       return [r.symbol + (r._added ? ' *' : ''), r.signal_date ? _spDate(r.signal_date) : 'no signal', txt(_spCandleCell(r)), r.day_chg_pct == null ? '-' : `${Number(r.day_chg_pct) >= 0 ? '+' : ''}${Number(r.day_chg_pct).toFixed(1)}%`,
@@ -17157,7 +17190,7 @@ function _spRsiInput() {
 function _spFiltered(tier) {
   return (_spRows || []).filter(r => r.tier === tier)
     .filter(r => !_spDown || (r.down5 ?? 0) >= _spDown)
-    .filter(_spCandlePass)
+    .filter(_spCandlePass).filter(_spVolChgPass)
     .filter(r => {
       if (_spRsiMin === null && _spRsiMax === null) return true;
       const v = r.rsi_signal == null ? null : Number(r.rsi_signal);
@@ -17323,7 +17356,7 @@ function _spRender() {
     status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier,
     lvl_date: r.lvl_date, lvl_entry: r.lvl_entry, lvl_stop: r.lvl_stop, lvl_target: r.lvl_target, body_pct: r.body_pct }));
   merged.sort((a, b) => tgCount(b.symbol) - tgCount(a.symbol) || _spMaxVol(b.symbol) - _spMaxVol(a.symbol));   // most Telegram alerts first
-  const rows = (_spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added)).filter(_spCandlePass);
+  const rows = (_spFind ? merged.filter(_spFindPass) : merged.filter((r, i) => i < SP_MAX_ROWS || r._added)).filter(_spCandlePass).filter(_spVolChgPass);
   rows.forEach(r => { _spPopRows[r.symbol] = r; });
   _spShown = rows;
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
@@ -17364,7 +17397,18 @@ function _spRender() {
         ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
         <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:14px;">Candle:</span>
         ${btn(_spCandle === 0, 'All', 'spSetCandle(0)')}${SP_CANDLE_BINS.map((n, i) => btn(_spCandle === n, n === 10 ? 'Doji ≤10%' : `${SP_CANDLE_BINS[i - 1]}–${n}%`, `spSetCandle(${n})`, 'Only candles with a body in this range (% of the day\'s range)')).join('')}
-        <button class="fbtn" onclick="spDownloadPdf()" title="Download this list as a PDF (current tab and filters)" style="margin-left:14px;">⬇ PDF</button>
+        ${(() => { const t = _spVcTier(), vm = _spVolMin[t] || 0, c = _spChg[t] || {}, lab = 'color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;';
+          return `<span style="flex-basis:100%;height:0;"></span>
+          <span style="${lab}">Volume (latest day):</span>
+          ${btn(!vm, 'All', 'spSetVol(0)')}${[[5e5, '500K+'], [1e6, '1M+'], [5e6, '5M+'], [1e7, '10M+']].map(([n, l]) => btn(vm === n, l, `spSetVol(${n})`, 'Only stocks that traded at least this many shares on the latest day')).join('')}
+          <input type="text" class="wl-price-in" placeholder="min e.g. 2M" style="width:100px;" value="${vm && ![5e5, 1e6, 5e6, 1e7].includes(vm) ? _spFmtVol(vm) : ''}" oninput="_spVolInput(this)" title="Type your own minimum: 750K, 2M, 1500000"/>
+          <span style="${lab}margin-left:14px;">% CHG:</span>
+          <input type="number" id="sp-chg-min" class="wl-price-in" step="0.5" placeholder="min %" value="${c.min ?? ''}" oninput="_spChgInput()"/>
+          <span style="color:#8090a0;">–</span>
+          <input type="number" id="sp-chg-max" class="wl-price-in" step="0.5" placeholder="max %" value="${c.max ?? ''}" oninput="_spChgInput()"/>
+          ${btn(c.min == null && c.max == null, 'All', 'spSetChg(null,null)')}${btn(c.min === 0 && c.max == null, 'Up', 'spSetChg(0,null)', 'Only stocks up on the day')}${btn(c.min === 5 && c.max == null, '+5%+', 'spSetChg(5,null)')}${btn(c.min === 10 && c.max == null, '+10%+', 'spSetChg(10,null)')}${btn(c.min == null && c.max === 0, 'Down', 'spSetChg(null,0)', 'Only stocks down on the day')}${btn(c.min == null && c.max === -5, '−5% or less', 'spSetChg(null,-5)')}
+          <span style="flex-basis:100%;height:0;"></span>`; })()}
+        <button class="fbtn" onclick="spDownloadPdf()" title="Download this list as a PDF (current tab and filters)">⬇ PDF</button>
         ${(() => { const f = _spFlash && Date.now() - _spFlash < 4000; return `<button class="fbtn" onclick="spRefresh()" ${_spBusy ? 'disabled' : ''} title="Reload the newest Single Pattern list, volumes, news and Telegram alert counts" style="${_spBusy ? 'opacity:.7;cursor:wait;' : f ? 'border-color:var(--green);color:var(--green);' : ''}">${_spBusy ? '⏳ Refreshing…' : f ? `✓ Updated ${new Date(_spFlash).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit' })}` : '↻ Refresh'}</button>`; })()}
         <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS}: most Telegram alerts (🔔 last 5 trading days), then biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
       </div>
@@ -17373,7 +17417,7 @@ function _spRender() {
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('CANDLE', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') : ''}${th('CHG')}${th('VOLUME')}${th('VOL ×10D')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('CANDLE', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') : ''}${th('% CHG')}${th('VOLUME')}${th('VOL ×10D')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}
         </tr></thead>
         <tbody>${body || `<tr><td colspan="20" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
       </table></div>
