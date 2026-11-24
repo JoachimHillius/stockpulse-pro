@@ -795,7 +795,7 @@ select option{background:var(--bg2);}
     <span>Company</span>
     <span style="text-align:right;">Price</span>
     <span style="text-align:right;">Net $</span>
-    <span style="text-align:right;" title="Volume — latest (live during the day; before the open it is the last full day)">Volume</span>
+    <span style="text-align:right;" title="Bold = today's volume (incl. pre-market) · gray = yesterday's full day">Volume</span>
     <span style="text-align:right;" title="5-minute price change — shows — until live data has been running for ~5 minutes">5m%</span>
     <span style="text-align:right;" title="1-hour price change — shows — until live data has been running for ~60 minutes">1h%</span>
     <span style="text-align:right;">1D%</span>
@@ -3733,7 +3733,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
       <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}><span class="wl-name-txt">${COMPANY_NAMES[sym] || ''}</span>${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:2px;flex:0 0 auto;" title="Remove from watchlist">×</button>` : ''}</span>
       ${priceCellHtml}
       <span class="pct-cell ${netClr}" style="text-align:right;">${netVal == null ? '—' : (netVal >= 0 ? '+' : '') + Number(netVal).toFixed(2)}</span>
-      <span class="pct-cell" style="text-align:right;color:var(--text);" data-lfvol="${sym}">${typeof LF_DATA !== 'undefined' && LF_DATA[sym] ? (LF_DATA[sym].v == null ? '—' : _lfFmt(LF_DATA[sym].v)) : '…'}</span>
+      <span class="pct-cell" style="text-align:right;color:var(--text);" data-lfvol="${sym}" title="Bold = today's volume (incl. pre-market) · gray = yesterday">…</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(d1)}
@@ -17014,10 +17014,10 @@ function _spCandleCell(r) {
   return `<span style="color:${c};font-weight:700;" title="Candle body ${b.toFixed(1)}% of the day's range (high − low)">${label} ${b < 10 ? b.toFixed(1) : Math.round(b)}%</span>`;
 }
 function _spLiveVol(sym) { const d = typeof LF_DATA !== 'undefined' ? LF_DATA[sym] : null; return d && d.v != null ? d.v : null; }
-function _spVolDay(sym) {   // VOLUME = latest volume (live; before the open the last full day) · small: signal-day volume
-  const x = _spV10[sym], lv = _spLiveVol(sym);
-  if (lv == null && (!x || x.v == null)) return '<span style="color:#506070;">—</span>';
-  return `<b style="color:var(--text);" title="Latest volume (live)">${lv == null ? '…' : _spFmtVol(lv)}</b><div style="font-size:9.5px;color:#8090a0;" title="Volume on the signal day">signal day ${x && x.v != null ? _spFmtVol(x.v) : '—'}</div>`;
+function _spVolDay(sym) {   // VOLUME: bold = today's running volume (incl. pre-market) · gray = yesterday's full day
+  const d = typeof LF_DATA !== 'undefined' ? LF_DATA[sym] : null;
+  if (!d) return '<span style="color:#506070;">…</span>';
+  return `<b style="color:var(--text);" title="Today's volume (incl. pre-market)">${d.v == null ? '—' : _spFmtVol(d.v)}</b><div style="font-size:9.5px;color:#8090a0;" title="Yesterday's full-day volume">yesterday ${d.p != null ? _spFmtVol(d.p) : '—'}</div>`;
 }
 function _spVolX10(sym) {
   const x = _spV10[sym]; if (!x || !x.v || !x.av10) return '<span style="color:#506070;">—</span>';
@@ -21888,8 +21888,9 @@ async function lfLoad(syms) {
         const chunk = need.slice(i, i + 400);
         const { data, error } = await supa.rpc('sp_vol_chg', { p_syms: chunk });
         if (error) throw error;
-        chunk.forEach(s => { LF_DATA[s] = { v: null, c: null, t: now }; });
-        (data || []).forEach(r => { LF_DATA[r.symbol] = { v: r.volume == null ? null : Number(r.volume), c: r.chg_pct == null ? null : Number(r.chg_pct), t: now }; });
+        chunk.forEach(s => { LF_DATA[s] = { v: null, c: null, p: null, t: now }; });
+        // v = today's running volume (incl. pre-market) · p = yesterday's full-day volume · c = % change
+        (data || []).forEach(r => { LF_DATA[r.symbol] = { v: r.volume == null ? null : Number(r.volume), c: r.chg_pct == null ? null : Number(r.chg_pct), p: r.prev_vol == null ? null : Number(r.prev_vol), t: now }; });
       }
     } catch (e) { console.warn('[list filters]', e); }
     LF_LOADING = null;
@@ -21924,7 +21925,9 @@ function lfApply(pg) {
     if (!rows.length) return;
     const volCells = root.querySelectorAll('[data-lfvol]');
     if (lfNeedData(s) || volCells.length) { const miss = rows.map(r => r[1]).filter(x => !LF_DATA[x]); if (miss.length) lfLoad(rows.map(r => r[1])); }
-    volCells.forEach(c => { const d = LF_DATA[c.dataset.lfvol]; const t = !d ? '…' : d.v == null ? '—' : _lfFmt(d.v); if (c.textContent !== t) c.textContent = t; });
+    volCells.forEach(c => { const d = LF_DATA[c.dataset.lfvol];
+      const h = !d ? '…' : `<b>${d.v == null ? '—' : _lfFmt(d.v)}</b>${d.p != null ? `<div style="font-size:9px;color:#8090a0;font-weight:400;line-height:1.1;" title="Yesterday's full-day volume">yesterday ${_lfFmt(d.p)}</div>` : ''}`;
+      if (c.dataset.h !== h) { c.innerHTML = h; c.dataset.h = h; } });
     lfHeaders(pg, root, rows, s);
     // group by parent; each row carries the non-ticker siblings right after it (detail / news lines)
     const byParent = new Map();
