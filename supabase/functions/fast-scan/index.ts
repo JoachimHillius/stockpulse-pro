@@ -5,12 +5,12 @@
 //  message ONLY when something happens (extended-hours price before / after the bell):
 //   🚀 up:   under $10 +3% in 1 min or +6% in 5 min · $10+ +5% in 1 min or +10% in 5 min
 //   🔻 down: −5% in 1 min or −10% in 5 min (any price)
-//   📈/📉 new session high / low (pre-market, regular, after-hours) once the stock is >= 10% (under $10) / 5% ($10+) away from
+//   📈/📉 new session high / low (pre-market, regular, after-hours) only for the day's runners: >= 20% away from
 //        the reference (previous close before / during the session, today's close after hours); re-sent only when the
-//        high / low extends at least another 2%.
-//  Junk filter: price >= $0.10 and >= $250K traded today. Before the open / after the close the $250K is judged on today's
-//  pre-market / after-hours volume from Nasdaq (Yahoo's volume then is still yesterday's). A stock is not re-sent within
-//  5 minutes unless it is higher.
+//        high / low extends at least another 5%.
+//  Junk filter: price >= $0.10 and >= $1M traded today. Before the open / after the close the $1M is judged on today's
+//  pre-market / after-hours volume from Nasdaq (Yahoo's volume then is still yesterday's). A 🚀/🔻 for the same stock is not
+//  re-sent within 15 minutes unless it is 5% beyond the last alert.
 //  Telegram commands (from your chat only): STOP XYZ → no more alerts for XYZ (here and the 👀 / ⚡ spike alerts) until
 //  START XYZ. Several tickers work too: STOP INHD, AKAN. The bot confirms each command.
 //  Buttons (v7, from your chat only): the 🔥 RUNNER alerts (runner_check) carry ➕ Add to Watchlist (→ user_watchlist) and
@@ -20,15 +20,17 @@
 //  free data has no extended-hours volume). Stored in public.vol_accum.
 //  v8: today's volume also stays current for every stock alerted today — each run re-measures the 20 stalest readings
 //  (older than 4 min), so the Telegram News page shows the running volume, not the one from the last alert.
+//  v9 (STEP 88): fewer messages — $1M+ traded; 🚀/🔻 same ticker once per 15 min unless 5% further; 📈/📉 only ±20% movers, re-sent every +5%
+//      + a failed session read no longer resets today's high / low (that caused false "new high" alerts below the real high)
 //  mode "vol" { symbols: [...] }: the same numbers for the app pop-up.
 //  mode "diag": checks the bot (webhook / another program already reading its messages) without reading any message.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
-const MIN_PRICE = 0.10, MIN_DOLLARS = 250_000;
+const MIN_PRICE = 0.10, MIN_DOLLARS = 1_000_000;   // STEP 88: $1M+ traded
 const UP = (px: number) => px < 10 ? [0.03, 0.06] : [0.05, 0.10];   // [1 min, 5 min]
-const DOWN = [0.05, 0.10], BIG = (px: number) => px < 10 ? 10 : 5, EXTEND = 0.02;
+const DOWN = [0.05, 0.10], EXTEND = 0.05, RUNNER = 20;   // STEP 88: 📈/📉 only for ±20% movers, re-sent every +5%
 
 function etParts(d = new Date()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -235,9 +237,9 @@ Deno.serve(async (req: Request) => {
 
     const got = Object.keys(q);
     const since = new Date(now.getTime() - 7 * 60_000).toISOString();
-    const [{ data: ticks }, { data: recent }, { data: sessRows }] = await Promise.all([
+    const [{ data: ticks }, { data: recent }, { data: sessRows, error: sessErr }] = await Promise.all([
       supa.from('fast_ticks').select('symbol,at,px').in('symbol', got).gte('at', since).limit(10000),
-      supa.from('fast_alerts').select('symbol,at,px,kind').in('symbol', got).gte('at', new Date(now.getTime() - 5 * 60_000).toISOString()),
+      supa.from('fast_alerts').select('symbol,at,px,kind').in('symbol', got).gte('at', new Date(now.getTime() - 15 * 60_000).toISOString()),   // STEP 88: 15-min re-send window
       supa.from('fast_session').select('*').in('symbol', got).eq('d', et.date)]);
     const sessMap: Record<string, any> = {};
     for (const r of sessRows || []) sessMap[`${r.symbol}:${r.sess}`] = r;
@@ -260,7 +262,7 @@ Deno.serve(async (req: Request) => {
       const p1 = at(s, 1), p5 = at(s, 5);
       if (p5 && ((px < 10 && Math.abs(px - p5) > 0.05) || (px >= 10 && Math.abs(px / p5 - 1) >= 0.01))) keep.push(s);   // still moving → stays on the list
       // session high / low (kept even when the junk filter skips the alert)
-      const key = `${s}:${sk}`, ss = sk ? (sessMap[key] || { symbol: s, d: et.date, sess: sk, hi: px, lo: px, hi_sent: null, lo_sent: null }) : null;
+      const key = `${s}:${sk}`, ss = sk && !sessErr && sessRows ? (sessMap[key] || { symbol: s, d: et.date, sess: sk, hi: px, lo: px, hi_sent: null, lo_sent: null }) : null;
       const newHi = ss && px > Number(ss.hi), newLo = ss && px < Number(ss.lo);
       if (ss) { ss.hi = Math.max(Number(ss.hi), px); ss.lo = Math.min(Number(ss.lo), px); ss.updated_at = nowIso; sessUp.push(ss); }
       const extSess = sk === 'pre' || sk === 'post';
@@ -268,18 +270,18 @@ Deno.serve(async (req: Request) => {
       const tail = `${pct != null && isFinite(pct) ? ` · ${pct >= 0 ? '+' : ''}${Math.round(pct)}% ${sk === 'post' ? 'vs close' : 'today'}` : ''}${sess}\nSTOP ${s} to mute`;
       const j1 = p1 ? px / p1 - 1 : 0, j5 = p5 ? px / p5 - 1 : 0, [u1, u5] = UP(px);
       let sent = false;
-      if ((j1 >= u1 || j5 >= u5) && !(lastUp[s] && px <= lastUp[s])) {   // up: not re-sent within 5 min unless higher
+      if ((j1 >= u1 || j5 >= u5) && !(lastUp[s] && px < lastUp[s] * 1.05)) {   // up: not re-sent within 15 min unless 5% above the last alert
         const in1 = j1 >= u1, mv = in1 ? j1 : j5, from = in1 ? p1! : p5!;
         msgs.push(`🚀 ${s} +${Math.round(mv * 100)}% in ${in1 ? '1 min' : '5 min'} · ${money(px)} (from ${money(from)})${tail}`);
         alerts.push({ symbol: s, px, kind: in1 ? '1m' : '5m', move_pct: Math.round(mv * 1000) / 10 }); sent = true;
       }
-      if ((j1 <= -DOWN[0] || j5 <= -DOWN[1]) && !(lastDn[s] && px >= lastDn[s])) {   // down: not re-sent within 5 min unless lower
+      if ((j1 <= -DOWN[0] || j5 <= -DOWN[1]) && !(lastDn[s] && px > lastDn[s] * 0.95)) {   // down: not re-sent within 15 min unless 5% below the last alert
         const in1 = j1 <= -DOWN[0], mv = in1 ? j1 : j5, from = in1 ? p1! : p5!;
         msgs.push(`🔻 ${s} ${Math.round(mv * 100)}% in ${in1 ? '1 min' : '5 min'} · ${money(px)} (from ${money(from)})${tail}`);
         alerts.push({ symbol: s, px, kind: in1 ? 'dn1m' : 'dn5m', move_pct: Math.round(mv * 1000) / 10 }); sent = true;
       }
       // new session high / low once the stock is far enough from its reference (pct = Yahoo's change for this session)
-      if (ss && !sent && pct != null && isFinite(pct) && Math.abs(pct) >= BIG(px)) {
+      if (ss && !sent && pct != null && isFinite(pct) && Math.abs(pct) >= RUNNER) {
         const label = sk === 'pre' ? 'pre-market' : sk === 'post' ? 'after-hours' : 'intraday';
         if (newHi && pct > 0 && (!ss.hi_sent || px >= Number(ss.hi_sent) * (1 + EXTEND))) {
           msgs.push(`📈 ${s} new ${label} high ${money(px)} · +${Math.round(pct)}% ${sk === 'post' ? 'vs close' : 'today'}\nSTOP ${s} to mute`);
@@ -298,7 +300,7 @@ Deno.serve(async (req: Request) => {
     let va: Record<string, any> = {};
     if (alerts.length) {
       va = await volAccum(supa, alerts.map(a => a.symbol));
-      // extended hours: >= $250K traded today (Nasdaq pre-market / after-hours volume); no Nasdaq data → yesterday's rule
+      // extended hours: >= $1M traded today (Nasdaq pre-market / after-hours volume); no Nasdaq data → yesterday's rule
       const keepIdx = alerts.map((a, k) => k).filter(k => { const a = alerts[k], s = a.symbol, x = q[s];
         if (!(x.sk === 'pre' || x.sk === 'post')) return true;
         const v = va[s]; return v ? a.px * Number(v.today_vol) >= MIN_DOLLARS : a.px * x.vol >= MIN_DOLLARS; });
