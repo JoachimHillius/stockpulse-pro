@@ -16,7 +16,7 @@
   --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
   --text:#ffffff;--text2:#c0cfe0;--text3:#8090a8;
   --green:#00e5b0;--red:#ff3d5a;--blue:#3d9eff;--amber:#ffb020;
-  --purple:#9d7dea;--cyan:#00d4ff;--pink:#ff4d9d;
+  --purple:#9d7dea;--orange:#ff8c32;--cyan:#00d4ff;--pink:#ff4d9d;
   --font:'JetBrains Mono',monospace;
 }
 #market-chart-card { background: #0f4b6d !important; }
@@ -18390,7 +18390,7 @@ function jrCss() {
 .jr-dd div:hover,.jr-dd div.hi{background:var(--bg3);}
 .jr-dd b{color:var(--cyan);margin-right:6px;}
 .jr-cards{display:flex;flex-direction:column;gap:12px;margin-top:12px;}
-.jr-tc.penny{border-left:3px solid var(--green);} .jr-tc.option{border-left:3px solid var(--cyan);}
+.jr-tc.penny{border-left:3px solid var(--green);} .jr-tc.option{border-left:3px solid var(--orange);}
 .jr-cal{display:grid;grid-template-columns:repeat(5,1fr) .95fr;gap:4px;}
 .jr-ch{font-size:12px;font-weight:700;color:#ffe08a;text-transform:uppercase;padding:0 4px;}
 body.light-mode .jr-ch{color:var(--amber);}
@@ -18477,14 +18477,14 @@ function jrRender() {
   if (typeof _syncStickyOffset === 'function') _syncStickyOffset();
   root.innerHTML = `<div class="${JR.tab === 'today' ? 'jr-sticky' : ''}"><div class="jr-hd"><h2>JOURNAL</h2>${tabs}${JR.tab === 'plan' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrPlanAddMenu('penny',this)" title="Plan a penny stock: pick one from today's watch list or type a ticker">+ Penny plan ▾</button><button class="jr-btn" onclick="jrPlanAddMenu('option',this)" title="Plan an options trade on a large cap from today's watch list">+ Options plan ▾</button>
+    <button class="jr-btn g" onclick="jrPlanAddMenu('penny',this)" title="Plan a stock trade: pick one from today's watch list or type a ticker">+ Stock plan ▾</button><button class="jr-btn" style="border-color:var(--orange);color:var(--orange);" onclick="jrPlanAddMenu('option',this)" title="Plan an options trade on a large cap from today's watch list">+ Options plan ▾</button>
     <button class="jr-btn" onclick="jrPlanAll(true)" title="Open every plan: add-on line, rules, notes">▸ Expand all</button><button class="jr-btn" onclick="jrPlanAll(false)" title="Fold every plan to its first line">▾ Collapse all</button>
     <button class="jr-btn" onclick="jrPlanCsv()" title="Download this day's plan as a spreadsheet (opens in Excel / Numbers / Google Sheets)">⬇ Spreadsheet</button>
     <button class="jr-btn" onclick="jrPlanUploadPick()" title="Upload a filled-in plan: the fillable PDF or the spreadsheet from Download PDF → Empty trade plans">⬆ Upload filled plan</button>` : ''}${JR.tab === 'watch' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="JR.d=this.value||JR.d;jrRender()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
     <button class="jr-btn" onclick="jrWatchCopy()" title="Copy the most recent earlier list to this day (keeps your notes; stays within 20 / 10)">⧉ Copy previous day</button>` : ''}${JR.tab === 'today' ? `<span class="jr-sp"></span>
     <input type="date" value="${JR.d}" onchange="jrSetDate(this.value)" style="background:var(--bg3);border:1px solid var(--border2);border-radius:5px;color:var(--text);padding:4px 7px;font-family:inherit;">
-    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Penny trade</button><button class="jr-btn" onclick="jrNewCard('option')">+ Options trade</button>
+    <button class="jr-btn g" onclick="jrNewCard('penny')">+ Stock trade</button><button class="jr-btn" style="border-color:var(--orange);color:var(--orange);" onclick="jrNewCard('option')">+ Options trade</button>
     <button class="jr-btn" onclick="jrCardAll(true)" title="Open every trade of this day">▸ Expand all</button><button class="jr-btn" onclick="jrCardAll(false)" title="Fold every trade to one line">▾ Collapse all</button><button class="jr-btn g" id="jr-saveall" onclick="jrSaveAll()" style="display:none;">Save all</button>` : JR.tab === 'plan' || JR.tab === 'watch' ? '' : '<span class="jr-sp"></span>'}<button class="jr-btn" onclick="jrDlMenu(this)">⬇ Download PDF ▾</button></div>${body}</div>${rest}`;  if (JR.tab === 'today') { Object.keys(JR.edit).forEach(jrRefreshCard); jrSaveAllBtn(); }
   if (JR.tab === 'analytics') setTimeout(jrAnCharts, 0); else if (JR.charts && JR.charts.length) { JR.charts.forEach(c => { try { c.destroy(); } catch (_) { } }); JR.charts = []; }
 }
@@ -18526,7 +18526,7 @@ function jrTodayHtml() {
     const rev = ts.slice().sort((a, b) => String(a.entry_time || '').localeCompare(String(b.entry_time || '')) || a.id - b.id).reverse();
     let streak = 0; for (const t of rev) { if (jrCutEarly(t)) continue; if ((t.pnl ?? 0) < 0) streak++; else break; }   // ✂ cut-early trades don't count
     let cuts = 0; for (const t of rev) { if (jrCutEarly(t)) cuts++; else break; }
-    return `<tr><td>${kind === 'penny' ? 'Penny' : 'Options'}</td><td>$${limit.toLocaleString()}</td><td class="${used > 0 ? 'jr-neg' : ''}">${used > 0 ? '−$' + used.toFixed(0) : '$0'}</td>
+    return `<tr><td>${kind === 'penny' ? 'Stocks' : 'Options'}</td><td>$${limit.toLocaleString()}</td><td class="${used > 0 ? 'jr-neg' : ''}">${used > 0 ? '−$' + used.toFixed(0) : '$0'}</td>
       <td class="${limit - used <= 0 ? 'jr-neg' : ''}">$${Math.max(0, limit - used).toFixed(0)}</td><td>${ts.length}${kind === 'option' && streak ? ` · <span class="${streak >= 2 ? 'jr-neg' : 'jr-amb'}">${streak} loss${streak > 1 ? 'es' : ''} in a row${streak >= 2 ? ' — done scalping' : ''}</span>` : ''}${kind === 'option' && cuts >= JR_CUT.warnAt ? ` · <span class="jr-amb">✂ ${cuts} small losses in a row — slow down</span>` : ''}</td></tr>`;
   };
   const inp = (k, ph) => `<input type="number" step="any" value="${m[k] ?? ''}" placeholder="${ph}" onchange="jrSaveDay('${k}',this.value)">`;
@@ -18540,7 +18540,7 @@ function jrTodayHtml() {
   const sec = (kind, label, color) => { const ks = keys.filter(k => JR.edit[k].kind === kind), nt = ks.reduce((a, k) => a + (JR.edit[k].scalp ? (JR.edit[k].rounds || []).length || 1 : 1), 0); return ks.length ? `<div style="margin-top:${kind === 'option' ? 28 : 6}px;">
       <div style="font-size:13px;font-weight:700;letter-spacing:1px;color:${color};border-bottom:2px solid ${color};padding-bottom:4px;margin-bottom:10px;">${label} · ${nt} trade${nt > 1 ? 's' : ''}</div>
       <div class="jr-cards" style="margin-top:0;">${ks.map((k, i) => jrCardHtml(k, i + 1)).join('')}</div></div>` : ''; };
-  const cards = sec('penny', 'PENNY STOCKS', 'var(--green)') + sec('option', 'OPTIONS', 'var(--cyan)');
+  const cards = sec('penny', 'STOCKS', 'var(--green)') + sec('option', 'OPTIONS', 'var(--orange)');
   return `
   <div class="jr-row">
     <div class="jr-card" style="flex:1.3;min-width:420px;"><h3>Market — ${new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}<span class="jr-sp" id="jr-day-st" style="text-transform:none;letter-spacing:0;"></span></h3>
@@ -18559,11 +18559,11 @@ function jrTodayHtml() {
     </div>
     <div class="jr-card" style="flex:1;min-width:340px;"><h3>Today's limits</h3>
       <table class="jr-tbl"><tr><th></th><th>Max loss / day</th><th>Used</th><th>Left</th><th>Trades</th></tr>${lim('penny')}${lim('option')}</table>
-      <div style="margin-top:8px;color:var(--text2);font-size:11px;">Per-trade risk ≈ ⅓ of the day: Penny $${Math.round(risk.penny_limit / 3)} · Options $${Math.round(risk.option_limit / 3)}</div>
+      <div style="margin-top:8px;color:var(--text2);font-size:11px;">Per-trade risk ≈ ⅓ of the day: Stocks $${Math.round(risk.penny_limit / 3)} · Options $${Math.round(risk.option_limit / 3)}</div>
     </div>
   </div>
   ${jrDayResultHtml(JR.d)}
-  <!--jr-cards--><div style="margin-top:12px;">${cards || `<div class="jr-card" style="text-align:center;color:var(--text3);padding:22px;">No trades on this day yet — use <b>+ Penny trade</b> or <b>+ Options trade</b>.</div>`}</div>`;
+  <!--jr-cards--><div style="margin-top:12px;">${cards || `<div class="jr-card" style="text-align:center;color:var(--text3);padding:22px;">No trades on this day yet — use <b>+ Stock trade</b> or <b>+ Options trade</b>.</div>`}</div>`;
 }
 
 async function jrSaveDay(field, val) {
@@ -18707,8 +18707,8 @@ function jrEditOf(t) {
   if (jrNum(t.plan_stop_usd) != null) { e._u_plan_stop_pct = true; e._o_plan_stop_pct = true; e.plan_stop_pct = null; }
   if (jrNum(t.plan_target_usd) != null) { e._u_plan_target_pct = true; e._o_plan_target_pct = true; e.plan_target_pct = null; }
   if (!e._u_plan_stop_pct && e.plan_stop_pct == null && t.plan_stop != null && en) e.plan_stop_pct = Math.round((1 - t.plan_stop / en) * 1000) / 10;
-  if (t.kind === 'option' && !e._u_plan_target_pct && e.plan_target_pct == null && t.plan_target != null && en) e.plan_target_pct = Math.round((t.plan_target / en - 1) * 1000) / 10;
-  if (t.target_run) e.plan_target_pct = 'run';
+  if (!e._u_plan_target_pct && e.plan_target_pct == null && t.plan_target != null && en) e.plan_target_pct = Math.round((t.plan_target / en - 1) * 1000) / 10;
+  if (t.kind === 'option' && t.target_run) e.plan_target_pct = 'run';
   return e;
 }
 // ± tolerance / stop % / target % pickers: a list plus "Other" (type your own number).
@@ -18844,7 +18844,7 @@ function jrDayResultHtml(d) {
       <span>Net <b class="${x.net > 0 ? 'jr-pos' : x.net < 0 ? 'jr-neg' : ''}" style="${big ? 'font-size:17px;' : ''}">${jrMoney0(x.net)}</b></span></div>`;
   const all = jrDayResult(ts), P = ts.filter(t => t.kind === 'penny'), O = ts.filter(t => t.kind === 'option');
   return `<div class="jr-card" style="margin-top:10px;padding:9px 14px;border-left:4px solid ${all.net > 0 ? 'var(--green)' : all.net < 0 ? 'var(--red)' : 'var(--border2)'};">
-    ${line("TODAY'S RESULT", all, true)}${P.length ? line('Penny', jrDayResult(P)) : ''}${O.length ? line('Options', jrDayResult(O)) : ''}</div>`;
+    ${line("TODAY'S RESULT", all, true)}${P.length ? line('Stocks', jrDayResult(P)) : ''}${O.length ? line('Options', jrDayResult(O)) : ''}</div>`;
 }
 // STEP 69: a trade card is one line until you expand it (▸): ticker · session · shares / contracts · entry · exit · P&L.
 function jrCardToggle(k) { const e = JR.edit[k]; if (!e) return; e._open = !e._open; jrRender(); }
@@ -18856,12 +18856,12 @@ function jrCardSwitch(k) {
   if (to === 'option') { e.opt_type = e.opt_type || 'call'; e.setup = e.setup || 'scalp'; if (e.stop_used === '10' || e.stop_used === '15' || e.stop_used === 'gt15') e.stop_used = '20'; if (Number(e.plan_stop_pct) === 10) e.plan_stop_pct = 20; }
   else { if (e.stop_used === '20' || e.stop_used === '25' || e.stop_used === 'none') e.stop_used = '10'; if (Number(e.plan_stop_pct) === 20) e.plan_stop_pct = 10; }
   e.kind = to; e._dirty = true; jrRender(); jrMarkDirty(k);
-  showToast(String(e.symbol || 'Trade').toUpperCase(), `Moved to ${to === 'penny' ? 'Penny' : 'Options'} — click Save to keep it`, 'info');
+  showToast(String(e.symbol || 'Trade').toUpperCase(), `Moved to ${to === 'penny' ? 'Stocks' : 'Options'} — click Save to keep it`, 'info');
 }
 function jrCardSwitchHtml(k) {
   const e = JR.edit[k]; if (e.scalp) return '';
   return `<span class="jr-seg" title="Wrong kind? Switch it — everything you typed stays" style="margin-left:6px;">
-    <button class="${e.kind === 'penny' ? 'on' : ''}" onclick="${e.kind === 'penny' ? '' : `jrCardSwitch('${k}')`}">Penny</button><button class="${e.kind === 'option' ? 'on' : ''}" onclick="${e.kind === 'option' ? '' : `jrCardSwitch('${k}')`}">Options</button></span>`;
+    <button class="${e.kind === 'penny' ? 'on' : ''}" onclick="${e.kind === 'penny' ? '' : `jrCardSwitch('${k}')`}">Stock</button><button class="${e.kind === 'option' ? 'on' : ''}" onclick="${e.kind === 'option' ? '' : `jrCardSwitch('${k}')`}">Options</button></span>`;
 }
 function jrCardHtml(k, n) {
   const e = JR.edit[k], P = e.kind === 'penny';
@@ -18889,7 +18889,7 @@ function jrCardHtml(k, n) {
       ${f('entry', 'Premium in $', 'number', '0.00')}${f('exit', 'Premium out $', 'number', '0.00')}
       <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`}
     </div><div id="jr-max-${k}" style="margin-top:6px;font-size:11.5px;"></div><div class="jr-row" style="margin-top:8px;">`;
-  const mid = P ? `${tolF}${stopF}${f('plan_target', 'Target', 'number', '0.00').replace(/<\/div>$/, `<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>`)}
+  const mid = P ? `${tolF}${stopF}<div class="jr-f" style="flex:none;min-width:150px;"><label>Target (% or $ above entry)</label>${jrPick(k, 'plan_target_pct', JR_TGT_PCT, o => o === '' ? '%' : '+' + o + '%', [], 'plan_target_usd')}<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
       <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
     : `${e.scalp ? '' : f('stock_entry', 'Stock price at entry $', 'number', '0.00')}${e.scalp ? '' : jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
@@ -18937,7 +18937,7 @@ function jrCardQuickHtml(k, n) {   // the one-line card
       <div class="jr-f" style="flex:none;width:76px;"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div><div style="min-height:12px;margin-top:2px;white-space:nowrap;font-size:9px;">${tag.replace('class="jr-tag', 'style="font-size:9px;padding:0 4px;" class="jr-tag')}</div></div>`}
       <span class="jr-sp"></span>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;padding-top:16px;"><div style="display:flex;gap:5px;align-items:center;">
-        <span id="jr-st-${k}" style="font-size:11px;"></span><button class="jr-btn sm" ${e.scalp ? 'style="display:none;"' : ''} onclick="jrCardSwitch('${k}')" title="Wrong kind? Move this trade to ${P ? 'Options' : 'Penny'} — everything typed stays">⇄ ${P ? 'Options' : 'Penny'}</button>
+        <span id="jr-st-${k}" style="font-size:11px;"></span><button class="jr-btn sm" ${e.scalp ? 'style="display:none;"' : ''} onclick="jrCardSwitch('${k}')" title="Wrong kind? Move this trade to ${P ? 'Options' : 'Stocks'} — everything typed stays">⇄ ${P ? 'Options' : 'Stock'}</button>
         <button class="jr-btn g sm" onclick="jrSaveCard('${k}')">Save</button>
         <button class="jr-btn sm" onclick="jrCardToggle('${k}')" title="Show everything: dates, ${P ? 'plan levels' : 'type, strike, expiration'}, add-ons, rules, notes">▸ Expand</button>
         <button class="jr-btn del sm" onclick="jrDeleteCard('${k}')" title="Delete this trade">✕</button></div>
@@ -18993,7 +18993,7 @@ function jrPlanLevels(e) {
   const r4 = x => Math.round(x * 10000) / 10000, q = jrNum(e.qty), m = e.kind === 'option' ? 100 : 1;
   const su = e._u_plan_stop_pct ? jrNum(e.plan_stop_usd) : null, tu = e._u_plan_target_pct ? jrNum(e.plan_target_usd) : null;   // $ for the whole position
   const stop = en == null ? null : su != null ? (q ? r4(Math.max(0, en - su / (q * m))) : null) : sp != null ? r4(en * (1 - sp / 100)) : null;
-  const target = e.kind !== 'option' || en == null ? null : tu != null ? (q ? r4(en + tu / (q * m)) : null) : tp != null ? r4(en * (1 + tp / 100)) : null;
+  const target = en == null ? null : tu != null ? (q ? r4(en + tu / (q * m)) : null) : tp != null ? r4(en * (1 + tp / 100)) : null;
   return { lo: en != null && tol != null ? r4(Math.max(0, en - tol)) : null, hi: en != null && tol != null ? r4(en + tol) : null, stop, target,
     stopPct: stop != null && en ? Math.round((1 - stop / en) * 1000) / 10 : null, targetPct: target != null && en ? Math.round((target / en - 1) * 1000) / 10 : null };
 }
@@ -19057,11 +19057,11 @@ function jrRefreshCard(k) {
   }
   const tEl = document.getElementById('jr-pt-' + k);
   if (tEl) {
-    const tg = e.kind === 'option' ? lv.target : jrNum(e.plan_target), mul = e.kind === 'option' ? 100 : 1;
+    const tg = lv.target, mul = e.kind === 'option' ? 100 : 1;
     const gain = tg != null && v.entry != null && v.qty ? Math.round((tg - v.entry) * v.qty * mul) : null;
     tEl.innerHTML = e.kind === 'option' && (e.target_run || e.plan_target_pct === 'run') ? 'let it run' : tg != null
-      ? `${e.kind === 'option' ? `target ${px(tg)}` : ''}${gain != null ? `${e.kind === 'option' ? ' · ' : ''}<span class="${gain >= 0 ? 'jr-pos' : 'jr-neg'}">${gain >= 0 ? '+' : '−'}$${Math.abs(gain).toLocaleString('en-US')}</span>` : ''}${e._u_plan_target_pct && lv.targetPct != null ? ` (+${lv.targetPct}%)` : ''}`
-      : e._u_plan_target_pct && jrNum(e.plan_target_usd) != null ? 'enter contracts + premium' : '—';
+      ? `target ${px(tg)}${gain != null ? ` · <span class="${gain >= 0 ? 'jr-pos' : 'jr-neg'}">${gain >= 0 ? '+' : '−'}$${Math.abs(gain).toLocaleString('en-US')}</span>` : ''}${e._u_plan_target_pct && lv.targetPct != null ? ` (+${lv.targetPct}%)` : ''}`
+      : e._u_plan_target_pct && jrNum(e.plan_target_usd) != null ? (e.kind === 'option' ? 'enter contracts + premium' : 'enter shares + entry') : '—';
   }
   const szEl = document.getElementById('jr-sz-' + k); if (szEl) szEl.innerHTML = jrSizeRuleHtml(jrSizeCheck(v), JR_RULES.penny.findIndex(([rk]) => rk === 'size'));
   const se = document.getElementById('jr-size-' + k);
@@ -19104,9 +19104,9 @@ function jrTradeRow(e, v, sym, quick) {
     exit_date: e.exit_date && e.exit_date !== e.d ? e.exit_date : null,
     plan_entry: n(e.plan_tol) != null ? v.entry : n(e.plan_entry), plan_tol: n(e.plan_tol),
     plan_stop_pct: e._u_plan_stop_pct ? lv.stopPct : n(e.plan_stop_pct), plan_stop: lv.stop ?? (n(e.plan_stop_pct) == null && !e._u_plan_stop_pct ? n(e.plan_stop) : null),
-    plan_stop_usd: e._u_plan_stop_pct ? n(e.plan_stop_usd) : null, plan_target_usd: e.kind === 'option' && e._u_plan_target_pct ? n(e.plan_target_usd) : null,
-    plan_target_pct: e.kind === 'option' && e.plan_target_pct !== 'run' ? (e._u_plan_target_pct ? lv.targetPct : n(e.plan_target_pct)) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
-    plan_target: e.kind === 'option' ? lv.target : n(e.plan_target),
+    plan_stop_usd: e._u_plan_stop_pct ? n(e.plan_stop_usd) : null, plan_target_usd: e._u_plan_target_pct ? n(e.plan_target_usd) : null,
+    plan_target_pct: e.plan_target_pct !== 'run' ? (e._u_plan_target_pct ? lv.targetPct : n(e.plan_target_pct)) : null, target_run: e.kind === 'option' && (e.plan_target_pct === 'run' || !!e.target_run),
+    plan_target: lv.target ?? (e.kind === 'penny' && n(e.plan_target_pct) == null && !e._u_plan_target_pct ? n(e.plan_target) : null),
     broker: e.broker || null, stop_used: e.stop_used || null, opt_type: e.opt_type || null, expiry: e.expiry || null, strike: e.strike ? String(e.strike) : null, stock_entry: n(e.stock_entry),
     setup: e.setup || null, rules: { ...e.rules, ...(ecs ? { expiry: ecs.ok } : {}), ...(jrSizeCheck(v) ? { size: jrSizeCheck(v).ok } : {}), ...(e._ovr ? { _ovr: e._ovr } : {}) }, result: quick ? null : v.res, notes: String(e.notes || '').trim() || null,
     buys: v.buys.length > 1 ? v.buys : null, scalp_group: null, updated_at: new Date().toISOString() };
@@ -19134,10 +19134,10 @@ async function jrTradeToPlan(t, buys, wasNew) {
     if (!p && !wasNew) return;
     const bs = buys && buys.length ? buys : (t.qty && t.entry != null ? [{ qty: jrNum(t.qty), price: jrNum(t.entry) }] : []);
     const f = { d: t.d, kind: t.kind, symbol: t.symbol, price: bs[0] ? bs[0].price : jrNum(t.entry), qty: bs[0] ? bs[0].qty : jrNum(t.qty), adds: bs.slice(1),
-      exit_price: jrNum(t.exit), stop_pct: jrNum(t.plan_stop_pct) ?? (p ? p.stop_pct : null), stop_usd: jrNum(t.plan_stop_usd), target_usd: t.kind === 'option' ? jrNum(t.plan_target_usd) : null, notes: t.notes || null, session: t.session || null, plan_tol: jrNum(t.plan_tol),
+      exit_price: jrNum(t.exit), stop_pct: jrNum(t.plan_stop_pct) ?? (p ? p.stop_pct : null), stop_usd: jrNum(t.plan_stop_usd), target_usd: jrNum(t.plan_target_usd), notes: t.notes || null, session: t.session || null, plan_tol: jrNum(t.plan_tol),
       opt_type: t.opt_type || null, expiry: t.expiry || null, strike: t.strike || null, stock_price: jrNum(t.stock_entry), updated_at: new Date().toISOString() };
-    if (t.kind === 'option' && t.plan_target_pct != null) f.target = String(t.plan_target_pct);
-    if (t.kind === 'penny' && t.plan_target != null) f.target = String(t.plan_target);
+    if (t.plan_target_pct != null) f.target = String(t.plan_target_pct);
+    else if (t.kind === 'penny' && t.plan_target != null && jrNum(t.entry)) f.target = String(Math.round((t.plan_target / t.entry - 1) * 1000) / 10);
     const supa = await getSupabaseAsync();
     if (p) {
       const { error } = await supa.from('jr_plans').update(f).eq('id', p.id);
@@ -19746,7 +19746,7 @@ async function jrWatchToPlan(id, kindIn) {
   const { data, error } = await supa.from('jr_plans').insert({ d: JR.d, kind, symbol: w.symbol, stop_pct: kind === 'penny' ? 15 : 20, price: kind === 'penny' ? x.close : null, stock_price: kind === 'option' ? x.close : null, notes: w.note }).select();
   if (error) { showToast('Journal', 'Plan not added: ' + error.message, 'error'); return; }
   JR.plans = (JR.plans || []).concat(data || []); JR.tab = 'plan'; jrRender();
-  showToast(w.symbol, kind === 'option' ? 'Options plan added — fill in strike, expiry and premium' : 'Penny plan added with the last close as price', 'info');
+  showToast(w.symbol, kind === 'option' ? 'Options plan added — fill in strike, expiry and premium' : 'Stock plan added with the last close as price', 'info');
 }
 // ---- pick from the Watchlist page: movers and volume on top, split by price ----
 async function jrWatchPick(kind) {
@@ -19826,7 +19826,7 @@ function jrPlanRulesRow(p) {
   return `<tr><td></td><td colspan="11" style="padding:2px 0 10px;white-space:normal;">
     <details ${jrPlanFolded(p.id) ? '' : 'open'} ontoggle="jrPlanFold(${p.id},this.open)" style="border:1px solid var(--border2);border-radius:7px;padding:6px 10px;background:rgba(0,212,255,.03);">
       <summary style="cursor:pointer;font-size:11px;letter-spacing:.5px;color:var(--text2);user-select:none;">
-        <b style="color:${kind === 'penny' ? 'var(--green)' : 'var(--cyan)'};">${kind === 'penny' ? 'PENNY' : 'OPTIONS'} RULES</b> for ${jrEsc(p.symbol || 'this plan')} ·
+        <b style="color:${kind === 'penny' ? 'var(--green)' : 'var(--orange)'};">${kind === 'penny' ? 'STOCK' : 'OPTIONS'} RULES</b> for ${jrEsc(p.symbol || 'this plan')} ·
         <b style="color:${done === list.length ? 'var(--green)' : 'var(--text)'};">${done} / ${list.length} checked</b>${hardMiss ? ` · <span style="color:var(--red);">${hardMiss} hard rule${hardMiss === 1 ? '' : 's'} (★) open</span>` : ''}
         <span style="color:var(--text3);"> — click to fold / unfold</span></summary>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:0 18px;margin-top:6px;">${items}</div>
@@ -19856,7 +19856,7 @@ async function jrPlanSwitch(id) {   // ⇄ Penny ↔ Options: the plan keeps eve
   const supa = await getSupabaseAsync();
   const { error } = await supa.from('jr_plans').update({ kind: p.kind, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) { showToast('Journal', 'Not switched: ' + error.message, 'error'); return; }
-  showToast(String(p.symbol || 'Plan'), `Moved to ${p.kind === 'penny' ? 'Penny' : 'Options'} ✓`, 'info');
+  showToast(String(p.symbol || 'Plan'), `Moved to ${p.kind === 'penny' ? 'Stocks' : 'Options'} ✓`, 'info');
   if (p.trade_id) jrPlanToToday(p);
 }
 function jrPlanHtml() {
@@ -19868,11 +19868,11 @@ function jrPlanHtml() {
     : `<div style="display:flex;gap:4px;align-items:center;">${p._o_stop || (p.stop_pct != null && !JR_PLAN_STOP[p.kind].includes(Number(p.stop_pct))) ? `${inp(p, 'stop_pct', '%', 50)}` : sel(p)}${jrPlanUnitSeg(p, 'stop')}</div>`;
   const tgtCell = (p, x, P) => {
     const { q, avg, mult } = jrPlanTotal(p), tu = jrNum(p.target_usd), tg = jrNum(String(p.target ?? '').replace(/[%$\s]/g, ''));
-    const usd = !P && (tu != null || p._u_tgt);
-    const tp = P ? tg : avg == null ? null : usd ? (tu != null && q ? avg + tu / (q * mult) : null) : tg != null ? avg * (1 + tg / 100) : null;
+    const usd = tu != null || p._u_tgt;
+    const tp = avg == null ? null : usd ? (tu != null && q ? avg + tu / (q * mult) : null) : tg != null ? avg * (1 + tg / 100) : null;
     const gain = tp != null && avg != null && q ? Math.round((tp - avg) * q * mult) : null;
-    return `<div style="display:flex;gap:4px;align-items:center;">${usd ? inp(p, 'target_usd', '$', 60) : inp(p, 'target', P ? '0.00' : '%', P ? 64 : 50)}${P ? '' : jrPlanUnitSeg(p, 'target')}</div>
-      <div style="font-size:10px;margin-top:2px;white-space:nowrap;">${!P && tp != null ? px(tp) + ' · ' : ''}${gain != null ? `<b class="${gain >= 0 ? 'jr-pos' : 'jr-neg'}">${gain >= 0 ? '+' : '−'}$${Math.abs(gain).toLocaleString('en-US')}</b>` : ''}</div>`;
+    return `<div style="display:flex;gap:4px;align-items:center;">${usd ? inp(p, 'target_usd', '$', 60) : inp(p, 'target', '%', 50)}${jrPlanUnitSeg(p, 'target')}</div>
+      <div style="font-size:10px;margin-top:2px;white-space:nowrap;">${tp != null ? px(tp) + ' · ' : ''}${gain != null ? `<b class="${gain >= 0 ? 'jr-pos' : 'jr-neg'}">${gain >= 0 ? '+' : '−'}$${Math.abs(gain).toLocaleString('en-US')}</b>` : ''}</div>`;
   };
   const sel = p => `<select onchange="if(this.value==='__o'){const q=JR.plans.find(z=>z.id===${p.id});q._o_stop=true;jrRender();}else jrPlanSet(${p.id},'stop_pct',this.value)">${['', ...JR_PLAN_STOP[p.kind]].map(o => `<option value="${o}" ${String(o) === String(jrNum(p.stop_pct) ?? '') ? 'selected' : ''}>${o === '' ? '—' : o + '%'}</option>`).join('')}
       <option value="__o">Other…</option></select>`;
@@ -19890,15 +19890,15 @@ function jrPlanHtml() {
         <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td>`}
         <td>${tgtCell(p, x, P)}</td>
         <td>${inp(p, 'exit_price', 'exit', 64)}${p.trade_id ? `<div style="font-size:10px;margin-top:2px;white-space:nowrap;"><a href="#" onclick="jrTab('today');return false;" style="color:var(--green);">✓ on Today</a>${(() => { const t = (JR.trades || []).find(t => t.id === p.trade_id); return t && t.pnl != null ? ` <b class="${t.pnl >= 0 ? 'jr-pos' : 'jr-neg'}">${t.pnl >= 0 ? '+' : '−'}$${Math.abs(t.pnl).toFixed(2)}</b>` : ''; })()}</div>` : ''}</td>
-        <td style="white-space:nowrap;">${!p.trade_id && p.symbol && jrNum(p.price) != null && jrNum(p.qty) ? `<button class="jr-btn g sm" onclick="jrPlanTaken(${p.id})" title="You took this trade: put it on Today now (open until you fill in the exit). After that, the plan and Today stay the same.">✓ Taken → Today</button> ` : ''}${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn sm" onclick="jrPlanSwitch(${p.id})" title="Wrong kind? Move this plan to ${P ? 'Options' : 'Penny'} — everything stays">⇄ ${P ? 'Options' : 'Penny'}</button>
+        <td style="white-space:nowrap;">${!p.trade_id && p.symbol && jrNum(p.price) != null && jrNum(p.qty) ? `<button class="jr-btn g sm" onclick="jrPlanTaken(${p.id})" title="You took this trade: put it on Today now (open until you fill in the exit). After that, the plan and Today stay the same.">✓ Taken → Today</button> ` : ''}${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn sm" onclick="jrPlanSwitch(${p.id})" title="Wrong kind? Move this plan to ${P ? 'Options' : 'Stocks'} — everything stays">⇄ ${P ? 'Options' : 'Stock'}</button>
           <button class="jr-btn sm" onclick="jrPlanToggle(${p.id})" title="${open ? 'Fold to the first line' : 'Show the add-on line, rules and notes'}">${open ? '▾' : '▸'}</button>
           <button class="jr-btn del sm" onclick="jrPlanDel(${p.id})" title="Remove this plan">✕</button></td></tr>
         ${jrPlanAddRows(p, x, P, money, px, open)}
         ${open && !P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${open ? jrPlanNotesRow(p) + jrPlanRulesRow(p) : ''}</tbody>`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
         <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${b.lost && b.budget < b.cap ? `Budget $${b.budget} (only this much left today — already −$${b.lost} of $${b.limit})` : P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${b.limit} daily${b.lost ? ` · −$${b.lost} lost today` : ''})`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
-      ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Entry price' : 'Premium in'}</th><th>Stop % / $</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th title="What's left of the day's budget after this plan's loss at the stop">Budget left</th><th title="${P ? 'Target price — the dollars show the profit for the planned shares' : 'Target as % above premium in, or $ profit for the planned contracts'}">Target</th><th title="Fill in when you're out — the trade goes to Today automatically">${P ? 'Exit price' : 'Premium out'}</th><th></th></tr>${body}</table>`
-        : `<div style="color:var(--text3);padding:8px 0;">No ${P ? 'penny' : 'options'} plans for this day yet — use <b>+ ${P ? 'Penny' : 'Options'} plan</b> or <b>→ Plan</b> on the Watchlist tab.</div>`}</div>`;
+      ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Entry price' : 'Premium in'}</th><th>Stop % / $</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th title="What's left of the day's budget after this plan's loss at the stop">Budget left</th><th title="Target as % above ${P ? 'the entry' : 'premium in'}, or $ profit for the planned ${P ? 'shares' : 'contracts'}">Target</th><th title="Fill in when you're out — the trade goes to Today automatically">${P ? 'Exit price' : 'Premium out'}</th><th></th></tr>${body}</table>`
+        : `<div style="color:var(--text3);padding:8px 0;">No ${P ? 'stock' : 'options'} plans for this day yet — use <b>+ ${P ? 'Stock' : 'Options'} plan</b> or <b>→ Plan</b> on the Watchlist tab.</div>`}</div>`;
   };
   // Step 1 is the watch list: a section only shows when the day's watch list has that kind (large caps → options), or plans of it already exist
   if (!JR.watch) { jrWatchLoad().then(() => { if (JR.tab === 'plan') jrRender(); }); }
@@ -19909,8 +19909,8 @@ function jrPlanHtml() {
       <div style="color:var(--text2);font-size:12px;">Plans start from your watch list. Add tickers on <a href="#" onclick="jrTab('watch');return false;" style="color:var(--cyan);">Journal → Watchlist</a>
       (large caps for options, penny stocks), then use <b>→ Plan</b>. Only the kinds on your watch list show up here.</div></div>`;
   return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Plan your trades before you take them. <b>Max</b> = the most you could take with the budget left (plans share the day's budget, top to bottom).
-    ${''}Penny: budget ÷ (price × stop %). Options: budget ÷ (premium × 100 × stop %) · <b>Must stop</b> = the lowest premium out for the planned contracts.</div>
-    ${show('penny') ? sec('penny', 'Penny stocks — plan', 'var(--green)') : ''}${show('option') ? sec('option', 'Options — plan', 'var(--cyan)') : ''}`;
+    ${''}Stocks: budget ÷ (price × stop %). Options: budget ÷ (premium × 100 × stop %) · <b>Must stop</b> = the lowest premium out for the planned contracts.</div>
+    ${show('penny') ? sec('penny', 'Stocks — plan', 'var(--green)') : ''}${show('option') ? sec('option', 'Options — plan', 'var(--orange)') : ''}`;
 }
 // Add-on lines under a plan: each filled line opens the next empty one (up to 5 add-ons); Total = all lines at the average price.
 function jrPlanAddRows(p, x, P, money, px, open = true) {
@@ -19991,11 +19991,11 @@ async function _jrPlanToToday(p) {
   const tg = String(p.target ?? '').replace(/[%$\s]/g, ''), tgN = tg === '' || isNaN(+tg) ? null : +tg;
   const row = { d: p.d, kind, symbol: sym, session: p.session || null, qty, entry, exit, plan_entry: entry, plan_tol: n(p.plan_tol),
     plan_stop_pct: sp, plan_stop: sp != null ? Math.round(entry * (1 - sp / 100) * 10000) / 10000 : null,
-    plan_target_pct: kind === 'option' ? tgN : null, plan_target: kind === 'penny' ? tgN : (tgN != null ? Math.round(entry * (1 + tgN / 100) * 10000) / 10000 : null),
-    plan_stop_usd: n(p.stop_usd), plan_target_usd: kind === 'option' ? n(p.target_usd) : null,
+    plan_target_pct: tgN, plan_target: tgN != null ? Math.round(entry * (1 + tgN / 100) * 10000) / 10000 : null,
+    plan_stop_usd: n(p.stop_usd), plan_target_usd: n(p.target_usd),
     opt_type: p.opt_type || null, expiry: p.expiry || null, strike: p.strike ? String(p.strike) : null, stock_entry: n(p.stock_price),
     buys: buys.length ? buys : null, rules: { ...(p.rules || {}) }, notes: p.notes || null, source: 'plan', updated_at: new Date().toISOString() };
-  if (kind === 'option' && row.plan_target_usd != null) { const tp = entry + row.plan_target_usd / (qty * 100); row.plan_target = Math.round(tp * 10000) / 10000; row.plan_target_pct = Math.round((tp / entry - 1) * 1000) / 10; }
+  if (row.plan_target_usd != null) { const tp = entry + row.plan_target_usd / (qty * (kind === 'option' ? 100 : 1)); row.plan_target = Math.round(tp * 10000) / 10000; row.plan_target_pct = Math.round((tp / entry - 1) * 1000) / 10; }
   const ec = jrExpiryCheck(row); if (ec) row.rules.expiry = ec.ok;
   row.result = jrAutoResult(row);
   const supa = await getSupabaseAsync();
