@@ -16866,7 +16866,8 @@ try {
 } catch (e) {}
 function _spSave() { try { localStorage.setItem('sp_single_pattern', JSON.stringify({ tier: _spTier, down: _spDown, rmin: _spRsiMin, rmax: _spRsiMax, candle: _spCandle, vol: _spVolMin, sortby: _spSortBy, chg: _spChg })); } catch (e) {} }
 function _spVcTier() { return _spTier === 'large' ? 'large' : 'penny'; }
-function _spVolChgPass(r) {
+function _spVolChgPass(r) { return true; }   // filters removed (STEP 82) — SORT only
+function _spVolChgPassOld(r) {
   const t = r.tier === 'large' || r._added === 'large' ? 'large' : r.tier === 'penny' || r._added === 'penny' ? 'penny' : _spVcTier();
   const vm = _spVolMin[t] || 0, c = _spChg[t] || {};
   if (vm) { const x = _spV10[r.symbol]; if (!x || x.v == null || x.v < vm) return false; }
@@ -16880,7 +16881,8 @@ function _spParseVol(v) {   // "2M", "750k", "1500000" → number
   const m = String(v || '').trim().toUpperCase().replace(/,/g, '').match(/^([\d.]+)\s*([KMB]?)$/); if (!m) return 0;
   return Math.round(Number(m[1]) * ({ K: 1e3, M: 1e6, B: 1e9 }[m[2]] || 1)) || 0;
 }
-function spSortBy(k) { const t = _spVcTier(); _spSortBy[t] = _spSortBy[t] === k ? null : k; _spSave(); _spRender(); }
+let _spSortAsc = { penny: false, large: false };
+function spSortBy(k) { const t = _spVcTier(), s = { sort: _spSortBy[t], asc: _spSortAsc[t] }; lfNext(s, k); _spSortBy[t] = s.sort; _spSortAsc[t] = s.asc; _spSave(); _spRender(); }
 function spSetVol(n) { _spVolMin[_spVcTier()] = Math.max(0, Number(n) || 0); _spSave(); _spRender(); }
 let _spVolTimer = null;
 function _spVolInput(el) { clearTimeout(_spVolTimer); _spVolTimer = setTimeout(() => spSetVol(_spParseVol(el.value)), 800); }
@@ -17010,8 +17012,7 @@ async function spDownloadPdf() {
     const txt = h => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.replace(/\s+/g, ' ').trim(); };
     const tier = _spTier === 'large' ? 'LARGE' : 'PENNY';
     const filt = [_spDown ? `down ${_spDown}+` : '', _spCandle ? `candle ${_spCandle === 10 ? '0' : SP_CANDLE_BINS[SP_CANDLE_BINS.indexOf(_spCandle) - 1]}-${_spCandle}%` : '', (_spRsiMin != null || _spRsiMax != null) ? `RSI ${_spRsiMin ?? ''}-${_spRsiMax ?? ''}` : '',
-      _spVolMin[_spVcTier()] ? `volume ${_spFmtVol(_spVolMin[_spVcTier()])}+` : '', _spSortBy[_spVcTier()] ? 'sort ' + { az: 'A–Z', chg: 'change today', vol: 'volume today' }[_spSortBy[_spVcTier()]] : '',
-      (_spChg[_spVcTier()].min != null || _spChg[_spVcTier()].max != null) ? `% chg ${_spChg[_spVcTier()].min ?? ''} to ${_spChg[_spVcTier()].max ?? ''}` : '', _spFind ? `find "${_spFind}"` : ''].filter(Boolean).join(' · ');
+      _spSortBy[_spVcTier()] ? 'sort ' + { az: 'A–Z', chg: '% change', vol: 'volume' }[_spSortBy[_spVcTier()]] + (_spSortAsc[_spVcTier()] ? ' ▲' : ' ▼') : '', _spFind ? `find "${_spFind}"` : ''].filter(Boolean).join(' · ');
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     doc.setFontSize(13); doc.text(`Single Pattern ${tier} — ${now} ET${filt ? ' · ' + filt : ''} · ${_spShown.length} stocks`, 30, 30);
     const head = [['Ticker', 'Signal', 'Candle', '% Chg', 'Volume', '10D avg', 'Vol x10D', 'Entry', 'Stop', 'Target', 'Latest', 'Since', 'Status', 'Down', 'RSI', 'News', 'Dilution', 'Options', 'Spread']];
@@ -17359,8 +17360,10 @@ function _spRender() {
     target: r.signal_date ? r.target : null, last_close: r.close, last_date: r.last_date, since_pct: r.signal_date ? r.since_pct : null,
     status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier,
     lvl_date: r.lvl_date, lvl_entry: r.lvl_entry, lvl_stop: r.lvl_stop, lvl_target: r.lvl_target, body_pct: r.body_pct }));
-  const sb = _spSortBy[_spVcTier()], vday = sym => (_spV10[sym] && _spV10[sym].v) || 0, cday = r => r.day_chg_pct == null ? -1e9 : Number(r.day_chg_pct);
-  merged.sort((a, b) => sb === 'az' ? a.symbol.localeCompare(b.symbol) : sb === 'chg' ? cday(b) - cday(a) || vday(b.symbol) - vday(a.symbol) : sb === 'vol' ? vday(b.symbol) - vday(a.symbol)                                                     // High → Low on → highest volume first
+  const sb = _spSortBy[_spVcTier()], asc = !!_spSortAsc[_spVcTier()], dir = asc ? -1 : 1;
+  const vday = sym => (_spV10[sym] && _spV10[sym].v != null) ? _spV10[sym].v : null, cday = r => r.day_chg_pct == null ? null : Number(r.day_chg_pct);
+  const byNum = (x, y) => x == null || y == null ? (x == null) - (y == null) : dir * (y - x);   // no number → bottom
+  merged.sort((a, b) => sb === 'az' ? dir * a.symbol.localeCompare(b.symbol) : sb === 'chg' ? byNum(cday(a), cday(b)) : sb === 'vol' ? byNum(vday(a.symbol), vday(b.symbol))                                                     // High → Low on → highest volume first
     : tgCount(b.symbol) - tgCount(a.symbol) || _spMaxVol(b.symbol) - _spMaxVol(a.symbol));                          // otherwise most Telegram alerts first
   const pass = merged.filter(_spCandlePass).filter(_spVolChgPass);
   const rows = _spFind ? pass.filter(_spFindPass) : pass.filter((r, i) => i < SP_MAX_ROWS || r._added);
@@ -17404,18 +17407,8 @@ function _spRender() {
         ${btn(_spRsiMin === null && _spRsiMax === 30, '≤30', 'spSetRsi(null,30)', 'Oversold')}${btn(_spRsiMin === 30 && _spRsiMax === 50, '30–50', 'spSetRsi(30,50)')}${btn(_spRsiMin === null && _spRsiMax === null, 'All', 'spSetRsi(null,null)')}
         <span style="color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;margin-left:14px;">Candle:</span>
         ${btn(_spCandle === 0, 'All', 'spSetCandle(0)')}${SP_CANDLE_BINS.map((n, i) => btn(_spCandle === n, n === 10 ? 'Doji ≤10%' : `${SP_CANDLE_BINS[i - 1]}–${n}%`, `spSetCandle(${n})`, 'Only candles with a body in this range (% of the day\'s range)')).join('')}
-        ${(() => { const t = _spVcTier(), vm = _spVolMin[t] || 0, c = _spChg[t] || {}, lab = 'color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:11px;';
-          return `<span style="flex-basis:100%;height:0;"></span>
-          <span style="font-size:10.5px;color:#8090a0;letter-spacing:.5px;">SORT</span>
-          ${btn(_spSortBy[t] === 'az', 'A–Z', "spSortBy('az')", 'Tickers A to Z (click again for the normal order)')}${btn(_spSortBy[t] === 'chg', '▲ Change today', "spSortBy('chg')", 'Biggest change on top (click again for the normal order)')}${btn(_spSortBy[t] === 'vol', '📊 Volume today', "spSortBy('vol')", 'Highest volume on top (click again for the normal order)')}
-          <span style="${lab}margin-left:14px;">Min volume:</span>
-          <input type="text" class="wl-price-in" placeholder="min e.g. 2M" style="width:100px;" value="${vm ? _spFmtVol(vm) : ''}" oninput="_spVolInput(this)" title="Optional minimum volume: 750K, 2M, 1500000 — leave empty for all"/>
-          <span style="${lab}margin-left:14px;">% CHG:</span>
-          <input type="number" id="sp-chg-min" class="wl-price-in" step="0.5" placeholder="min %" value="${c.min ?? ''}" oninput="_spChgInput()"/>
-          <span style="color:#8090a0;">–</span>
-          <input type="number" id="sp-chg-max" class="wl-price-in" step="0.5" placeholder="max %" value="${c.max ?? ''}" oninput="_spChgInput()"/>
-          ${btn(c.min == null && c.max == null, 'All', 'spSetChg(null,null)')}${btn(c.min === 0 && c.max == null, 'Up', 'spSetChg(0,null)', 'Only stocks up on the day')}${btn(c.min === 5 && c.max == null, '+5%+', 'spSetChg(5,null)')}${btn(c.min === 10 && c.max == null, '+10%+', 'spSetChg(10,null)')}${btn(c.min == null && c.max === 0, 'Down', 'spSetChg(null,0)', 'Only stocks down on the day')}${btn(c.min == null && c.max === -5, '−5% or less', 'spSetChg(null,-5)')}
-          <span style="flex-basis:100%;height:0;"></span>`; })()}
+        ${(() => { const t = _spVcTier();
+          return `<span style="flex-basis:100%;height:0;"></span>${lfSortBtns({ sort: _spSortBy[t], asc: !!_spSortAsc[t] }, k => `spSortBy('${k}')`)}<span style="flex-basis:100%;height:0;"></span>`; })()}
         <button class="fbtn" onclick="spDownloadPdf()" title="Download this list as a PDF (current tab and filters)">⬇ PDF</button>
         ${(() => { const f = _spFlash && Date.now() - _spFlash < 4000; return `<button class="fbtn" onclick="spRefresh()" ${_spBusy ? 'disabled' : ''} title="Reload the newest Single Pattern list, volumes, news and Telegram alert counts" style="${_spBusy ? 'opacity:.7;cursor:wait;' : f ? 'border-color:var(--green);color:var(--green);' : ''}">${_spBusy ? '⏳ Refreshing…' : f ? `✓ Updated ${new Date(_spFlash).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit' })}` : '↻ Refresh'}</button>`; })()}
         <span style="margin-left:auto;font-size:11px;color:#8090a0;">${_spRows ? `${all.length} of ${total} match${mine.length ? ` + ${mine.length} ★ yours` : ''} · top ${SP_MAX_ROWS}: most Telegram alerts (🔔 last 5 trading days), then biggest volume (last 3 days) · signals from the last 10 trading days` : (_spLoading ? 'Loading…' : '')}${updated ? ` · updated ${new Date(updated).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET` : ''}</span>
@@ -21820,12 +21813,13 @@ document.addEventListener('DOMContentLoaded', () => {
 // A–Z · Volume High → Low · min volume · % CHG min / max. Rows are found on the page (data-sym rows, table rows with a
 // TICKER / SYMBOL / STOCK column, or clickable stock rows) and sorted / hidden in place; a row's detail line moves with it.
 // Volume and % change come from rpc sp_vol_chg (newest of price_live / market_live) so every page uses the same live numbers.
-const LF_PAGES = ['watchlist', 'momentum', 'scanners', 'flow', 'flowpredict', 'toscsv', 'history', 'earnings', 'tradelog', 'rangescan', 'telegram', 'news', 'morning'];
+const LF_PAGES = ['watchlist', 'momentum', 'scanners', 'flow', 'flowpredict', 'toscsv', 'history', 'earnings', 'tradelog', 'rangescan', 'news', 'morning'];   // Telegram News keeps its own SORT
 let LF = {}; try { LF = JSON.parse(localStorage.getItem('lf_state') || '{}') || {}; } catch (e) { LF = {}; }
 // sort: null (page's own order) | 'az' | 'chg' (biggest change today on top) | 'vol' (highest volume today on top) — same as Telegram News
-const lfSt = pg => { const s = (LF[pg] ||= { sort: null, vmin: 0, cmin: null, cmax: null }); if (s.sort === undefined) { s.sort = s.vsort ? 'vol' : s.az ? 'az' : null; delete s.az; delete s.vsort; } return s; };
-const lfOn = s => !!s.sort || s.vmin || s.cmin != null || s.cmax != null;
-const lfNeedData = s => s.sort === 'chg' || s.sort === 'vol' || s.vmin || s.cmin != null || s.cmax != null;
+// SORT only: A–Z, Volume, % Change. 1st click = high → low (A → Z), 2nd click = low → high (Z → A), 3rd click = normal order.
+const lfSt = pg => { const o = LF[pg] || {}; return (LF[pg] = { sort: ['az', 'vol', 'chg'].includes(o.sort) ? o.sort : null, asc: !!o.asc }); };
+const lfOn = s => !!s.sort;
+const lfNeedData = s => s.sort === 'chg' || s.sort === 'vol';
 function lfSave() { try { localStorage.setItem('lf_state', JSON.stringify(LF)); } catch (e) {} }
 const LF_DATA = {}, LF_TTL = 3 * 60 * 1000; let LF_LOADING = null;
 const LF_SYM = /^[A-Z][A-Z0-9]{0,5}(?:[.\-][A-Z])?$/;
@@ -21876,14 +21870,7 @@ async function lfLoad(syms) {
   await LF_LOADING;
   LF_ACTIVE.forEach(pg => lfApply(pg));
 }
-function lfPass(s, sym) {
-  if (!s.vmin && s.cmin == null && s.cmax == null) return true;
-  const d = LF_DATA[sym]; if (!d) return false;
-  if (s.vmin && (d.v == null || d.v < s.vmin)) return false;
-  if (s.cmin != null && (d.c == null || d.c < s.cmin)) return false;
-  if (s.cmax != null && (d.c == null || d.c > s.cmax)) return false;
-  return true;
-}
+function lfPass() { return true; }   // no filters — the SORT never hides a stock
 const LF_OBS = {}, LF_ACTIVE = new Set(); let LF_BUSY = false;
 function lfApply(pg) {
   const root = document.getElementById('page-' + pg); if (!root) return;
@@ -21914,9 +21901,12 @@ function lfApply(pg) {
           else if (x.dataset.lfH != null) { x.style.display = x.dataset.lfH === '-' ? '' : x.dataset.lfH; delete x.dataset.lfH; }
         });
       });
-      const vN = it => (LF_DATA[it.sym] || {}).v ?? -1, cN = it => (LF_DATA[it.sym] || {}).c ?? -1e9;
-      const sorted = items.slice().sort((a, b) => s.sort === 'vol' ? (vN(b) - vN(a) || cN(b) - cN(a) || a.i - b.i)
-        : s.sort === 'chg' ? (cN(b) - cN(a) || vN(b) - vN(a) || a.i - b.i) : s.sort === 'az' ? (a.sym.localeCompare(b.sym) || a.i - b.i) : a.i - b.i);
+      const val = it => { const d = LF_DATA[it.sym] || {}, x = s.sort === 'vol' ? d.v : d.c; return x == null ? null : x; };
+      const sorted = items.slice().sort((a, b) => {
+        if (s.sort === 'az') return (s.asc ? b.sym.localeCompare(a.sym) : a.sym.localeCompare(b.sym)) || a.i - b.i;
+        if (s.sort === 'vol' || s.sort === 'chg') { const x = val(a), y = val(b); if (x == null || y == null) return (x == null) - (y == null) || a.i - b.i; return (s.asc ? x - y : y - x) || a.i - b.i; }   // no number → bottom
+        return a.i - b.i;
+      });
       const cur = items.map(x => x.el), want = sorted.map(x => x.el);
       if (cur.some((e, i) => e !== want[i])) {
         const anchor = items.reduce((m, x) => { const last = x.tail.length ? x.tail[x.tail.length - 1] : x.el; return m && m.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING ? last : m; }, items[0].tail.length ? items[0].tail[items[0].tail.length - 1] : items[0].el);
@@ -21932,17 +21922,7 @@ function lfBar(pg, root) {
   let bar = root.querySelector(':scope > .lf-bar');
   const s = lfSt(pg), b = (on, label, click, title) => `<button class="fbtn${on ? ' active' : ''}" onclick="${click}"${title ? ` title="${title}"` : ''}>${label}</button>`;
   const lab = 'color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:10.5px;';
-  const sortBtns = pg === 'telegram' ? '' : `<span style="font-size:10.5px;color:#8090a0;letter-spacing:.5px;">SORT</span>
-    ${b(s.sort === 'az', 'A–Z', `lfSort('${pg}','az')`, 'Tickers A to Z (click again for the normal order)')}${b(s.sort === 'chg', '▲ Change today', `lfSort('${pg}','chg')`, 'Biggest change today on top (click again for the normal order)')}${b(s.sort === 'vol', '📊 Volume today', `lfSort('${pg}','vol')`, 'Highest volume today on top (click again for the normal order)')}
-    <span style="${lab}margin-left:12px;">Min volume:</span>`;
-  const html = `${sortBtns || `<span style="${lab}">Min volume:</span>`}
-    <input type="text" class="wl-price-in lf-vmin" placeholder="min e.g. 2M" style="width:96px;" value="${s.vmin ? _lfFmt(s.vmin) : ''}" oninput="lfInput('${pg}')" title="Optional minimum volume: 750K, 2M — leave empty for all"/>
-    <span style="${lab}margin-left:12px;">% CHG:</span>
-    <input type="number" class="wl-price-in lf-cmin" step="0.5" placeholder="min %" value="${s.cmin ?? ''}" oninput="lfInput('${pg}')"/><span style="color:#8090a0;">–</span>
-    <input type="number" class="wl-price-in lf-cmax" step="0.5" placeholder="max %" value="${s.cmax ?? ''}" oninput="lfInput('${pg}')"/>
-    ${b(s.cmin == null && s.cmax == null, 'All', `lfChg('${pg}',null,null)`)}${b(s.cmin === 0 && s.cmax == null, 'Up', `lfChg('${pg}',0,null)`)}${b(s.cmin === 5 && s.cmax == null, '+5%+', `lfChg('${pg}',5,null)`)}${b(s.cmin === 10 && s.cmax == null, '+10%+', `lfChg('${pg}',10,null)`)}${b(s.cmin == null && s.cmax === 0, 'Down', `lfChg('${pg}',null,0)`)}${b(s.cmin == null && s.cmax === -5, '−5% or less', `lfChg('${pg}',null,-5)`)}
-    ${lfOn(s) ? b(false, '✕ Clear', `lfClear('${pg}')`, 'Back to the normal list') : ''}
-    <span class="lf-count" style="margin-left:auto;font-size:11px;color:#8090a0;"></span>`;
+  const html = lfSortBtns(s, k => `lfSort('${pg}','${k}')`);
   if (!bar) {
     bar = document.createElement('div'); bar.className = 'lf-bar';
     bar.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 16px;border-bottom:1px solid var(--border);background:rgba(0,212,255,.03);';
@@ -21952,9 +21932,23 @@ function lfBar(pg, root) {
 }
 function _lfFmt(v) { const n = Number(v); return n >= 1e9 ? +(n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? +(n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n); }
 function _lfParse(v) { const m = String(v || '').trim().toUpperCase().replace(/,/g, '').match(/^([\d.]+)\s*([KMB]?)$/); return m ? Math.round(Number(m[1]) * ({ K: 1e3, M: 1e6, B: 1e9 }[m[2]] || 1)) || 0 : 0; }
-function lfSort(pg, k) { const s = lfSt(pg); s.sort = s.sort === k ? null : k; lfSave(); lfApply(pg); }
-function lfChg(pg, mn, mx) { const s = lfSt(pg); s.cmin = mn; s.cmax = mx; lfSave(); lfApply(pg); }
-function lfClear(pg) { LF[pg] = { sort: null, vmin: 0, cmin: null, cmax: null }; lfSave(); lfApply(pg); }
+// The same three buttons everywhere (also Single Pattern): SORT [A–Z] [📊 Volume] [% Change]
+function lfSortBtns(s, click) {
+  const b = (k, label, title) => { const on = s.sort === k; return `<button class="fbtn${on ? ' active' : ''}" onclick="${click(k)}" title="${title}">${label(on, on && s.asc)}</button>`; };
+  return `<span style="font-size:10.5px;color:#8090a0;letter-spacing:.5px;">SORT</span>
+    ${b('az', (on, asc) => !on ? 'A–Z' : asc ? 'Z → A' : 'A → Z', 'Click: A → Z · again: Z → A · again: normal order')}
+    ${b('vol', (on, asc) => '📊 Volume' + (!on ? '' : asc ? ' ▲' : ' ▼'), 'Click: highest volume on top ▼ · again: lowest on top ▲ · again: normal order')}
+    ${b('chg', (on, asc) => '% Change' + (!on ? '' : asc ? ' ▲' : ' ▼'), 'Click: biggest % change on top ▼ · again: lowest on top ▲ · again: normal order')}`;
+}
+function lfNext(s, k) { if (s.sort !== k) { s.sort = k; s.asc = false; } else if (!s.asc) s.asc = true; else { s.sort = null; s.asc = false; } }
+function lfSort(pg, k) {
+  const s = lfSt(pg); lfNext(s, k); lfSave();
+  if (pg === 'watchlist' && typeof setWlView === 'function') {   // Watchlist: sort the whole list (one list), back to sectors when the sort is off
+    if (s.sort && _wlView !== 'combined') { LF._wlBack = _wlView; lfSave(); setWlView('combined'); }
+    else if (!s.sort && LF._wlBack) { const v = LF._wlBack; delete LF._wlBack; lfSave(); setWlView(v); }
+  }
+  lfApply(pg);
+}
 const LF_T = {};
 function lfInput(pg) {
   clearTimeout(LF_T[pg]);
