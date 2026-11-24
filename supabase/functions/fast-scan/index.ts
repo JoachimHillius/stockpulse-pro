@@ -22,6 +22,7 @@
 //  (older than 4 min), so the Telegram News page shows the running volume, not the one from the last alert.
 //  v9 (STEP 88): fewer messages — $1M+ traded; 🚀/🔻 same ticker once per 15 min unless 5% further; 📈/📉 only ±20% movers, re-sent every +5%
 //      + a failed session read no longer resets today's high / low (that caused false "new high" alerts below the real high)
+//  v11 (STEP 89): 🚀 / 📈 for a stock that had a RUNNER alert today start with the green bar + 🔥🔥 RUNNER (e.g. the 4 PM spike)
 //  mode "vol" { symbols: [...] }: the same numbers for the app pop-up.
 //  mode "diag": checks the bot (webhook / another program already reading its messages) without reading any message.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -309,7 +310,12 @@ Deno.serve(async (req: Request) => {
     }
     if (alerts.length) await supa.from('fast_alerts').insert(alerts);
     if (msgs.length) {
-      const texts = msgs.map((m, k) => { const v = volLine(va[alerts[k].symbol]); return v ? m.replace(/\nSTOP /, v + '\nSTOP ') : m; });
+      // today's runners (a 🟩/🟨 RUNNER alert today) carry the runner label on their 🚀 / 📈 messages too — e.g. the 4 PM spike
+      const { data: ra } = await supa.from('runner_alerts').select('symbol').eq('d', et.date).in('symbol', [...new Set(alerts.map(a => a.symbol))]);
+      const runners = new Set((ra || []).map((r: any) => r.symbol));
+      const texts = msgs.map((m, k) => { const a = alerts[k], v = volLine(va[a.symbol]);
+        const t = v ? m.replace(/\nSTOP /, v + '\nSTOP ') : m;
+        return runners.has(a.symbol) && (a.kind === '1m' || a.kind === '5m' || a.kind === 'hi') ? '🟩🟩🟩🟩🟩\n🔥🔥 RUNNER ' + t : t; });
       await supa.from('telegram_outbox').insert(texts.map(text => ({ text }))); await flush();
     }
     return Response.json({ cmds, on_list: syms.length, priced: got.length, sent: msgs.length, muted: muted.size, vol_refreshed: await refreshP });
