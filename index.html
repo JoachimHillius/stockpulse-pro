@@ -143,7 +143,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 /* 19 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | RSI 1H | RSI 4H | RSI 1D | RSI 1W | OPTIONS | Bull | Bear | dots
    The four RSI columns are one block: 54px each, +6px on the outer sides of RSI 1H / RSI 1W for spacing from 1Y% / AvgBull. */
 :root{
-  --wl-grid:96px 140px 80px 70px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 52px 78px 46px 65px 65px 22px;
+  --wl-grid:96px 112px 80px 64px 62px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 52px 70px 46px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
@@ -794,6 +794,7 @@ select option{background:var(--bg2);}
     <span>Company</span>
     <span style="text-align:right;">Price</span>
     <span style="text-align:right;">Net $</span>
+    <span style="text-align:right;" title="Volume — latest (live during the day; before the open it is the last full day)">Volume</span>
     <span style="text-align:right;" title="5-minute price change — shows — until live data has been running for ~5 minutes">5m%</span>
     <span style="text-align:right;" title="1-hour price change — shows — until live data has been running for ~60 minutes">1h%</span>
     <span style="text-align:right;">1D%</span>
@@ -3731,6 +3732,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
       <span class="wl-name-cell"${combined ? ` title="${(COMPANY_NAMES[sym] || sym)} · ${sector}"` : ''}><span class="wl-name-txt">${COMPANY_NAMES[sym] || ''}</span>${sectorEditHtml}${isCustom ? `<button onclick="event.stopPropagation();removeUserTicker('${sym}')" style="background:transparent;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;padding:0 4px;margin-left:2px;flex:0 0 auto;" title="Remove from watchlist">×</button>` : ''}</span>
       ${priceCellHtml}
       <span class="pct-cell ${netClr}" style="text-align:right;">${netVal == null ? '—' : (netVal >= 0 ? '+' : '') + Number(netVal).toFixed(2)}</span>
+      <span class="pct-cell" style="text-align:right;color:var(--text);" data-lfvol="${sym}">${typeof LF_DATA !== 'undefined' && LF_DATA[sym] ? (LF_DATA[sym].v == null ? '—' : _lfFmt(LF_DATA[sym].v)) : '…'}</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(d1)}
@@ -16992,9 +16994,11 @@ function _spCandleCell(r) {
   const c = b <= 10 ? 'var(--green)' : b <= 20 ? 'var(--amber)' : '#8090a0';
   return `<span style="color:${c};font-weight:700;" title="Candle body ${b.toFixed(1)}% of the day's range (high − low)">${label} ${b < 10 ? b.toFixed(1) : Math.round(b)}%</span>`;
 }
-function _spVolDay(sym) {
-  const x = _spV10[sym]; if (!x || x.v == null) return '<span style="color:#506070;">—</span>';
-  return `<b style="color:var(--text);">${_spFmtVol(x.v)}</b><div style="font-size:9.5px;color:#8090a0;">10D avg ${x.av10 ? _spFmtVol(x.av10) : '—'}</div>`;
+function _spLiveVol(sym) { const d = typeof LF_DATA !== 'undefined' ? LF_DATA[sym] : null; return d && d.v != null ? d.v : null; }
+function _spVolDay(sym) {   // VOLUME = latest volume (live; before the open the last full day) · small: signal-day volume
+  const x = _spV10[sym], lv = _spLiveVol(sym);
+  if (lv == null && (!x || x.v == null)) return '<span style="color:#506070;">—</span>';
+  return `<b style="color:var(--text);" title="Latest volume (live)">${lv == null ? '…' : _spFmtVol(lv)}</b><div style="font-size:9.5px;color:#8090a0;" title="Volume on the signal day">signal day ${x && x.v != null ? _spFmtVol(x.v) : '—'}</div>`;
 }
 function _spVolX10(sym) {
   const x = _spV10[sym]; if (!x || !x.v || !x.av10) return '<span style="color:#506070;">—</span>';
@@ -17361,12 +17365,13 @@ function _spRender() {
     status: r.signal_date ? r.status : null, target_date: r.target_date, stop_date: r.stop_date, best_pct: r.best_pct, best_date: r.best_date, updown: r.updown, down5: r.down5, rsi_signal: r.rsi_signal, rsi10: r.rsi10 || [], _added: _spTier,
     lvl_date: r.lvl_date, lvl_entry: r.lvl_entry, lvl_stop: r.lvl_stop, lvl_target: r.lvl_target, body_pct: r.body_pct }));
   const sb = _spSortBy[_spVcTier()], asc = !!_spSortAsc[_spVcTier()], dir = asc ? -1 : 1;
-  const vday = sym => (_spV10[sym] && _spV10[sym].v != null) ? _spV10[sym].v : null, cday = r => r.day_chg_pct == null ? null : Number(r.day_chg_pct);
+  const vday = sym => _spLiveVol(sym), cday = r => r.day_chg_pct == null ? null : Number(r.day_chg_pct);
   const byNum = (x, y) => x == null || y == null ? (x == null) - (y == null) : dir * (y - x);   // no number → bottom
   merged.sort((a, b) => sb === 'az' ? dir * a.symbol.localeCompare(b.symbol) : sb === 'chg' ? byNum(cday(a), cday(b)) : sb === 'vol' ? byNum(vday(a.symbol), vday(b.symbol))                                                     // High → Low on → highest volume first
     : tgCount(b.symbol) - tgCount(a.symbol) || _spMaxVol(b.symbol) - _spMaxVol(a.symbol));                          // otherwise most Telegram alerts first
   const pass = merged.filter(_spCandlePass).filter(_spVolChgPass);
   const rows = _spFind ? pass.filter(_spFindPass) : pass.filter((r, i) => i < SP_MAX_ROWS || r._added);
+  { const want = typeof lfLoad === 'function' ? merged.map(r => r.symbol).filter(x => !LF_DATA[x]) : []; if (want.length && !_spRender._busy) { _spRender._busy = true; lfLoad(merged.map(r => r.symbol)).then(() => { _spRender._busy = false; if (document.getElementById('page-singlepattern')?.classList.contains('active')) _spRender(); }); } }
   rows.forEach(r => { _spPopRows[r.symbol] = r; });
   _spShown = rows;
   const total = (_spRows || []).filter(r => r.tier === _spTier).length;
@@ -21813,11 +21818,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // A–Z · Volume High → Low · min volume · % CHG min / max. Rows are found on the page (data-sym rows, table rows with a
 // TICKER / SYMBOL / STOCK column, or clickable stock rows) and sorted / hidden in place; a row's detail line moves with it.
 // Volume and % change come from rpc sp_vol_chg (newest of price_live / market_live) so every page uses the same live numbers.
-const LF_PAGES = ['watchlist', 'momentum', 'scanners', 'flow', 'flowpredict', 'toscsv', 'history', 'earnings', 'tradelog', 'rangescan', 'news', 'morning'];   // Telegram News keeps its own SORT
+const LF_PAGES = ['watchlist', 'momentum', 'scanners', 'flow', 'flowpredict', 'toscsv', 'history', 'earnings', 'tradelog', 'rangescan', 'news', 'morning', 'singlepattern'];   // Telegram News keeps its own SORT; Single Pattern has its own bar
 let LF = {}; try { LF = JSON.parse(localStorage.getItem('lf_state') || '{}') || {}; } catch (e) { LF = {}; }
 // sort: null (page's own order) | 'az' | 'chg' (biggest change today on top) | 'vol' (highest volume today on top) — same as Telegram News
 // SORT only: A–Z, Volume, % Change. 1st click = high → low (A → Z), 2nd click = low → high (Z → A), 3rd click = normal order.
-const lfSt = pg => { const o = LF[pg] || {}; return (LF[pg] = { sort: ['az', 'vol', 'chg'].includes(o.sort) ? o.sort : null, asc: !!o.asc }); };
+// sort: 'az' | 'vol' | 'chg' | 'col:<COLUMN TITLE>' (click any column title to sort by it)
+const lfSt = pg => { const o = LF[pg] || {}; return (LF[pg] = { sort: ['az', 'vol', 'chg'].includes(o.sort) || /^col:/.test(o.sort || '') ? o.sort : null, asc: !!o.asc }); };
 const lfOn = s => !!s.sort;
 const lfNeedData = s => s.sort === 'chg' || s.sort === 'vol';
 function lfSave() { try { localStorage.setItem('lf_state', JSON.stringify(LF)); } catch (e) {} }
@@ -21870,7 +21876,21 @@ async function lfLoad(syms) {
   await LF_LOADING;
   LF_ACTIVE.forEach(pg => lfApply(pg));
 }
-function lfPass() { return true; }   // no filters — the SORT never hides a stock
+function lfPass() { return true; }
+const lfNorm = t => String(t || '').replace(/[▼▲⇅]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+function lfHdrCells(el) {   // the column-title cells that line up with this row's cells
+  if (el.classList && el.classList.contains('wl-dense-row')) { const h = document.querySelector('#page-watchlist .wl-col-hdr'); return h ? [...h.children] : null; }
+  const t = el.closest('table'); if (!t) return null;
+  const hr = t.querySelector('thead tr') || [...t.querySelectorAll('tr')].find(r => r.querySelector('th'));
+  return hr ? [...hr.children] : null;
+}
+function lfCellNum(cell) {   // "+4.2%", "$1.23", "4.2M", "56", "−3.1" → number; anything else → null (goes to the bottom)
+  if (!cell) return null;
+  const t = (cell.innerText || '').split('\n')[0].replace(/[−–]/g, '-').replace(/[,$%+×x]/gi, ' ').trim();
+  const m = t.match(/-?\d+(?:\.\d+)?\s*[KMB]?/i); if (!m) return null;
+  const n = parseFloat(m[0]), u = (m[0].match(/[KMB]/i) || [''])[0].toUpperCase();
+  return isFinite(n) ? n * ({ K: 1e3, M: 1e6, B: 1e9 }[u] || 1) : null;
+}   // no filters — the SORT never hides a stock
 const LF_OBS = {}, LF_ACTIVE = new Set(); let LF_BUSY = false;
 function lfApply(pg) {
   const root = document.getElementById('page-' + pg); if (!root) return;
@@ -21881,17 +21901,21 @@ function lfApply(pg) {
     const bar = root.querySelector(':scope > .lf-bar'); if (bar) bar.style.display = rows.length >= 2 ? '' : 'none';
     const cnt = root.querySelector('.lf-count');
     if (!rows.length) return;
-    if (lfNeedData(s)) { const miss = rows.map(r => r[1]).filter(x => !LF_DATA[x]); if (miss.length) lfLoad(rows.map(r => r[1])); }
+    const volCells = root.querySelectorAll('[data-lfvol]');
+    if (lfNeedData(s) || volCells.length) { const miss = rows.map(r => r[1]).filter(x => !LF_DATA[x]); if (miss.length) lfLoad(rows.map(r => r[1])); }
+    volCells.forEach(c => { const d = LF_DATA[c.dataset.lfvol]; const t = !d ? '…' : d.v == null ? '—' : _lfFmt(d.v); if (c.textContent !== t) c.textContent = t; });
+    lfHeaders(pg, root, rows, s);
     // group by parent; each row carries the non-ticker siblings right after it (detail / news lines)
     const byParent = new Map();
     rows.forEach(([el, sym]) => { const p = el.parentElement; if (!byParent.has(p)) byParent.set(p, []); byParent.get(p).push([el, sym]); });
     let shown = 0, total = 0;
     byParent.forEach((list, parent) => {
       const symEls = new Set(list.map(x => x[0]));
+      let pos = null; const posOf = el => { if (!pos) { pos = new Map(); [...parent.children].forEach((c, i) => pos.set(c, i)); } return pos.get(el); };   // one pass, not one per row
       const items = list.map(([el, sym]) => {
-        if (el.dataset.lfI == null) el.dataset.lfI = [...parent.children].indexOf(el);
+        if (el.dataset.lfI == null) el.dataset.lfI = posOf(el);
         const tail = []; let n = el.nextElementSibling;
-        while (n && !symEls.has(n) && (n.tagName === el.tagName) && !(n.querySelector('th'))) { if (n.dataset.lfI == null) n.dataset.lfI = [...parent.children].indexOf(n); tail.push(n); n = n.nextElementSibling; if (tail.length > 3) break; }
+        while (n && !symEls.has(n) && (n.tagName === el.tagName) && !(n.querySelector('th'))) { if (n.dataset.lfI == null) n.dataset.lfI = posOf(n); tail.push(n); n = n.nextElementSibling; if (tail.length > 3) break; }
         return { el, sym, tail, i: +el.dataset.lfI };
       });
       items.forEach(it => {
@@ -21901,10 +21925,11 @@ function lfApply(pg) {
           else if (x.dataset.lfH != null) { x.style.display = x.dataset.lfH === '-' ? '' : x.dataset.lfH; delete x.dataset.lfH; }
         });
       });
-      const val = it => { const d = LF_DATA[it.sym] || {}, x = s.sort === 'vol' ? d.v : d.c; return x == null ? null : x; };
+      const colIdx = /^col:/.test(s.sort || '') ? (() => { const h = lfHdrCells(items[0].el); return h ? h.findIndex(c => lfNorm(c.innerText) === s.sort.slice(4)) : -1; })() : -1;
+      const val = it => { if (colIdx >= 0) return lfCellNum(it.el.children[colIdx]); const d = LF_DATA[it.sym] || {}, x = s.sort === 'vol' ? d.v : d.c; return x == null ? null : x; };
       const sorted = items.slice().sort((a, b) => {
         if (s.sort === 'az') return (s.asc ? b.sym.localeCompare(a.sym) : a.sym.localeCompare(b.sym)) || a.i - b.i;
-        if (s.sort === 'vol' || s.sort === 'chg') { const x = val(a), y = val(b); if (x == null || y == null) return (x == null) - (y == null) || a.i - b.i; return (s.asc ? x - y : y - x) || a.i - b.i; }   // no number → bottom
+        if (s.sort === 'vol' || s.sort === 'chg' || colIdx >= 0) { const x = val(a), y = val(b); if (x == null || y == null) return (x == null) - (y == null) || a.i - b.i; return (s.asc ? x - y : y - x) || a.i - b.i; }   // no number → bottom
         return a.i - b.i;
       });
       const cur = items.map(x => x.el), want = sorted.map(x => x.el);
@@ -21919,6 +21944,7 @@ function lfApply(pg) {
   } finally { LF_BUSY = false; if (obs) obs.observe(root, { childList: true, subtree: true }); }
 }
 function lfBar(pg, root) {
+  if (pg === 'singlepattern') return;
   let bar = root.querySelector(':scope > .lf-bar');
   const s = lfSt(pg), b = (on, label, click, title) => `<button class="fbtn${on ? ' active' : ''}" onclick="${click}"${title ? ` title="${title}"` : ''}>${label}</button>`;
   const lab = 'color:#e0e0e0;letter-spacing:1px;text-transform:uppercase;font-size:10.5px;';
@@ -21939,6 +21965,20 @@ function lfSortBtns(s, click) {
     ${b('az', (on, asc) => !on ? 'A–Z' : asc ? 'Z → A' : 'A → Z', 'Click: A → Z · again: Z → A · again: normal order')}
     ${b('vol', (on, asc) => '📊 Volume' + (!on ? '' : asc ? ' ▲' : ' ▼'), 'Click: highest volume on top ▼ · again: lowest on top ▲ · again: normal order')}
     ${b('chg', (on, asc) => '% Change' + (!on ? '' : asc ? ' ▲' : ' ▼'), 'Click: biggest % change on top ▼ · again: lowest on top ▲ · again: normal order')}`;
+}
+// Column titles over a stock list are clickable: 1st click high → low ▼, 2nd low → high ▲, 3rd normal order.
+function lfHeaders(pg, root, rows, s) {
+  const seen = new Set();
+  rows.forEach(([el]) => { const h = lfHdrCells(el); if (h && h.length) seen.add(h[0].parentElement); });
+  seen.forEach(hr => [...hr.children].forEach(c => {
+    const key = lfNorm(c.innerText); if (!key || /^(#|STOCK|SYMBOL|TICKER|SYM|COMPANY)$/.test(key)) return;
+    if (!c.dataset.lfc) { c.dataset.lfc = '1'; c.style.cursor = 'pointer'; c.title = (c.title ? c.title + ' · ' : '') + 'Click to sort: high → low, again low → high, again normal';
+      c.addEventListener('click', ev => { ev.stopPropagation(); lfSort(pg, 'col:' + lfNorm(c.innerText)); }); }
+    const on = s.sort === 'col:' + key, arrow = on ? (s.asc ? ' ▲' : ' ▼') : '';
+    let a = c.querySelector(':scope > .lf-arr');
+    if (!a) { a = document.createElement('span'); a.className = 'lf-arr'; a.style.color = 'var(--cyan)'; c.appendChild(a); }
+    if (a.textContent !== arrow) a.textContent = arrow;
+  }));
 }
 function lfNext(s, k) { if (s.sort !== k) { s.sort = k; s.asc = false; } else if (!s.asc) s.asc = true; else { s.sort = null; s.asc = false; } }
 function lfSort(pg, k) {
@@ -21964,7 +22004,8 @@ function lfInit() {
     const root = document.getElementById('page-' + pg); if (!root || LF_OBS[pg]) return;
     LF_ACTIVE.add(pg);
     let t = null;
-    const obs = new MutationObserver(() => { if (LF_BUSY) return; clearTimeout(t); t = setTimeout(() => lfApply(pg), 150); });
+    // Re-sort in the same moment the page redraws (a MutationObserver runs before the screen paints) — no flicker / jumping rows.
+    const obs = new MutationObserver(() => { if (LF_BUSY) return; const r = document.getElementById('page-' + pg); if (r && !r.classList.contains('active')) { clearTimeout(t); t = setTimeout(() => lfApply(pg), 300); return; } lfApply(pg); });
     LF_OBS[pg] = obs; obs.observe(root, { childList: true, subtree: true });
     lfApply(pg);
   });
