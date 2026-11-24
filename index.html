@@ -21045,9 +21045,15 @@ const JC_PAT = {
   estar: { n: 'Evening star', d: 'bear', what: '3 candles: a long green one, a small candle (indecision), then a strong red one closing into the first body.', mean: 'Buying ran out, a pause, then sellers stepped in — a classic top pattern.' },
   soldiers: { n: 'Three white soldiers', d: 'bull', what: '3 green candles in a row, each closing higher with solid bodies.', mean: 'Steady buying three days running — a strong uptrend start (watch for it getting stretched).' },
   crows: { n: 'Three black crows', d: 'bear', what: '3 red candles in a row, each closing lower with solid bodies.', mean: 'Steady selling three days running — a strong downtrend start.' },
+  breakout: { n: 'Breakout candle', d: 'bull', what: 'A strong green candle (body 60% of the range or more) that closes above the highest high of the 20 candles before it, on at least 2× normal volume — the first one of the move.', mean: 'Buyers broke the stock out of its range with heavy volume — the start of a possible run.' },
   downrev: { n: 'Down days, then reversal', d: 'bull', what: '3–5 lower closes in a row, then a green candle that closes above the previous candle\'s high (or a bullish reversal candle).', mean: 'The selling streak was broken by buyers — a possible bounce from the dip.' },
 };
 JC.pat = jcPref('pat', 'strong');
+// Indecision candle by colour — research on the top 100 penny stocks of the Watchlist (last close $0.10–$10, highest dollar volume),
+// 12 months to 11/24/2026, 1,085 candles: % of next days that closed above the candle's high / below its low / higher than its close.
+const JC_IND_STATS = {
+  green: { up: { hi: 24, lo: 26, nx: 46, n: 169 }, down: { hi: 28, lo: 25, nx: 45, n: 195 }, flat: { hi: 24, lo: 26, nx: 43, n: 176 } },
+  red:   { up: { hi: 23, lo: 35, nx: 42, n: 171 }, down: { hi: 19, lo: 33, nx: 40, n: 191 }, flat: { hi: 30, lo: 31, nx: 52, n: 183 } } };
 function jcPatterns(all, start, lv) {
   const out = [], n = all.length, vAvg = i => { let s = 0, k = 0; for (let j = Math.max(0, i - 20); j < i; j++) { s += all[j].value || 0; k++; } return k ? s / k : 0; };
   const sma = (i, p) => { if (i < p - 1) return null; let s = 0; for (let j = i - p + 1; j <= i; j++) s += all[j].close; return s / p; };
@@ -21069,8 +21075,9 @@ function jcPatterns(all, start, lv) {
     else if (G(p1) && Rd(c) && c.open >= p1.close && c.close <= p1.open && body > B(p1)) k = 'bearengulf';
     else if (Rd(p1) && B(p1) > 0.6 * R(p1) && G(c) && c.open < p1.close && c.close > (p1.open + p1.close) / 2 && c.close < p1.open) k = 'piercing';
     else if (G(p1) && B(p1) > 0.6 * R(p1) && Rd(c) && c.open > p1.close && c.close < (p1.open + p1.close) / 2 && c.close > p1.open) k = 'darkcloud';
-    else if (lo_ >= 2 * Math.max(body, 0.02 * rng) && up_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? 'hangman' : down ? 'hammer' : null;
-    else if (up_ >= 2 * Math.max(body, 0.02 * rng) && lo_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? 'shooting' : down ? 'invhammer' : null;
+    // a bearish arrow never sits on a green candle: hanging man / shooting star count only when the candle closed red
+    else if (lo_ >= 2 * Math.max(body, 0.02 * rng) && up_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? (Rd(c) ? 'hangman' : null) : down ? 'hammer' : null;
+    else if (up_ >= 2 * Math.max(body, 0.02 * rng) && lo_ <= 0.25 * rng && body >= 0.05 * rng) k = up ? (Rd(c) ? 'shooting' : null) : down ? 'invhammer' : null;
     // Doji = body no more than 10% of the day's range. Where the body sits decides the kind; a tiny body that is neither centered
     // nor at the very top / bottom is not marked. Spinning top = body 10–25%, centered, both wicks bigger than the body.
     else if (body <= 0.1 * rng && rng > 0) {
@@ -21080,20 +21087,28 @@ function jcPatterns(all, start, lv) {
     }
     else if (body <= 0.25 * rng && up_ >= body && lo_ >= body && up_ >= 0.3 * rng && lo_ >= 0.3 * rng && Math.max(up_, lo_) <= 2 * Math.min(up_, lo_)) k = 'spin';
     else if (body <= 0.3 * rng && up_ >= 0.25 * rng && lo_ >= 0.25 * rng) k = 'indecision';
+    // breakout: the FIRST strong green candle that closes above the highest high of the 20 candles before it, on 2× volume or more
+    if ((!k || JC_PAT[k].d !== 'bull') && G(c) && body >= 0.6 * rng && i >= 21) {
+      let hh = -Infinity; for (let j = i - 20; j < i; j++) hh = Math.max(hh, all[j].high);
+      let hh1 = -Infinity; for (let j = i - 21; j < i - 1; j++) hh1 = Math.max(hh1, all[j].high);
+      const va0 = vAvg(i);
+      if (c.close > hh && p1.close <= hh1 && va0 && (c.value || 0) >= 2 * va0) k = 'breakout';
+    }
     // 3–5 down closes, then a reversal
     const k0 = k; let streak = 0; for (let j = i - 1; j > 0 && all[j].close < all[j - 1].close && streak < 6; j--) streak++;
     if (streak >= 3 && streak <= 5 && (k === 'hammer' || k === 'bullengulf' || k === 'piercing' || k === 'mstar' || (G(c) && c.close > p1.high))) k = 'downrev';
     if (!k) continue;
     const P = JC_PAT[k], va = vAvg(i), vx = va ? (c.value || 0) / va : 0;
     const near = levels.find(l => Math.abs((P.d === 'bull' ? c.low : P.d === 'bear' ? c.high : c.close) - l) <= l * 0.03);
-    const fits = P.d === 'bull' ? (down || k === 'downrev' || near != null) : P.d === 'bear' ? (up || near != null) : (up || down);
+    const fits = P.d === 'bull' ? (down || k === 'downrev' || k === 'breakout' || near != null) : P.d === 'bear' ? (up || near != null) : (up || down);
     const strong = fits && (vx >= 1 || near != null) && (P.d !== 'neutral' || vx >= 1.5);
-    out.push({ i, time: c.time, k, strong, vx, near, ctx: up ? 'after a run up' : down ? 'after a fall' : 'with no clear trend before it', streak, base: k === 'downrev' && k0 && k0 !== 'downrev' ? k0 : null });
+    out.push({ i, time: c.time, k, strong, vx, near, ctx: up ? 'after a run up' : down ? 'after a fall' : 'with no clear trend before it', trend: up ? 'up' : down ? 'down' : 'flat', col: c.close >= c.open ? 'green' : 'red', streak, base: k === 'downrev' && k0 && k0 !== 'downrev' ? k0 : null });
   }
   // how this ticker moved over the next 3 candles after the same pattern (all occurrences in the loaded data)
   const st = {};
-  out.forEach(o => { if (o.i + 3 >= n) return; const r = all[o.i + 3].close / all[o.i].close - 1; (st[o.k] ||= []).push(r); });
-  out.forEach(o => { const a = st[o.k] || []; o.hist = { n: a.length, up: a.filter(r => r > 0).length, avg: a.length ? a.reduce((s, r) => s + r, 0) / a.length : 0 }; });
+  const sk = o => o.k === 'indecision' ? o.k + ':' + o.col : o.k;   // green and red indecision candles are counted apart
+  out.forEach(o => { if (o.i + 3 >= n) return; const r = all[o.i + 3].close / all[o.i].close - 1; (st[sk(o)] ||= []).push(r); });
+  out.forEach(o => { const a = st[sk(o)] || []; o.hist = { n: a.length, up: a.filter(r => r > 0).length, avg: a.length ? a.reduce((s, r) => s + r, 0) / a.length : 0 }; });
   return out;
 }
 function jcPatApply(H) {
@@ -21129,7 +21144,7 @@ function jcPatCard(H, o, x) {
     : `<b>3 levels:</b> a close above <b>${f(Math.max(c.open, c.close))}</b> (top of the body) = the ${c.close < c.open ? 'selling' : 'pressure'} is absorbed and it can try higher · a close above <b>${f(hi)}</b> (the high) = a clean break with room to run · a close below <b>${f(lo)}</b> (the low) = it fails / turns down. Wait for a close, not just a wick.`;
   const uW = c.high - Math.max(c.open, c.close), lW = Math.min(c.open, c.close) - c.low;
   const lean = P.d !== 'neutral' ? '' : uW >= 1.5 * lW ? ' The longer upper wick shows sellers rejected the high — it leans down until it closes above the top of the body.'
-    : lW >= 1.5 * uW ? ' The longer lower wick shows buyers defended the low — it leans up as long as the low holds.' : ' The wicks are about even — no lean either way.';
+    : lW >= 1.5 * uW ? ' The longer lower wick shows buyers defended the low — it leans up as long as the low holds.' : o.k === 'indecision' ? ' The wicks are about even, so the colour decides the lean (see Colour below).' : ' The wicks are about even — no lean either way.';
   // what happened next (past patterns): first close beyond either level within 15 candles
   let out = null;
   for (let j = o.i + 1; j < H.all.length && j <= o.i + 15; j++) {
@@ -21140,7 +21155,14 @@ function jcPatCard(H, o, x) {
   const outTxt = !out ? (o.i + 1 >= H.all.length ? 'this is the latest candle — not decided yet.' : `not decided yet — no close above ${f(hi)} or below ${f(lo)} in the ${Math.min(15, H.all.length - 1 - o.i)} candles after it.`)
     : P.d === 'neutral' ? `broke <b class="${out.up ? 'jr-pos' : 'jr-neg'}">${out.up ? 'up' : 'down'}</b> on ${md(H.all[out.j].time)} (closed ${out.up ? 'above ' + f(hi) : 'below ' + f(lo)}).`
     : `<b class="${good ? 'jr-pos' : 'jr-neg'}">${good ? '✓ confirmed' : '✗ failed'}</b> on ${md(H.all[out.j].time)} — closed ${out.up ? 'above ' + f(hi) : 'below ' + f(lo)}.`;
-  const h = o.hist, hTxt = h.n ? `On ${H.sym} this pattern showed up <b>${h.n}×</b> in this chart: the next 3 candles closed <b>higher ${h.up} of ${h.n}</b> times (average ${h.avg >= 0 ? '+' : ''}${(h.avg * 100).toFixed(1)}%).` : 'Not enough history on this chart to count how it went before.';
+  let colTxt = '';
+  if (o.k === 'indecision') {
+    const S = JC_IND_STATS[o.col][o.trend], ctxW = { up: 'after a run up', down: 'after a fall', flat: 'with no clear trend' }[o.trend];
+    const lean = S.lo - S.hi >= 6 ? `<b class="jr-neg">leans down</b>` : S.hi - S.lo >= 3 ? `<b class="jr-pos">leans slightly up</b>` : '<b>no clear lean — about a coin flip</b>';
+    colTxt = `<div style="margin-top:4px;"><b style="color:var(--text);">Colour:</b> ${o.col === 'red' ? '🟥 <b class="jr-neg">Red</b> indecision — it closed <b>below</b> its open: sellers had the last word.' : '🟩 <b class="jr-pos">Green</b> indecision — it closed <b>above</b> its open: buyers had the last word.'}
+      <b style="color:var(--text);">Probability</b> (your top 100 penny stocks, last 12 months, ${S.n} ${o.col} indecision candles ${ctxW}): the next day closed <b>below the low ${S.lo}%</b> · <b>above the high ${S.hi}%</b> · higher than this close ${S.nx}% of the time → ${lean}.</div>`;
+  }
+  const h = o.hist, hTxt = h.n ? `On ${H.sym} this ${o.k === 'indecision' ? o.col + ' ' : ''}pattern showed up <b>${h.n}×</b> in this chart: the next 3 candles closed <b>higher ${h.up} of ${h.n}</b> times (average ${h.avg >= 0 ? '+' : ''}${(h.avg * 100).toFixed(1)}%).` : 'Not enough history on this chart to count how it went before.';
   const el = document.createElement('div'); el.id = 'jc-patcard';
   el.style.cssText = `position:absolute;top:8px;left:${Math.max(8, Math.min(x + 14, H.top.clientWidth - 420))}px;width:380px;z-index:8;background:var(--bg2);border:1px solid ${col};border-radius:9px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:12px;line-height:1.55;color:var(--text2);`;
   el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><b style="color:${col};font-size:14px;">${P.d === 'bull' ? '▲' : P.d === 'bear' ? '▼' : '●'} ${P.n}${o.base ? ` <span style="font-weight:400;font-size:12px;">(${JC_PAT[o.base].n.toLowerCase()})</span>` : ''}</b>
@@ -21149,7 +21171,7 @@ function jcPatCard(H, o, x) {
     <div style="color:var(--text3);margin-bottom:6px;">${shape}</div>
     <div><b style="color:var(--text);">What it is:</b> ${P.what}</div>
     <div><b style="color:var(--text);">What it means here:</b> ${P.mean}${lean} It came <b>${o.ctx}</b>${o.k === 'downrev' ? ` (${o.streak} lower closes before it)` : ''}${o.near != null ? `, right at the <b>${f(o.near)}</b> support / resistance line` : ''}. ${o.strong ? '<b style="color:var(--text);">Strong setup</b> — it fits its place' + (o.vx >= 1 ? ' and came on above-average volume.' : '.') : 'Weaker setup — it doesn\'t fully fit its place or the volume is light.'}</div>
-    <div style="margin-top:4px;"><b style="color:var(--text);">Volume:</b> ${vTxt}</div>${row}
+    ${colTxt}<div style="margin-top:4px;"><b style="color:var(--text);">Volume:</b> ${vTxt}</div>${row}
     <div style="margin-top:4px;"><b style="color:var(--text);">What to watch next:</b> ${next}</div>
     <div style="margin-top:4px;"><b style="color:var(--text);">What happened:</b> ${outTxt}</div>
     <div style="margin-top:4px;"><b style="color:var(--text);">How it went before:</b> ${hTxt}</div>
@@ -21445,7 +21467,7 @@ function jcFullRender() {
       • <b>Moving averages:</b> 3 yellow · 8 purple · 15 green · 50 blue · 100 white (black in light mode) · 200 red (simple averages of the close). Click a number to show / hide it.<br>
       • <b>Support / resistance:</b> levels where price turned at least twice in the last 2 years of daily candles — green = support below the price, magenta = resistance above, <b style="color:#ff8c00;">thick orange = the major level</b> (most turns over the longest time). The label shows how many times it turned there. Same levels on every timeframe; turn them on / off with the button.<br>
       • <b>Doji rules:</b> a doji has a body of no more than 10% of the day's range. Body in the middle = <b>doji</b> (or <b>long-legged doji</b> on a much wider day than usual) · body at the very top with a long lower wick = <b>dragonfly</b> · at the very bottom with a long upper wick = <b>gravestone</b>. A body of 10–25% in the middle = <b>spinning top</b>. A body up to 30% with wicks of 25%+ on both sides (they can be uneven) = <b>indecision candle</b> — the card says which way its wicks lean and gives 3 levels: top of the body, the high and the low.<br>
-      • <b>Patterns:</b> markers on candles from the Candlestick Cheat Sheet — <b style="color:#22c55e;">▲</b> bullish (hammer, engulfing, morning star, 3–5 down days then a reversal …) · <b style="color:#ef4444;">▼</b> bearish (shooting star, hanging man, evening star …) · <b style="color:#facc15;">●</b> indecision (doji, spinning top). <b>Strong</b> shows only the ones that fit their place (after a run up / down or at a support / resistance line) with at least average volume; <b>All</b> shows every one. Click a marker: what it is, what it means here, what to watch next (confirmation / fail level) and how this ticker moved after the same pattern before.<br>
+      • <b>Patterns:</b> markers on candles from the Candlestick Cheat Sheet — <b style="color:#22c55e;">▲</b> bullish (hammer, engulfing, morning star, breakout candle, 3–5 down days then a reversal …) · <b style="color:#ef4444;">▼</b> bearish (shooting star, hanging man, evening star … — only on red candles, never on a green one) · <b style="color:#facc15;">●</b> indecision (doji, spinning top, indecision candle — a red one leans down, a green one is about a coin flip; the card shows the probability). <b>Strong</b> shows only the ones that fit their place (after a run up / down or at a support / resistance line) with at least average volume; <b>All</b> shows every one. Click a marker: what it is, what it means here, what to watch next (confirmation / fail level) and how this ticker moved after the same pattern before.<br>
       • <b>Drawing:</b> pick Trend line, Horizontal, Zone, Text or Bubble and click on the chart (lines and zones: two clicks). Erase = click a drawing to delete it. Click the tool again or press Esc to go back to scroll / zoom. Drawings are saved per ticker and show on every timeframe.<br>
       • <b>⬇ PNG / ⬇ PDF:</b> saves the chart as you see it — drawings, levels and averages included — with the ticker, timeframe and date on top.<br>
       • <b>Close:</b> ✕ or the Esc key. Times are New York time. Green candle = closed higher than it opened, red = lower.</div>` : ''}
