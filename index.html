@@ -19302,11 +19302,14 @@ function jrDlMenu(btn) {
   m.innerHTML = items.map(([k, l, d]) => `<div class="jr-dl-i" onclick="document.getElementById('jr-dl').remove();jrPdf('${k}')" style="padding:8px 10px;border-radius:5px;cursor:pointer;">
       <b style="color:var(--cyan);">${l}</b> <span style="color:var(--text2);font-size:11px;">— ${jrEsc(d)}</span></div>`).join('')
     + `<div style="border-top:1px solid var(--border2);margin:6px 4px 4px;padding-top:6px;color:var(--text2);font-size:10px;letter-spacing:1px;padding-left:6px;">EMPTY TRADE PLANS — fill in, then upload on the Plan tab</div>`
-    + [['penny', 'Penny stocks'], ['option', 'Options (large caps)']].map(([k, l]) => `<div style="display:flex;gap:6px;align-items:center;padding:5px 10px;"><b style="color:var(--cyan);min-width:150px;">${l}</b>
+    + [['penny', 'Stocks'], ['option', 'Options (large caps)']].map(([k, l]) => `<div style="display:flex;gap:6px;align-items:center;padding:5px 10px;"><b style="color:var(--cyan);min-width:150px;">${l}</b>
         <button class="jr-btn sm" onclick="document.getElementById('jr-dl').remove();jrPlanBlankPdf('${k}')">Fillable PDF</button>
         <button class="jr-btn sm" onclick="document.getElementById('jr-dl').remove();jrPlanBlankXlsx('${k}')">Spreadsheet</button></div>`).join('')
     + '<div style="color:var(--text3);font-size:10px;padding:4px 10px;">Day = date on Today · Week = Weekly Audit week · Month = Calendar month · Analytics = the view on the Analytics tab</div>';
   document.body.appendChild(m);
+  { const mr = m.getBoundingClientRect();   // keep the whole menu on screen: open to the right when the button sits at the left edge
+    if (mr.left < 8) { m.style.right = 'auto'; m.style.left = Math.max(8, Math.min(b.left, window.innerWidth - mr.width - 8)) + 'px'; }
+    if (mr.bottom > window.innerHeight - 8) { m.style.top = Math.max(8, window.innerHeight - mr.height - 8) + 'px'; } }
   m.querySelectorAll('.jr-dl-i').forEach(x => { x.onmouseenter = () => x.style.background = 'var(--bg3)'; x.onmouseleave = () => x.style.background = ''; });
   setTimeout(() => document.addEventListener('click', function f(ev) { if (!m.contains(ev.target) && ev.target !== btn) { m.remove(); document.removeEventListener('click', f); } }), 0);
 }
