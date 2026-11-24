@@ -143,7 +143,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13
 /* 19 columns (SYM is 96px so the RSI badge fits after the ticker): SYM | NAME | Price | Net$ | 5m | 1h | 1D | 1W | 1M | 6M | 1Y | RSI 1H | RSI 4H | RSI 1D | RSI 1W | OPTIONS | Bull | Bear | dots
    The four RSI columns are one block: 54px each, +6px on the outer sides of RSI 1H / RSI 1W for spacing from 1Y% / AvgBull. */
 :root{
-  --wl-grid:96px 112px 80px 64px 62px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 52px 70px 46px 65px 65px 22px;
+  --wl-grid:96px 112px 80px 64px 62px 112px 50px 50px 60px 55px 55px 55px 65px 60px 54px 54px 60px 52px 70px 46px 65px 65px 22px;
   /* 22 cols: SYM+badges | Security | Price | Net$ | 5M | 1H | 1D | 1W | 1M | 6M | GZ | IRIS | XGPT | Open$ | Open Date | Close$ | Close Date | Stop$ | Day P/L | Entry P/L | Action | Edit/Del */
   --mom-grid:108px 118px 90px 74px 56px 64px 46px 46px 50px 50px 50px 50px 36px 36px 36px 36px 62px 72px 62px 72px 58px 62px 66px 50px 52px;
 }
@@ -796,6 +796,7 @@ select option{background:var(--bg2);}
     <span style="text-align:right;">Price</span>
     <span style="text-align:right;">Net $</span>
     <span style="text-align:right;" title="Bold = today's volume (incl. pre-market) · gray = yesterday's full day">Volume</span>
+    <span style="padding-left:8px;" title="Runner phase (7-step framework): #1 Ignition · Day 2 · #2 Rest · #3 Breakout · #4 Red day · #5 Bounce, with the rating. Hover a cell for the full line. Shown for recent runners and today's 10%+ movers; — = nothing going on. Updates every 5 min.">Phase</span>
     <span style="text-align:right;" title="5-minute price change — shows — until live data has been running for ~5 minutes">5m%</span>
     <span style="text-align:right;" title="1-hour price change — shows — until live data has been running for ~60 minutes">1h%</span>
     <span style="text-align:right;">1D%</span>
@@ -3734,6 +3735,7 @@ function _wlBuildRow(sym, sector, customTickers, _maxDate, combined) {
       ${priceCellHtml}
       <span class="pct-cell ${netClr}" style="text-align:right;">${netVal == null ? '—' : (netVal >= 0 ? '+' : '') + Number(netVal).toFixed(2)}</span>
       <span class="pct-cell" style="text-align:right;color:var(--text);" data-lfvol="${sym}" title="Bold = today's volume (incl. pre-market) · gray = yesterday">…</span>
+      <span data-phase="${sym}" style="overflow:hidden;min-width:0;padding-left:8px;">…</span>
       ${_wlPctCell(m5)}
       ${_wlPctCell(h1)}
       ${isStale ? _wlStaleCell(latestDate) : _wlPctCell(d1)}
@@ -7020,8 +7022,9 @@ function showHoverPopup(sym, triggerEl){
   // Build content (reuses the same popup as ticker detail)
   const {html, convScore} = buildTickerPopup(sym);
   const spPanel = (typeof _spPopPanel === 'function') ? _spPopPanel(sym) : '';   // Single Pattern rows only
-  content.innerHTML = `<div id="hp-info" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);">${typeof TI !== 'undefined' && TI[sym] ? tiHtml(TI[sym].d) : '<span style="font-size:11px;color:#8090a0;">COMPANY · loading…</span>'}</div>` + spPanel + `<div id="hp-vol" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;color:#8090a0;">VOLUME TODAY · loading…</div>` + buildBreakoutPanel(sym) + html + buildLevelPanel(sym) + (typeof jcPopupHtml === 'function' ? jcPopupHtml(sym) : '');
+  content.innerHTML = `<div id="hp-info" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);">${typeof TI !== 'undefined' && TI[sym] ? tiHtml(TI[sym].d) : '<span style="font-size:11px;color:#8090a0;">COMPANY · loading…</span>'}</div><div id="hp-phase" data-sym="${sym}" style="display:none;padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11.5px;line-height:1.5;color:var(--text2);"></div>` + spPanel + `<div id="hp-vol" data-sym="${sym}" style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;color:#8090a0;">VOLUME TODAY · loading…</div>` + buildBreakoutPanel(sym) + html + buildLevelPanel(sym) + (typeof jcPopupHtml === 'function' ? jcPopupHtml(sym) : '');
   _hpLoadVol(sym);
+  if (typeof phPop === 'function') phPop(sym);   // runner phase + rating (STEP 89)
   if (typeof tiGet === 'function') tiGet(sym).then(d => { const el = document.getElementById('hp-info'); if (el && el.dataset.sym === sym) el.innerHTML = tiHtml(d); }).catch(() => {});
   if (typeof jcPop === 'function') jcPop(sym);   // candle chart at the bottom: 1 year · Day
   fetchAndRenderTrend(sym);
@@ -17410,6 +17413,7 @@ function _spRender() {
       ${td(_spCandleCell(r), 'left')}
       ${td(_spPct(r.prior3d_pct))}
       ${_spTier === 'large' ? td(_spPct(r.dip_pct)) : ''}${td(_spPct(r.day_chg_pct))}
+      ${td(`<span data-phase="${r.symbol}">…</span>`, 'left')}
       ${td(_spVolDay(r.symbol))}${td(_spVolX10(r.symbol))}
       ${td(_spMoney(r.last_close) + `<div style="font-size:9.5px;color:#8090a0;">${_spDate(r.last_date)}</div>`)}
       ${td(_spPct(r.since_pct))}
@@ -17417,7 +17421,7 @@ function _spRender() {
       ${td(`<span style="font-size:13px;letter-spacing:1px;">${_spArrows(r.updown)}</span>`, 'center')}
       ${td(`${r.down5 ?? '—'}/5`, 'center')}
       ${td(`<b style="color:${_spRsiClr(r.rsi_signal == null ? null : Number(r.rsi_signal))};">${r.rsi_signal == null ? '—' : Math.round(Number(r.rsi_signal))}</b>`, 'center')}
-    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 20 : 19)}`).join('');
+    </tr>${_spNewsRow(r.symbol, 'scan:' + r.symbol, _spTier === 'large' ? 21 : 20)}`).join('');
   page.innerHTML = `
     ${_spTabBar(tabs)}
     <div style="padding:12px 16px;">
@@ -17442,9 +17446,9 @@ function _spRender() {
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
-          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('CANDLE', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') : ''}${th('% CHG')}${th('VOLUME')}${th('VOL ×10D')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}
+          ${th('STOCK', 'left')}${th('SECTOR', 'left')}${th('NEWS / DILUTION', 'left')}${th('OPTIONS', 'left')}${th('VOL D-1')}${th('VOL D-2')}${th('VOL D-3')}${th('SIGNAL', 'left')}${th('CANDLE', 'left')}${th('PRIOR 3D')}${_spTier === 'large' ? th('DIP') : ''}${th('% CHG')}${th('<span title="Runner phase (7-step framework) with the rating — hover a cell for the full line. — = no recent run and not a 10%+ mover today.">PHASE</span>', 'left')}${th('VOLUME')}${th('VOL ×10D')}${th('LATEST')}${th('SINCE')}${th('STATUS', 'left')}${th('DAYS ↓/↑', 'center')}${th('DOWN', 'center')}${th('RSI', 'center')}
         </tr></thead>
-        <tbody>${body || `<tr><td colspan="20" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="21" style="padding:24px;text-align:center;color:#8090a0;">${_spRows ? 'No stocks match these filters' : (_spLoading ? 'Loading…' : 'No data')}</td></tr>`}</tbody>
       </table></div>
       <div style="margin-top:10px;font-size:10.5px;color:#8090a0;">★ = your added stock (always shown, ✕ removes it) — add one with "Compare ticker". Volume: <span style="color:var(--green);">green ≥ 1M</span> · <span style="color:var(--amber);">yellow ≥ 500K</span> · gray below. NEWS: green good · red bad · yellow check · gray none. DILUTION: red risk (SEC offering/shelf filings) · green buyback · gray none.</div>
     </div>`;
@@ -21121,6 +21125,35 @@ function jcPatApply(H) {
       color: d === 'bull' ? '#22c55e' : d === 'bear' ? '#ef4444' : '#facc15', size: o.strong ? 1.2 : 0.8 }; })); } catch (e) { console.warn('[patterns]', e); }
   document.getElementById('jc-patcard')?.remove();
 }
+// 50/50 odds + close / streak notes (Day chart only) — research on the top 100 penny stocks of the Watchlist, 12 months to 11/24/2026
+function jcOdds(H, o) {
+  if (!H || H.tf !== 'D') return '';
+  const all = H.all, i = o.i, c = all[i], rng = Math.max(1e-9, c.high - c.low), cl = (c.close - c.low) / rng, vx = o.vx || 0;
+  const red = x => x.close < x.open, green = x => x.close >= x.open, html = [];
+  if (JC_PAT[o.k].d === 'neutral') {
+    const g = o.col === 'green', nx = all[i + 1];
+    const t = g ? `🟩 green breaks <b>up first ${o.trend === 'up' ? 55 : 53}%</b> · down first ${o.trend === 'up' ? 45 : 47}%${o.trend === 'up' ? ' (after a run up)' : ''}`
+      : `🟥 red breaks <b>down first ${o.trend === 'down' ? 58 : 56}%</b> · up first ${o.trend === 'down' ? 42 : 44}%${o.trend === 'down' ? ' (after a fall)' : ''}`;
+    const op = !nx ? (g ? '. <b>The next open decides:</b> opens higher → 47% close above the high vs 11% below the low' : '. <b>The next open decides:</b> opens lower → 55% close below the low vs only 8% above the high')
+      : g && nx.open > c.close ? '. The next day <b>opened higher</b> → 47% close above the high vs 11% below the low'
+      : !g && nx.open < c.close ? '. The next day <b>opened lower</b> → 55% close below the low vs only 8% above the high'
+      : `. The next day opened ${nx.open > c.close ? 'higher' : nx.open < c.close ? 'lower' : 'flat'} — against the colour, no strong edge`;
+    html.push(`<div style="margin-top:4px;"><b style="color:var(--text);">50/50 odds:</b> ${t}${op}.</div>`);
+  }
+  const notes = [];
+  if (cl >= 0.8) notes.push('closed at the high → ~72% take out this high the next day');
+  else if (cl <= 0.2) notes.push('closed at the low → only 9–25% take out this high the next day');
+  let rs = 0; for (let j = i; j >= 0 && red(all[j]); j--) rs++;
+  let gs = 0; for (let j = i; j >= 0 && green(all[j]); j--) gs++;
+  const run = i >= 5 ? c.close / all[i - 5].close - 1 : 0; let mixed = false; for (let j = Math.max(0, i - 4); j < i; j++) if (red(all[j])) mixed = true;
+  if (rs >= 3 && cl <= 0.2 && vx >= 2) notes.push(`<b class="jr-pos">capitulation</b>: ${rs} red days, closed at the low on ${vx.toFixed(1)}× volume → 61% close up the next day`);
+  else if (rs >= 5 && vx < 1) notes.push(`${rs} red days on light volume → 59% keep falling the next day`);
+  if (gs >= 3 && cl > 0.3 && cl < 0.7 && vx >= 2) notes.push(`${gs} green days, mid-range close on ${vx.toFixed(1)}× volume → 57% close up the next day`);
+  else if (gs >= 5) notes.push(`${gs} green days on ${vx >= 1.5 ? 'heavy' : 'light'} volume → ${vx >= 1.5 ? 54 : 42}% close up the next day`);
+  if (mixed && run >= 0.2 && cl >= 0.8 && vx >= 2) notes.push(`<b class="jr-neg">blow-off risk</b>: up ${Math.round(run * 100)}% in 5 days with red days in between, closed at the high on ${vx.toFixed(1)}× volume → only 35% close up the next day`);
+  if (notes.length) html.push(`<div style="margin-top:4px;"><b style="color:var(--text);">Close &amp; streak:</b> ${notes.join(' · ')}. <span style="color:var(--text3);">(top penny stocks, 12 months)</span></div>`);
+  return html.join('');
+}
 function jcPatCard(H, o, x) {
   document.getElementById('jc-patcard')?.remove(); if (!o) return;
   const P = JC_PAT[o.k], c = H.all[o.i], f = v => v < 1 ? v.toFixed(4) : v.toFixed(2), col = P.d === 'bull' ? '#22c55e' : P.d === 'bear' ? '#ef4444' : '#facc15';
@@ -21171,7 +21204,7 @@ function jcPatCard(H, o, x) {
     <div style="color:var(--text3);margin-bottom:6px;">${shape}</div>
     <div><b style="color:var(--text);">What it is:</b> ${P.what}</div>
     <div><b style="color:var(--text);">What it means here:</b> ${P.mean}${lean} It came <b>${o.ctx}</b>${o.k === 'downrev' ? ` (${o.streak} lower closes before it)` : ''}${o.near != null ? `, right at the <b>${f(o.near)}</b> support / resistance line` : ''}. ${o.strong ? '<b style="color:var(--text);">Strong setup</b> — it fits its place' + (o.vx >= 1 ? ' and came on above-average volume.' : '.') : 'Weaker setup — it doesn\'t fully fit its place or the volume is light.'}</div>
-    ${colTxt}<div style="margin-top:4px;"><b style="color:var(--text);">Volume:</b> ${vTxt}</div>${row}
+    ${colTxt}${jcOdds(H, o)}<div style="margin-top:4px;"><b style="color:var(--text);">Volume:</b> ${vTxt}</div>${row}
     <div style="margin-top:4px;"><b style="color:var(--text);">What to watch next:</b> ${next}</div>
     <div style="margin-top:4px;"><b style="color:var(--text);">What happened:</b> ${outTxt}</div>
     <div style="margin-top:4px;"><b style="color:var(--text);">How it went before:</b> ${hTxt}</div>
@@ -21455,6 +21488,7 @@ function jcFullRender() {
         <button class="fbtn" onclick="jcExport('png')" title="Save the chart as a picture">⬇ PNG</button>
         <button class="fbtn" onclick="jcExport('pdf')" title="Save the chart as a one-page PDF to print">⬇ PDF</button></span></div>
     <div id="jc-ohlc" style="padding:6px 16px;font-size:12px;color:#c0c8d4;min-height:18px;"></div>
+    <div id="jc-phase" data-sym="${JC.sym}" style="display:none;padding:2px 16px 6px;font-size:12px;line-height:1.5;color:var(--text2);"></div>
     ${JC.help ? `<div style="margin:0 16px 8px;padding:10px 14px;border:1px solid var(--border2);border-radius:8px;background:rgba(0,212,255,.05);font-size:12px;line-height:1.6;color:var(--text2);">
       <b style="color:var(--text);">How the chart works</b><br>
       • <b>Opens on 1 year · Day.</b> In the pop-up: 1Y / 2Y and Day / Week / Month. Click the small chart (or ⤢ Full chart) to open this full view.<br>
@@ -21468,12 +21502,14 @@ function jcFullRender() {
       • <b>Support / resistance:</b> levels where price turned at least twice in the last 2 years of daily candles — green = support below the price, magenta = resistance above, <b style="color:#ff8c00;">thick orange = the major level</b> (most turns over the longest time). The label shows how many times it turned there. Same levels on every timeframe; turn them on / off with the button.<br>
       • <b>Doji rules:</b> a doji has a body of no more than 10% of the day's range. Body in the middle = <b>doji</b> (or <b>long-legged doji</b> on a much wider day than usual) · body at the very top with a long lower wick = <b>dragonfly</b> · at the very bottom with a long upper wick = <b>gravestone</b>. A body of 10–25% in the middle = <b>spinning top</b>. A body up to 30% with wicks of 25%+ on both sides (they can be uneven) = <b>indecision candle</b> — the card says which way its wicks lean and gives 3 levels: top of the body, the high and the low.<br>
       • <b>Patterns:</b> markers on candles from the Candlestick Cheat Sheet — <b style="color:#22c55e;">▲</b> bullish (hammer, engulfing, morning star, breakout candle, 3–5 down days then a reversal …) · <b style="color:#ef4444;">▼</b> bearish (shooting star, hanging man, evening star … — only on red candles, never on a green one) · <b style="color:#facc15;">●</b> indecision (doji, spinning top, indecision candle — a red one leans down, a green one is about a coin flip; the card shows the probability). <b>Strong</b> shows only the ones that fit their place (after a run up / down or at a support / resistance line) with at least average volume; <b>All</b> shows every one. Click a marker: what it is, what it means here, what to watch next (confirmation / fail level) and how this ticker moved after the same pattern before.<br>
+      • <b>Phase line</b> (under the prices): where the stock is in a penny run — #1 Ignition (+20% close on 5× volume) · Day 2 · #2 Rest · #3 Breakout · #4 first red day · #5 first green bounce — with a rating: <b>High</b> 65%+ · <b>Medium</b> 58–64% · <b>Slight</b> 52–57% · <b>Low</b> below. It blends the research odds (top penny stocks, 12 months) with this stock's own past runs and today's candle. Shown for recent runners and today's 10%+ movers; updates every 5 min.<br>
+      • <b>50/50 odds & close notes</b> (Day chart, in the marker card): which side an indecision candle breaks first, what the next open says, and notes on where the candle closed and the streak before it (capitulation, blow-off, closed at the high / low).<br>
       • <b>Drawing:</b> pick Trend line, Horizontal, Zone, Text or Bubble and click on the chart (lines and zones: two clicks). Erase = click a drawing to delete it. Click the tool again or press Esc to go back to scroll / zoom. Drawings are saved per ticker and show on every timeframe.<br>
       • <b>⬇ PNG / ⬇ PDF:</b> saves the chart as you see it — drawings, levels and averages included — with the ticker, timeframe and date on top.<br>
       • <b>Close:</b> ✕ or the Esc key. Times are New York time. Green candle = closed higher than it opened, red = lower.</div>` : ''}
     <div id="jc-full-box" style="flex:1;min-height:200px;margin:0 8px 8px;"></div>`;
   if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
-  jcBarRefresh(); jcToolApply();
+  jcBarRefresh(); jcToolApply(); phPop(JC.sym);
   jcDraw(document.getElementById('jc-full-box'), JC.sym, JC.tf, JC.yrs, true).then(c => { JC.full = c; jcToolApply(); });
 }
 function jcVisMax(H) {   // highest volume bar in view
@@ -21860,6 +21896,70 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 <script>
 // ══ LIST FILTERS (STEP 79) ══════════════════════════════════════════════════
+// ══ PHASE (STEP 89) ══ where a stock is in a penny run (7-step framework) + rating, from rpc sp_phase_get.
+// The server works the lines out every 5 minutes for recent runners (an ignition in the last 15 trading days) and today's
+// 10%+ movers — the same line as on the Telegram runner alerts. Cells: [data-phase] (Watchlist, Single Pattern), the stock
+// pop-up (#hp-phase) and the full chart (#jc-phase).
+const PH_DATA = {}, PH_TTL = 3 * 60 * 1000; let PH_LOADING = null;
+async function phLoad(syms, force) {
+  const now = Date.now(), need = [...new Set(syms)].filter(s => s && (force || !PH_DATA[s] || now - PH_DATA[s].t > PH_TTL));
+  if (!need.length) return;
+  if (PH_LOADING) { await PH_LOADING; if (!force) return; }
+  PH_LOADING = (async () => {
+    try {
+      const supa = await getSupabaseAsync();
+      for (let i = 0; i < need.length; i += 400) {
+        const chunk = need.slice(i, i + 400);
+        const { data, error } = await supa.rpc('sp_phase_get', { p_syms: chunk });
+        if (error) throw error;
+        chunk.forEach(s => { PH_DATA[s] = { line: null, t: now }; });
+        (data || []).forEach(r => { PH_DATA[r.symbol] = { line: r.line || null, at: r.at, t: now }; });
+      }
+    } catch (e) { console.warn('[phase]', e); }
+    PH_LOADING = null;
+  })();
+  await PH_LOADING;
+  phFillAll();
+}
+// only <b> survives from the server line; everything else is shown as text
+const phSafe = l => String(l || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/&lt;(\/?)b&gt;/g, '<$1b>');
+const phPlain = l => String(l || '').replace(/<[^>]*>/g, '').replace(/"/g, '&quot;');
+function phShort(l) {
+  const tags = [[/#1 Ignition/, '#1 Ignition'], [/Day 2 continuation/, 'Day 2'], [/#3 Breakout/, '#3 Breakout'], [/New push/, 'New push'], [/#2 Rest/, '#2 Rest'],
+    [/#4 Red day/, '#4 Red day'], [/#5 First green/, '#5 Bounce'], [/Ran like this (\d+)×/, 'Ran $1×'], [/First-time runner/, '1st run']];
+  let t = '—'; for (const [re, lab] of tags) { const m = l.match(re); if (m) { t = lab.replace('$1', m[1] || ''); break; } }
+  const day = !/Day 1|Day 2 continuation/.test(l) && (l.match(/Day (\d+)/) || [])[1];
+  const r = (l.match(/<b>(High|Medium|Slight|Low|Caution)<\/b>/) || [])[1] || '';
+  const e = l.startsWith('🟩') ? '🟩' : l.startsWith('🟧') ? '🟧' : '🟨';
+  return { e, t, day, r, c: e === '🟩' ? 'var(--green)' : e === '🟧' ? '#fb923c' : 'var(--amber)' };
+}
+function phCellHtml(sym) {
+  const d = PH_DATA[sym]; if (!d) return '…';
+  if (!d.line) return '<span style="color:#8090a0;">—</span>';
+  const s = phShort(d.line);
+  return `<span title="${phPlain(d.line)}" style="font-size:10.5px;font-weight:700;color:${s.c};white-space:nowrap;">${s.e} ${s.t}</span>`
+    + (s.day || s.r ? `<div style="font-size:9px;color:#8090a0;white-space:nowrap;line-height:1.1;">${[s.day ? 'Day ' + s.day : '', s.r].filter(Boolean).join(' · ')}</div>` : '');
+}
+function phFill(root) {
+  const cells = (root || document).querySelectorAll('[data-phase]'); if (!cells.length) return;
+  const miss = [...cells].map(c => c.dataset.phase).filter(s => !PH_DATA[s] || Date.now() - PH_DATA[s].t > PH_TTL);
+  if (miss.length && !PH_LOADING) phLoad(miss);
+  cells.forEach(c => { const h = phCellHtml(c.dataset.phase); if (c.dataset.h !== h) { c.innerHTML = h; c.dataset.h = h; } });
+}
+function phBox(id, sym) {   // the full line in the pop-up / full chart
+  const el = document.getElementById(id); if (!el || el.dataset.sym !== sym) return;
+  const d = PH_DATA[sym];
+  if (!d || !d.line) { el.style.display = 'none'; return; }
+  el.innerHTML = `<b style="color:var(--text);letter-spacing:.5px;">PHASE</b> ${phSafe(d.line)}${d.at ? ` <span style="color:#8090a0;font-size:10px;">· ${new Date(d.at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET</span>` : ''}`;
+  el.style.display = '';
+}
+function phFillAll() {
+  phFill(document);
+  const hp = document.getElementById('hp-phase'); if (hp) phBox('hp-phase', hp.dataset.sym);
+  const jf = document.getElementById('jc-phase'); if (jf) phBox('jc-phase', jf.dataset.sym);
+}
+async function phPop(sym) { if (PH_DATA[sym] && Date.now() - PH_DATA[sym].t <= PH_TTL) phFillAll(); else await phLoad([sym], true); }
+
 // One filter bar on every page that lists stocks (not the Journal; Single Pattern has its own):
 // A–Z · Volume High → Low · min volume · % CHG min / max. Rows are found on the page (data-sym rows, table rows with a
 // TICKER / SYMBOL / STOCK column, or clickable stock rows) and sorted / hidden in place; a row's detail line moves with it.
@@ -21953,6 +22053,7 @@ function lfApply(pg) {
     volCells.forEach(c => { const d = LF_DATA[c.dataset.lfvol];
       const h = !d ? '…' : `<b>${d.v == null ? '—' : _lfFmt(d.v)}</b>${d.p != null ? `<div style="font-size:9px;color:#8090a0;font-weight:400;line-height:1.1;" title="Yesterday's full-day volume">yesterday ${_lfFmt(d.p)}</div>` : ''}`;
       if (c.dataset.h !== h) { c.innerHTML = h; c.dataset.h = h; } });
+    phFill(root);   // runner phase cells (STEP 89)
     lfHeaders(pg, root, rows, s);
     // group by parent; each row carries the non-ticker siblings right after it (detail / news lines)
     const byParent = new Map();
