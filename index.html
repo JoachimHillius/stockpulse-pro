@@ -18716,8 +18716,8 @@ function jrEditOf(t) {
 function jrPick(k, field, opts, fmt, extra = [], usdField) {
   const e = JR.edit[k], cur = e[field], inList = cur == null || cur === '' || opts.some(o => +o === +cur) || extra.some(([v]) => v === cur);
   const usd = !!(usdField && e['_u_' + field]), other = e['_o_' + field] || !inList || usd;
-  const unit = usdField && other ? `<div class="jr-seg" title="Type a percent or a dollar amount"><button class="${usd ? '' : 'on'}" onclick="jrPickUnit('${k}','${field}','${usdField}',false)">%</button><button class="${usd ? 'on' : ''}" onclick="jrPickUnit('${k}','${field}','${usdField}',true)">$</button></div>` : '';
-  return `<div style="display:flex;gap:4px;align-items:center;"><select ${unit ? 'style="width:auto;flex:none;"' : ''} onchange="jrPickSet('${k}','${field}',this.value)">
+  const unit = usdField ? `<div class="jr-seg" title="Type a percent or a dollar amount"><button class="${usd ? '' : 'on'}" onclick="jrPickUnit('${k}','${field}','${usdField}',false)">%</button><button class="${usd ? 'on' : ''}" onclick="jrPickUnit('${k}','${field}','${usdField}',true)">$</button></div>` : '';
+  return `<div style="display:flex;gap:4px;align-items:center;"><select ${unit ? `style="width:auto;flex:none;${usd ? 'display:none;' : ''}"` : ''} onchange="jrPickSet('${k}','${field}',this.value)">
       <option value="" ${cur == null || cur === '' ? 'selected' : ''}>—</option>
       ${opts.map(o => `<option value="${o}" ${!other && +o === +cur ? 'selected' : ''}>${fmt(o)}</option>`).join('')}
       ${extra.map(([v, l]) => `<option value="${v}" ${!other && cur === v ? 'selected' : ''}>${l}</option>`).join('')}
@@ -18727,7 +18727,7 @@ function jrPick(k, field, opts, fmt, extra = [], usdField) {
 }
 function jrPickUnit(k, field, usdField, on) {
   const e = JR.edit[k]; if (!!e['_u_' + field] === on) return;
-  e['_u_' + field] = on; e['_o_' + field] = true; e[field] = null; e[usdField] = null;
+  e['_u_' + field] = on; e['_o_' + field] = on; e[field] = null; e[usdField] = null;
   if (field === 'plan_target_pct') e.target_run = false;
   jrSet(k, field, null, true);
 }
@@ -19134,7 +19134,7 @@ async function jrTradeToPlan(t, buys, wasNew) {
     if (!p && !wasNew) return;
     const bs = buys && buys.length ? buys : (t.qty && t.entry != null ? [{ qty: jrNum(t.qty), price: jrNum(t.entry) }] : []);
     const f = { d: t.d, kind: t.kind, symbol: t.symbol, price: bs[0] ? bs[0].price : jrNum(t.entry), qty: bs[0] ? bs[0].qty : jrNum(t.qty), adds: bs.slice(1),
-      exit_price: jrNum(t.exit), stop_pct: jrNum(t.plan_stop_pct) ?? (p ? p.stop_pct : null), notes: t.notes || null, session: t.session || null, plan_tol: jrNum(t.plan_tol),
+      exit_price: jrNum(t.exit), stop_pct: jrNum(t.plan_stop_pct) ?? (p ? p.stop_pct : null), stop_usd: jrNum(t.plan_stop_usd), target_usd: t.kind === 'option' ? jrNum(t.plan_target_usd) : null, notes: t.notes || null, session: t.session || null, plan_tol: jrNum(t.plan_tol),
       opt_type: t.opt_type || null, expiry: t.expiry || null, strike: t.strike || null, stock_price: jrNum(t.stock_entry), updated_at: new Date().toISOString() };
     if (t.kind === 'option' && t.plan_target_pct != null) f.target = String(t.plan_target_pct);
     if (t.kind === 'penny' && t.plan_target != null) f.target = String(t.plan_target);
@@ -19546,6 +19546,38 @@ function jrStats(ts) {
 const JR_PLAN_STOP = { penny: [5, 10, 15, 20], option: [10, 15, 20, 25] };
 function jrPlanBudget(kind, d) { return jrDayLeft(kind, d).max; }   // already lowered by today's losses
 // STEP 65: add-on buys — p.adds = [{ qty, price }, …] on top of the first line (p.qty @ p.price). The stop is on the AVERAGE price of the whole position.
+// Plan stop / target can be % or $ ($ = dollars for the whole planned position). jrPlanSp = the stop as a % either way.
+function jrPlanSp(p) {
+  const usd = jrNum(p.stop_usd); if (usd == null) return jrNum(p.stop_pct);
+  const T = jrPlanTot(p), mult = p.kind === 'option' ? 100 : 1, cost = T.q ? T.avg * T.q * mult : null;
+  return cost ? Math.round(usd / cost * 1000) / 10 : null;
+}
+function jrPlanTotal(p) { const T = jrPlanTot(p); return { q: T.q, avg: T.avg, mult: p.kind === 'option' ? 100 : 1 }; }
+async function jrPlanUnit(id, which, usd) {   // which = 'stop' | 'target'; converts the current value so nothing is lost
+  const p = (JR.plans || []).find(x => x.id === id); if (!p) return;
+  const { q, avg, mult } = jrPlanTotal(p), upd = {};
+  if (which === 'stop') {
+    if (usd === (jrNum(p.stop_usd) != null || !!p._u_stop)) return;
+    p._u_stop = usd;
+    if (usd) { const sp = jrNum(p.stop_pct); upd.stop_usd = sp != null && q && avg != null ? Math.round(avg * q * mult * sp / 100) : null; }
+    else { upd.stop_pct = jrPlanSp(p); upd.stop_usd = null; }
+  } else {
+    if (usd === (jrNum(p.target_usd) != null || !!p._u_tgt)) return;
+    p._u_tgt = usd;
+    const tg = jrNum(String(p.target ?? '').replace(/[%$\s]/g, ''));
+    if (usd) upd.target_usd = tg != null && q && avg != null ? Math.round(avg * q * mult * tg / 100) : null;
+    else { const tu = jrNum(p.target_usd); upd.target = tu != null && q && avg ? String(Math.round(tu / (avg * q * mult) * 1000) / 10) : p.target ?? null; upd.target_usd = null; }
+  }
+  Object.assign(p, upd); jrRender();
+  const supa = await getSupabaseAsync();
+  const { error } = await supa.from('jr_plans').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) { showToast('Journal', 'Plan not saved: ' + error.message, 'error'); return; }
+  if (p.trade_id) jrPlanToToday(p);
+}
+function jrPlanUnitSeg(p, which) {
+  const on = which === 'stop' ? jrNum(p.stop_usd) != null || !!p._u_stop : jrNum(p.target_usd) != null || !!p._u_tgt;
+  return `<span class="jr-seg" style="vertical-align:middle;"><button class="${on ? '' : 'on'}" onclick="jrPlanUnit(${p.id},'${which}',false)">%</button><button class="${on ? 'on' : ''}" onclick="jrPlanUnit(${p.id},'${which}',true)">$</button></span>`;
+}
 function jrPlanTot(p) {
   const lines = [{ qty: jrNum(p.qty), price: jrNum(p.price) }, ...(Array.isArray(p.adds) ? p.adds : []).map(a => ({ qty: jrNum(a && a.qty), price: jrNum(a && a.price) }))].filter(l => l.qty && l.price != null);
   const q = lines.reduce((t, l) => t + l.qty, 0), cost = lines.reduce((t, l) => t + l.qty * l.price, 0);
@@ -19556,7 +19588,7 @@ function jrPlanCalc(d) {
   for (const kind of ['penny', 'option']) {
     const budget = jrPlanBudget(kind, d), mult = kind === 'option' ? 100 : 1; let used = 0;
     (JR.plans || []).filter(p => p.d === d && p.kind === kind).forEach(p => {
-      const T = jrPlanTot(p), adds = T.n > 1, sp = jrNum(p.stop_pct), left = Math.max(0, budget - used);
+      const T = jrPlanTot(p), adds = T.n > 1, sp = jrPlanSp(p), left = Math.max(0, budget - used);
       const px1 = jrNum(p.price), q1 = jrNum(p.qty);
       const px = adds ? T.avg : px1, q = adds ? T.q : q1;                                    // with add-ons: the whole position at its average price
       const per = px != null && sp != null ? px * mult * sp / 100 : null;                  // loss per share / contract at the stop
@@ -19831,20 +19863,32 @@ function jrPlanHtml() {
   const d = JR.d, c = jrPlanCalc(d), ps = (JR.plans || []).filter(p => p.d === d);
   const money = v => v == null ? '—' : '$' + (Math.abs(v) < 1 && v !== 0 ? Number(v).toFixed(2) : Math.round(v).toLocaleString('en-US'));
   const px = v => v == null ? '—' : '$' + (v < 1 ? Number(v).toFixed(4) : Number(v).toFixed(2));
-  const sel = p => `<select onchange="jrPlanSet(${p.id},'stop_pct',this.value)">${['', ...JR_PLAN_STOP[p.kind]].map(o => `<option value="${o}" ${String(o) === String(jrNum(p.stop_pct) ?? '') ? 'selected' : ''}>${o === '' ? '—' : o + '%'}</option>`).join('')}
-      ${p.stop_pct != null && !JR_PLAN_STOP[p.kind].includes(Number(p.stop_pct)) ? `<option selected>${p.stop_pct}%</option>` : ''}</select>`;
+  const stopCell = p => jrNum(p.stop_usd) != null || p._u_stop
+    ? `<div style="display:flex;gap:4px;align-items:center;">${inp(p, 'stop_usd', '$', 60)}${jrPlanUnitSeg(p, 'stop')}</div>`
+    : `<div style="display:flex;gap:4px;align-items:center;">${p._o_stop || (p.stop_pct != null && !JR_PLAN_STOP[p.kind].includes(Number(p.stop_pct))) ? `${inp(p, 'stop_pct', '%', 50)}` : sel(p)}${jrPlanUnitSeg(p, 'stop')}</div>`;
+  const tgtCell = (p, x, P) => {
+    const { q, avg, mult } = jrPlanTotal(p), tu = jrNum(p.target_usd), tg = jrNum(String(p.target ?? '').replace(/[%$\s]/g, ''));
+    const usd = !P && (tu != null || p._u_tgt);
+    const tp = P ? tg : avg == null ? null : usd ? (tu != null && q ? avg + tu / (q * mult) : null) : tg != null ? avg * (1 + tg / 100) : null;
+    const gain = tp != null && avg != null && q ? Math.round((tp - avg) * q * mult) : null;
+    return `<div style="display:flex;gap:4px;align-items:center;">${usd ? inp(p, 'target_usd', '$', 60) : inp(p, 'target', P ? '0.00' : '%', P ? 64 : 50)}${P ? '' : jrPlanUnitSeg(p, 'target')}</div>
+      <div style="font-size:10px;margin-top:2px;white-space:nowrap;">${!P && tp != null ? px(tp) + ' · ' : ''}${gain != null ? `<b class="${gain >= 0 ? 'jr-pos' : 'jr-neg'}">${gain >= 0 ? '+' : '−'}$${Math.abs(gain).toLocaleString('en-US')}</b>` : ''}</div>`;
+  };
+  const sel = p => `<select onchange="if(this.value==='__o'){const q=JR.plans.find(z=>z.id===${p.id});q._o_stop=true;jrRender();}else jrPlanSet(${p.id},'stop_pct',this.value)">${['', ...JR_PLAN_STOP[p.kind]].map(o => `<option value="${o}" ${String(o) === String(jrNum(p.stop_pct) ?? '') ? 'selected' : ''}>${o === '' ? '—' : o + '%'}</option>`).join('')}
+      <option value="__o">Other…</option></select>`;
   const inp = (p, f, ph, w = 80, extra = '') => `<input value="${jrEsc(f === 'price' ? jrPx2(p[f]) : (p[f] ?? ''))}" placeholder="${ph}" style="width:${w}px;${extra}" onchange="jrPlanSet(${p.id},'${f}',this.value)">`;
   const sec = (kind, title, color) => {
     const rows = ps.filter(p => p.kind === kind), b = c[kind], P = kind === 'penny';
     const body = rows.map((p, i) => { const x = c[p.id] || {}, open = jrPlanOpen(p.id);
       return `<tbody class="jr-pgrp"><tr>
         <td>${i + 1}</td><td>${inp(p, 'symbol', 'TICKER', 80, 'text-transform:uppercase;font-weight:700;')}${!P && (p.strike || p.expiry || p.entry_trigger) ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;white-space:nowrap;">${jrEsc([p.strike ? p.strike + (p.opt_type === 'put' ? ' P' : p.opt_type === 'call' ? ' C' : '') : '', p.expiry ? 'exp ' + jrShowMD(p.expiry) : '', p.entry_trigger ? 'entry ' + p.entry_trigger : '', p.status || ''].filter(Boolean).join(' · '))}</div>` : ''}${P && p.session ? `<div style="font-size:10px;color:var(--text2);margin-top:2px;">${{ pre: 'Pre-market', reg: 'Regular', post: 'After-hours' }[p.session] || ''}</div>` : ''}</td>
-        <td>${inp(p, 'price', P ? '2.00' : '2.21', 70)}</td><td>${sel(p)}</td><td>${px(x.adds ? x.stop1 : x.stop)}</td>
+        <td>${inp(p, 'price', P ? '2.00' : '2.21', 70)}</td><td>${stopCell(p)}</td><td>${px(x.adds ? x.stop1 : x.stop)}</td>
         <td style="font-weight:700;color:var(--cyan);font-size:13px;">${x.max == null ? '—' : x.max.toLocaleString('en-US')}${P && x.ruleSize != null ? `<div style="font-size:10px;color:var(--text3);font-weight:400;">rule ⅓: ${x.ruleSize.toLocaleString('en-US')}</div>` : ''}</td>
         <td>${inp(p, 'qty', '0', 60)}</td>
         ${x.adds ? `<td>${money(x.risk1)}</td>${P ? '' : '<td></td>'}<td style="color:var(--text3);font-size:10.5px;">see Total ↓</td>` : `<td class="${x.over ? 'jr-neg' : ''}">${money(x.risk)}${x.over ? ' ✗' : ''}</td>
         ${P ? '' : `<td class="${x.must != null && x.stop != null && x.stop < x.must ? 'jr-neg' : 'jr-amb'}" style="font-weight:700;">${x.must == null ? '—' : x.must > 0 ? '$' + x.must.toFixed(2) : '<span title="Even a total loss of these contracts stays inside the budget">any</span>'}</td>`}
         <td>${money(x.left == null ? null : Math.max(0, x.left - Math.min(x.risk || 0, x.left)))}</td>`}
+        <td>${tgtCell(p, x, P)}</td>
         <td>${inp(p, 'exit_price', 'exit', 64)}${p.trade_id ? `<div style="font-size:10px;margin-top:2px;white-space:nowrap;"><a href="#" onclick="jrTab('today');return false;" style="color:var(--green);">✓ on Today</a>${(() => { const t = (JR.trades || []).find(t => t.id === p.trade_id); return t && t.pnl != null ? ` <b class="${t.pnl >= 0 ? 'jr-pos' : 'jr-neg'}">${t.pnl >= 0 ? '+' : '−'}$${Math.abs(t.pnl).toFixed(2)}</b>` : ''; })()}</div>` : ''}</td>
         <td style="white-space:nowrap;">${!p.trade_id && p.symbol && jrNum(p.price) != null && jrNum(p.qty) ? `<button class="jr-btn g sm" onclick="jrPlanTaken(${p.id})" title="You took this trade: put it on Today now (open until you fill in the exit). After that, the plan and Today stay the same.">✓ Taken → Today</button> ` : ''}${p.symbol ? `<button class="jr-btn sm" onclick="jcOpenFull('${jrEsc(p.symbol)}')" title="Full chart with your drawings">📈 Chart</button> ` : ''}<button class="jr-btn sm" onclick="jrPlanSwitch(${p.id})" title="Wrong kind? Move this plan to ${P ? 'Options' : 'Penny'} — everything stays">⇄ ${P ? 'Options' : 'Penny'}</button>
           <button class="jr-btn sm" onclick="jrPlanToggle(${p.id})" title="${open ? 'Fold to the first line' : 'Show the add-on line, rules and notes'}">${open ? '▾' : '▸'}</button>
@@ -19853,7 +19897,7 @@ function jrPlanHtml() {
         ${open && !P && x.scale && x.scale.length ? `<tr><td></td><td colspan="11" style="font-size:10.5px;color:var(--text2);padding-bottom:8px;white-space:normal;line-height:1.7;">Scale up: ${x.scale.map(s => `<span style="white-space:nowrap;margin-right:10px;"><b>${s.n}</b> ct → must stop <b>${s.must > 0 ? '$' + s.must.toFixed(2) : 'any'}</b>${s.risk != null ? ` · loss at your stop $${s.risk}` : ''}</span>`).join(' ')}</td></tr>` : ''}${open ? jrPlanNotesRow(p) + jrPlanRulesRow(p) : ''}</tbody>`; }).join('');
     return `<div class="jr-card" style="margin-top:12px;"><h3 style="color:${color};">${title}
         <span class="jr-sp"></span><span style="text-transform:none;letter-spacing:0;color:var(--text2);font-weight:400;">${b.lost && b.budget < b.cap ? `Budget $${b.budget} (only this much left today — already −$${b.lost} of $${b.limit})` : P ? `Budget $${b.budget} (day's penny risk)` : `Budget $${b.budget} (80% of $${b.limit} daily${b.lost ? ` · −$${b.lost} lost today` : ''})`} · planned at stop $${Math.round(b.used)} · <b class="${b.left > 0 ? 'jr-pos' : 'jr-neg'}">left $${Math.round(b.left)}</b></span></h3>
-      ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Entry price' : 'Premium in'}</th><th>Stop %</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th title="What's left of the day's budget after this plan's loss at the stop">Budget left</th><th title="Fill in when you're out — the trade goes to Today automatically">${P ? 'Exit price' : 'Premium out'}</th><th></th></tr>${body}</table>`
+      ${rows.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>${P ? 'Entry price' : 'Premium in'}</th><th>Stop % / $</th><th>Stop at</th><th>Max ${P ? 'shares' : 'contracts'}</th><th>Planned ${P ? 'shares' : 'contracts'}</th><th>Loss at stop</th>${P ? '' : '<th>Must stop</th>'}<th title="What's left of the day's budget after this plan's loss at the stop">Budget left</th><th title="${P ? 'Target price — the dollars show the profit for the planned shares' : 'Target as % above premium in, or $ profit for the planned contracts'}">Target</th><th title="Fill in when you're out — the trade goes to Today automatically">${P ? 'Exit price' : 'Premium out'}</th><th></th></tr>${body}</table>`
         : `<div style="color:var(--text3);padding:8px 0;">No ${P ? 'penny' : 'options'} plans for this day yet — use <b>+ ${P ? 'Penny' : 'Options'} plan</b> or <b>→ Plan</b> on the Watchlist tab.</div>`}</div>`;
   };
   // Step 1 is the watch list: a section only shows when the day's watch list has that kind (large caps → options), or plans of it already exist
@@ -19923,11 +19967,15 @@ async function jrPlanAdd(kind) {
 async function jrPlanSet(id, f, v) {
   const p = (JR.plans || []).find(x => x.id === id); if (!p) return;
   const val = f === 'symbol' ? (String(v || '').trim().toUpperCase() || null) : f === 'notes' ? (String(v || '').trim() || null) : jrNum(v);
-  p[f] = val; jrRender();
+  p[f] = val; if (f === 'stop_pct') p._o_stop = false;
+  const upd = { [f]: val };
+  if (f === 'target' && val != null) upd.target = p.target = String(val);
+  if (jrNum(p.stop_usd) != null && ['stop_usd', 'price', 'qty'].includes(f)) upd.stop_pct = p.stop_pct = jrPlanSp(p);   // $ stop → keep the % in step (alerts use it)
+  jrRender();
   const supa = await getSupabaseAsync();
-  const { error } = await supa.from('jr_plans').update({ [f]: val, updated_at: new Date().toISOString() }).eq('id', id);
+  const { error } = await supa.from('jr_plans').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) { showToast('Journal', 'Plan not saved: ' + error.message, 'error'); return; }
-  if (f === 'exit_price' ? val != null || p.trade_id : p.trade_id && ['symbol', 'price', 'qty', 'stop_pct', 'notes', 'session', 'strike', 'expiry', 'stock_price', 'target', 'plan_tol'].includes(f)) jrPlanToToday(p);
+  if (f === 'exit_price' ? val != null || p.trade_id : p.trade_id && ['symbol', 'price', 'qty', 'stop_pct', 'notes', 'session', 'strike', 'expiry', 'stock_price', 'target', 'plan_tol', 'stop_usd', 'target_usd'].includes(f)) jrPlanToToday(p);
 }
 // Plan → Today: once the plan has an exit, it becomes the day's trade on Today (created once, kept in step after that — the plan is the place to edit it).
 function jrPlanToToday(p) {   // one at a time per plan, so quick edits never create the trade twice
@@ -19937,15 +19985,17 @@ function jrPlanToToday(p) {   // one at a time per plan, so quick edits never cr
 async function _jrPlanToToday(p) {
   const n = jrNum, kind = p.kind === 'penny' ? 'penny' : 'option', sym = String(p.symbol || '').trim().toUpperCase();
   const T = jrPlanTot(p), multi = T.n > 1;
-  const entry = multi ? T.avg : n(p.price), qty = multi ? T.q : n(p.qty), exit = n(p.exit_price), sp = n(p.stop_pct);
+  const entry = multi ? T.avg : n(p.price), qty = multi ? T.q : n(p.qty), exit = n(p.exit_price), sp = jrPlanSp(p);
   const buys = T.lines.map(l => ({ qty: l.qty, price: l.price }));
   if (!sym || entry == null || !qty) { if (exit != null || p._send) showToast('Journal', `To send it to Today, fill in the ticker, ${kind === 'penny' ? 'entry price and planned shares' : 'premium in and planned contracts'} first.`, 'error'); return; }
   const tg = String(p.target ?? '').replace(/[%$\s]/g, ''), tgN = tg === '' || isNaN(+tg) ? null : +tg;
   const row = { d: p.d, kind, symbol: sym, session: p.session || null, qty, entry, exit, plan_entry: entry, plan_tol: n(p.plan_tol),
     plan_stop_pct: sp, plan_stop: sp != null ? Math.round(entry * (1 - sp / 100) * 10000) / 10000 : null,
     plan_target_pct: kind === 'option' ? tgN : null, plan_target: kind === 'penny' ? tgN : (tgN != null ? Math.round(entry * (1 + tgN / 100) * 10000) / 10000 : null),
+    plan_stop_usd: n(p.stop_usd), plan_target_usd: kind === 'option' ? n(p.target_usd) : null,
     opt_type: p.opt_type || null, expiry: p.expiry || null, strike: p.strike ? String(p.strike) : null, stock_entry: n(p.stock_price),
     buys: buys.length ? buys : null, rules: { ...(p.rules || {}) }, notes: p.notes || null, source: 'plan', updated_at: new Date().toISOString() };
+  if (kind === 'option' && row.plan_target_usd != null) { const tp = entry + row.plan_target_usd / (qty * 100); row.plan_target = Math.round(tp * 10000) / 10000; row.plan_target_pct = Math.round((tp / entry - 1) * 1000) / 10; }
   const ec = jrExpiryCheck(row); if (ec) row.rules.expiry = ec.ok;
   row.result = jrAutoResult(row);
   const supa = await getSupabaseAsync();
