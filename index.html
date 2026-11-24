@@ -18381,7 +18381,7 @@ function jrCss() {
 .jr-chk input{width:15px;height:15px;accent-color:var(--green);}
 .jr-tag{font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:.4px;}
 .jr-tag.clean{background:rgba(0,229,176,.15);color:var(--green);} .jr-tag.warning{background:rgba(255,176,32,.15);color:var(--amber);}
-.jr-tag.fail{background:rgba(255,61,90,.15);color:var(--red);} .jr-tag.none{background:var(--bg3);color:var(--text3);}
+.jr-tag.fail{background:rgba(255,61,90,.15);color:var(--red);} .jr-tag.cut{background:rgba(190,230,60,.16);color:#c8e65a;} .jr-tag.none{background:var(--bg3);color:var(--text3);}
 .jr-tbl{width:100%;border-collapse:collapse;}
 .jr-tbl td,.jr-tbl th{padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;font-size:11.5px;white-space:nowrap;}
 .jr-tbl th{color:var(--cyan);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;}
@@ -18523,9 +18523,11 @@ function jrTodayHtml() {
   const lim = kind => {
     const ts = tr.filter(t => t.kind === kind), net = ts.reduce((s, t) => s + (t.pnl || 0), 0), limit = Number(kind === 'penny' ? risk.penny_limit : risk.option_limit);
     const used = Math.max(0, -net);
-    let streak = 0; for (const t of ts.slice().sort((a, b) => String(a.entry_time || '').localeCompare(String(b.entry_time || '')) || a.id - b.id).reverse()) { if ((t.pnl ?? 0) < 0) streak++; else break; }
+    const rev = ts.slice().sort((a, b) => String(a.entry_time || '').localeCompare(String(b.entry_time || '')) || a.id - b.id).reverse();
+    let streak = 0; for (const t of rev) { if (jrCutEarly(t)) continue; if ((t.pnl ?? 0) < 0) streak++; else break; }   // ✂ cut-early trades don't count
+    let cuts = 0; for (const t of rev) { if (jrCutEarly(t)) cuts++; else break; }
     return `<tr><td>${kind === 'penny' ? 'Penny' : 'Options'}</td><td>$${limit.toLocaleString()}</td><td class="${used > 0 ? 'jr-neg' : ''}">${used > 0 ? '−$' + used.toFixed(0) : '$0'}</td>
-      <td class="${limit - used <= 0 ? 'jr-neg' : ''}">$${Math.max(0, limit - used).toFixed(0)}</td><td>${ts.length}${kind === 'option' && streak ? ` · <span class="${streak >= 2 ? 'jr-neg' : 'jr-amb'}">${streak} loss${streak > 1 ? 'es' : ''} in a row${streak >= 2 ? ' — done scalping' : ''}</span>` : ''}</td></tr>`;
+      <td class="${limit - used <= 0 ? 'jr-neg' : ''}">$${Math.max(0, limit - used).toFixed(0)}</td><td>${ts.length}${kind === 'option' && streak ? ` · <span class="${streak >= 2 ? 'jr-neg' : 'jr-amb'}">${streak} loss${streak > 1 ? 'es' : ''} in a row${streak >= 2 ? ' — done scalping' : ''}</span>` : ''}${kind === 'option' && cuts >= JR_CUT.warnAt ? ` · <span class="jr-amb">✂ ${cuts} small losses in a row — slow down</span>` : ''}</td></tr>`;
   };
   const inp = (k, ph) => `<input type="number" step="any" value="${m[k] ?? ''}" placeholder="${ph}" onchange="jrSaveDay('${k}',this.value)">`;
   const trend = ['up', 'down', 'side'].map((k, i) => `<button class="${m.trend === k ? 'on' : ''}" onclick="jrSaveDay('trend','${k}')">${['▲ Up', '▼ Down', '▶ Sideways'][i]}</button>`).join('');
@@ -18599,7 +18601,7 @@ function jrScalpEditOf(ts) {
   ts = ts.slice().sort((a, b) => String(a.entry_time || '').localeCompare(String(b.entry_time || '')) || a.id - b.id);
   const e = jrEditOf(ts[0]), hm = x => x ? String(x).slice(0, 5) : null;
   Object.assign(e, { _k: 'g' + ts[0].scalp_group, id: null, scalp: true, scalp_group: ts[0].scalp_group, qty: null, entry: null, exit: null, entry_time: null, exit_time: null, adds: [], _dirty: false,
-    rounds: ts.map(t => ({ id: t.id, opt_type: t.opt_type === 'put' ? 'put' : 'call', qty: jrNum(t.qty), entry: jrNum(t.entry), exit: jrNum(t.exit), entry_time: hm(t.entry_time), exit_time: hm(t.exit_time), result: t.result || null, saved: true })) });
+    rounds: ts.map(t => ({ id: t.id, opt_type: t.opt_type === 'put' ? 'put' : 'call', qty: jrNum(t.qty), stock_entry: jrNum(t.stock_entry), entry: jrNum(t.entry), exit: jrNum(t.exit), entry_time: hm(t.entry_time), exit_time: hm(t.exit_time), result: t.result || null, saved: true })) });
   return e;
 }
 function jrScalpCur(e) {   // the round being worked on (last one with numbers) — drives max loss / stop / size checks
@@ -18610,14 +18612,14 @@ function jrScalp(k, on) {
   const e = JR.edit[k]; if (!e || !!e.scalp === on) return;
   if (on) {
     e.scalp = true; e.setup = e.setup || 'scalp';
-    e.rounds = [{ id: e.id || null, opt_type: e.opt_type === 'put' ? 'put' : 'call', qty: e.qty ?? null, entry: e.entry ?? null, exit: e.exit ?? null, entry_time: e.entry_time || null, exit_time: e.exit_time || null }];
+    e.rounds = [{ id: e.id || null, opt_type: e.opt_type === 'put' ? 'put' : 'call', qty: e.qty ?? null, stock_entry: e.stock_entry ?? null, entry: e.entry ?? null, exit: e.exit ?? null, entry_time: e.entry_time || null, exit_time: e.exit_time || null }];
     e.adds = [];
   } else {
     const rs = e.rounds || [];
     if (rs.length > 1 && !confirm(`Turn scalping off? Only round 1 stays on this card — the other ${rs.length - 1} round${rs.length > 2 ? 's are' : ' is'} removed when you save.`)) return;
     const r = rs[0] || {};
     e._delIds = (e._delIds || []).concat(rs.slice(1).map(x => x.id).filter(Boolean));
-    Object.assign(e, { scalp: false, id: r.id || null, opt_type: r.opt_type || 'call', qty: r.qty ?? null, entry: r.entry ?? null, exit: r.exit ?? null, entry_time: r.entry_time || null, exit_time: r.exit_time || null, rounds: null });
+    Object.assign(e, { scalp: false, id: r.id || null, opt_type: r.opt_type || 'call', qty: r.qty ?? null, stock_entry: r.stock_entry ?? e.stock_entry ?? null, entry: r.entry ?? null, exit: r.exit ?? null, entry_time: r.entry_time || null, exit_time: r.exit_time || null, rounds: null });
   }
   e._dirty = true; jrRender(); jrMarkDirty(k);
 }
@@ -18629,14 +18631,14 @@ function jrRoundPnl(r) { const q = jrNum(r.qty), a = jrNum(r.entry), b = jrNum(r
 function jrRoundsHtml(k) {
   const e = JR.edit[k], rs = e.rounds || [];
   const tm = (i, f) => `<input type="time" id="jr-rtm-${k}-${i}-${f}" value="${e.rounds[i][f] || ''}" style="width:106px;padding:4px 2px 4px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:inherit;color-scheme:dark;" onchange="jrRound('${k}',${i},'${f}',this.value||null)">`;
-  const num = (i, f, ph, w) => `<input type="number" step="any" ${f === 'entry' ? `id="jr-ri-${k}-${i}"` : ''} value="${jrEsc(f === 'qty' ? (rs[i][f] ?? '') : jrPx2(rs[i][f]))}" placeholder="${ph}" style="width:${w}px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" oninput="jrRound('${k}',${i},'${f}',this.value)">`;
+  const num = (i, f, ph, w) => `<input type="number" step="any" ${f === 'entry' ? `id="jr-ri-${k}-${i}"` : ''} value="${jrEsc(f === 'qty' ? (rs[i][f] ?? '') : f === 'stock_entry' ? (rs[i][f] ?? '') : jrPx2(rs[i][f]))}" placeholder="${ph}" style="width:${w}px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" oninput="jrRound('${k}',${i},'${f}',this.value)">`;
   const lines = rs.map((r, i) => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
       <b style="width:26px;color:var(--text2);">R${i + 1}</b>
       <div class="jr-seg">${[['call', 'Call'], ['put', 'Put']].map(([v, l]) => `<button class="${r.opt_type === v ? 'on' : ''}" onclick="jrRound('${k}',${i},'opt_type','${v}')">${l}</button>`).join('')}</div>
-      ${num(i, 'qty', 'contracts', 80)}<span style="color:var(--text3);">in</span>${num(i, 'entry', '0.00', 66)}${tm(i, 'entry_time')}
-      <span style="color:var(--text3);">→ out</span>${num(i, 'exit', '0.00', 66)}${tm(i, 'exit_time')}
+      ${num(i, 'qty', 'contracts', 80)}<span style="color:var(--text3);">stock $</span>${num(i, 'stock_entry', '0.00', 74)}<span style="color:var(--text3);">in $</span>${num(i, 'entry', '0.00', 66)}${tm(i, 'entry_time')}
+      <span style="color:var(--text3);">→ out $</span>${num(i, 'exit', '0.00', 66)}${tm(i, 'exit_time')}
       <span id="jr-rp-${k}-${i}" style="min-width:74px;font-weight:700;"></span>
-      ${r.saved && !e._dirty ? (r.result ? `<span class="jr-tag ${r.result}">${r.result.toUpperCase()}</span>` : '<span class="jr-tag none">NOT REVIEWED</span>') : ''}
+      ${r.saved && !e._dirty ? (r.result ? `<span class="jr-tag ${r.result}">${r.result.toUpperCase()}</span>` : '<span class="jr-tag none">NOT REVIEWED</span>') : ''}${jrCutEarly({ kind: 'option', pnl: jrRoundPnl(r), qty: r.qty, entry: r.entry }) ? ' ' + jrCutTag() : ''}
       <button class="jr-btn del sm" onclick="jrRoundDel('${k}',${i})" title="Remove this round">✕</button></div>`).join('');
   return `<div style="display:flex;flex-direction:column;gap:5px;padding:7px 9px;border:1px dashed var(--border2);border-radius:6px;background:rgba(0,212,255,.035);">
     <div style="font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.5px;">Scalping rounds — each round counts as its own trade · same rules and notes</div>
@@ -18670,7 +18672,7 @@ async function jrSaveScalp(k, sym) {
   const quick = !e._open && !e._ovr && !Object.values(e.rules || {}).some(Boolean);
   const group = e.scalp_group || ('sg' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
   const rows = rs.map(r => {
-    const e2 = { ...e, scalp: false, adds: [], id: r.id || null, opt_type: r.opt_type || 'call', qty: r.qty, entry: r.entry, exit: r.exit, entry_time: r.entry_time, exit_time: r.exit_time, exit_date: null };
+    const e2 = { ...e, scalp: false, adds: [], id: r.id || null, opt_type: r.opt_type || 'call', qty: r.qty, stock_entry: r.stock_entry ?? null, entry: r.entry, exit: r.exit, entry_time: r.entry_time, exit_time: r.exit_time, exit_date: null };
     const v2 = jrCardVals(e2);
     return { r, v2, row: { ...jrTradeRow(e2, v2, sym, quick), scalp_group: group, setup: e.setup || 'scalp' } };
   });
@@ -18812,11 +18814,20 @@ function jrDateIn(k, field, v, after) {
   jrRefreshCard(k); jrMarkDirty(k);
 }
 // "Today's result" strip: wins / losses / net for the saved trades of the day, total + penny + options.
+// ✂ CUT EARLY (options): a loss of 10% or less of what was paid, or $50 or less — out before the planned stop.
+// It does not count toward "2 losses in a row"; 6 in a row shows a slow-down warning. The dollars still count against the day limit.
+const JR_CUT = { pct: 10, usd: 50, warnAt: 6 };
+function jrCutEarly(t) {
+  const p = jrNum(t.pnl), q = jrNum(t.qty), en = jrNum(t.entry);
+  if (t.kind !== 'option' || p == null || p >= 0) return false;
+  return -p <= JR_CUT.usd || (q && en ? -p <= en * q * 100 * JR_CUT.pct / 100 : false);
+}
+const jrCutTag = () => '<span class="jr-tag cut" title="Small loss — out before the planned stop (10% or less of what you paid, or $50 or less)">✂ CUT EARLY</span>';
 function jrDayResult(ts) {   // all trades of the day; open = no exit yet (not counted as win, loss or break-even)
   const open = ts.filter(t => t.exit == null || t.exit === '' || t.pnl == null), closed = ts.filter(t => !open.includes(t));
-  const w = closed.filter(t => t.pnl > 0), l = closed.filter(t => t.pnl < 0);
-  return { n: ts.length, penny: ts.filter(t => t.kind === 'penny').length, option: ts.filter(t => t.kind === 'option').length, open: open.length,
-    openList: open.map(t => t.symbol).join(', '), w: w.length, l: l.length, even: closed.length - w.length - l.length,
+  const w = closed.filter(t => t.pnl > 0), c = closed.filter(t => t.pnl < 0 && jrCutEarly(t)), l = closed.filter(t => t.pnl < 0 && !jrCutEarly(t));
+  return { c: c.length, cut: c.reduce((s, t) => s + t.pnl, 0), n: ts.length, penny: ts.filter(t => t.kind === 'penny').length, option: ts.filter(t => t.kind === 'option').length, open: open.length,
+    openList: open.map(t => t.symbol).join(', '), w: w.length, l: l.length, even: closed.length - w.length - l.length - c.length,
     won: w.reduce((s, t) => s + t.pnl, 0), lost: l.reduce((s, t) => s + t.pnl, 0), net: closed.reduce((s, t) => s + (t.pnl || 0), 0) };
 }
 function jrDayResultHtml(d) {
@@ -18826,6 +18837,7 @@ function jrDayResultHtml(d) {
       <span style="min-width:${big ? 130 : 130}px;${big ? 'font-weight:700;letter-spacing:1px;color:var(--text);' : ''}">${lab}</span>
       <span>${x.n} trade${x.n === 1 ? '' : 's'}${big && x.penny && x.option ? ` <span style="color:var(--text3);">(${x.option} options · ${x.penny} penny)</span>` : ''}</span>
       <span class="jr-pos">✔ ${x.w} win${x.w === 1 ? '' : 's'} <b>${jrMoney0(x.won)}</b></span>
+      ${x.c ? `<span style="color:#c8e65a;">✂ ${x.c} cut early <b>${jrMoney0(x.cut)}</b></span>` : ''}
       <span class="jr-neg">✘ ${x.l} loss${x.l === 1 ? '' : 'es'} <b>${jrMoney0(x.lost)}</b></span>
       ${x.even ? `<span style="color:var(--text3);">${x.even} break-even</span>` : ''}
       ${x.open ? `<span style="background:rgba(255,214,0,.16);border:1px solid rgba(255,214,0,.55);color:#ffd84d;border-radius:4px;padding:0 6px;">⏳ ${x.open} open${x.openList ? ' — ' + x.openList : ''}</span>` : ''}
@@ -18874,13 +18886,13 @@ function jrCardHtml(k, n) {
       <div class="jr-f" style="flex:none;"><label>Type</label>${jrTypeSegHtml(k)}</div>
       ${e.scalp ? `${jrDateF(k, 'd', 'Date', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}`
       : `${jrDateTimeF(k, 'd', 'entry_time', 'Entry date · time', false)}${jrDateF(k, 'expiry', 'Expiration', true)}${f('strike', 'Strike', 'text', '182.5 or 180/185')}${f('qty', 'Contracts', 'number', '0')}
-      ${f('entry', 'Premium in', 'number', '0.00')}${f('exit', 'Premium out', 'number', '0.00')}
+      ${f('entry', 'Premium in $', 'number', '0.00')}${f('exit', 'Premium out $', 'number', '0.00')}
       <div class="jr-f"><label>P&amp;L</label><div class="jr-auto" id="jr-pnl-${k}"></div></div>`}
     </div><div id="jr-max-${k}" style="margin-top:6px;font-size:11.5px;"></div><div class="jr-row" style="margin-top:8px;">`;
   const mid = P ? `${tolF}${stopF}${f('plan_target', 'Target', 'number', '0.00').replace(/<\/div>$/, `<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>`)}
       <div class="jr-f" style="flex:none;"><label>Stop used</label>${jrSegHtml(k, 'stop_used', [['10', '10%'], ['15', '15%'], ['gt15', 'Past 15%']])}</div>
       <div class="jr-f"><label>Size check (15% stop)</label><div class="jr-auto" id="jr-size-${k}"></div></div>`
-    : `${f('stock_entry', 'Stock price at entry', 'number', '0.00')}${e.scalp ? '' : jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
+    : `${e.scalp ? '' : f('stock_entry', 'Stock price at entry $', 'number', '0.00')}${e.scalp ? '' : jrDateTimeF(k, 'exit_date', 'exit_time', 'Exit date · time', true)}
       <div class="jr-f" style="flex:none;"><label>Setup</label>${jrSegHtml(k, 'setup', [['scalp', 'Scalp'], ['power', 'Power hour'], ['spread', 'Spread'], ['other', 'Other']])}</div>
     </div><div class="jr-row" style="margin-top:8px;">
       ${tolF}${stopF}<div class="jr-f" style="flex:none;min-width:150px;"><label>Target (% or $ above premium in)</label>${jrPick(k, 'plan_target_pct', JR_TGT_PCT, o => o === '' ? '%' : '+' + o + '%', [['run', 'Let it run']], 'plan_target_usd')}<div class="jr-auto" id="jr-pt-${k}" style="margin-top:3px;"></div></div>
@@ -18907,12 +18919,12 @@ function jrCardHtml(k, n) {
 }
 function jrCardQuickHtml(k, n) {   // the one-line card
   const e = JR.edit[k], P = e.kind === 'penny';
-  const f = (field, ph, w) => `<div class="jr-f" style="flex:none;"><label>${{ qty: P ? 'Shares' : 'Contracts', entry: P ? 'Entry' : 'Premium in', exit: P ? 'Exit' : 'Premium out' }[field]}</label>
+  const f = (field, ph, w) => `<div class="jr-f" style="flex:none;"><label>${{ qty: P ? 'Shares' : 'Contracts', entry: P ? 'Entry' : 'Premium in $', exit: P ? 'Exit' : 'Premium out $' }[field]}</label>
     <input type="number" step="any" style="width:${w}px;" value="${jrEsc(field === 'qty' ? (e[field] ?? '') : jrPx2(e[field]))}" placeholder="${ph}" oninput="jrSet('${k}','${field}',this.value)"${field !== 'qty' ? ` onblur="jrPxBlur(this,'${k}','${field}')"` : ''}></div>`;
   const sym = `<div class="jr-f" style="flex:none;width:86px;"><label>Ticker</label><input id="jr-sym-${k}" type="text" autocomplete="off" value="${jrEsc(e.symbol)}" placeholder="type A…"
      style="text-transform:uppercase;font-weight:700;" oninput="jrSymInput('${k}',this.value)" onkeydown="jrSymKey(event,'${k}')" onblur="setTimeout(()=>jrSymClose('${k}'),180)"><div class="jr-dd" id="jr-dd-${k}" style="display:none;"></div></div>`;
   const filledAdds = (e.adds || []).some(a => a && jrNum(a.qty) && jrNum(a.price) != null);
-  const tag = e.id && !e._dirty ? (e.result ? `<span class="jr-tag ${e.result}">${e.result.toUpperCase()}</span>` : '<span class="jr-tag none">NOT REVIEWED</span>') : '';
+  const tag = e.id && !e._dirty ? (jrCutEarly(jrCardVals(e)) ? jrCutTag() : e.result ? `<span class="jr-tag ${e.result}">${e.result.toUpperCase()}</span>` : '<span class="jr-tag none">NOT REVIEWED</span>') : '';
   return `<div class="jr-card jr-tc jr-quick ${e.kind}" id="jr-card-${k}" style="padding:8px 12px;">
     <div class="jr-row" style="align-items:flex-start;gap:8px;flex-wrap:wrap;">
       <div style="font-weight:700;color:var(--text2);padding-top:22px;">#${n}</div>
@@ -21476,7 +21488,7 @@ const SPA_GUIDE = [
     <p>Your trading routine, in the order you use it:</p>
     <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
       <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. Each plan shows one line (plus filled add-ons and the Total); <b>▸</b> opens the empty add-on line, rules and notes, <b>▸ Expand all / ▾ Collapse all</b> do every plan, and <b>⇄</b> moves a plan between Penny and Options. <b>✓ Taken → Today</b> puts the trade on Today as soon as you're in; from then on the plan and Today stay the same — edit either one (Today has the same add-on lines). A plan section only shows for kinds on that day's watch list.</li>
-      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, <b>⇄ Penny / Options</b> switches a trade that went into the wrong kind (everything typed stays), options <b>Type → Scalping</b> (on ▸ Expand) turns the card into round lines — Call / Put, contracts, in, out (times from the clock) — with <b>+ Next round</b> for the next one on the same ticker; every round is saved as its own trade, with the same rules and notes; and <b>IBKR | Schwab | Webull | Sage</b> records the broker (click again to clear). The entry / exit time fills in from your computer's clock when you type the price — click it to change it. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
+      <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, <b>⇄ Penny / Options</b> switches a trade that went into the wrong kind (everything typed stays), options <b>Type → Scalping</b> (on ▸ Expand) turns the card into round lines — Call / Put, contracts, in, out (times from the clock) — with <b>+ Next round</b> for the next one on the same ticker; every round is saved as its own trade, with the same rules and notes, and has its own stock price; an options loss of 10% or less of what you paid, or $50 or less, is tagged <b>✂ CUT EARLY</b> — it doesn't count toward 2 losses in a row (6 in a row shows a slow-down warning), but the dollars still count against the day limit; and <b>IBKR | Schwab | Webull | Sage</b> records the broker (click again to clear). The entry / exit time fills in from your computer's clock when you type the price — click it to change it. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
       <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
       <li><b>Weekly Audit</b> — review the week: what worked, what to change.</li>
       <li><b>Analytics</b> — win rate, results by setup and period.</li></ol>
