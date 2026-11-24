@@ -18,6 +18,8 @@
 //  Every alert carries "📊 Volume today X (pre-market Y) = N% of yesterday's Z": today's running volume vs the previous
 //  day's full volume. Regular session from Yahoo; pre-market and after-hours from Nasdaq's extended-trading data (Yahoo's
 //  free data has no extended-hours volume). Stored in public.vol_accum.
+//  v8: today's volume also stays current for every stock alerted today — each run re-measures the 20 stalest readings
+//  (older than 4 min), so the Telegram News page shows the running volume, not the one from the last alert.
 //  mode "vol" { symbols: [...] }: the same numbers for the app pop-up.
 //  mode "diag": checks the bot (webhook / another program already reading its messages) without reading any message.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -197,11 +199,21 @@ Deno.serve(async (req: Request) => {
 
     const [{ data: watch }, { data: mute }] = await Promise.all([supa.from('fast_watch').select('symbol').limit(1000), supa.from('tg_mute').select('symbol')]);
     const muted = new Set((mute || []).map((r: any) => r.symbol));
+    // keep today's running volume current for the stocks alerted today (not only when they alert again) —
+    // runs alongside the scan so alerts are never delayed; the 20 stalest readings older than 4 minutes each run
+    const refreshP: Promise<number> = (async () => {
+      try {
+        const { data: stale } = await supa.from('vol_accum').select('symbol').eq('d', et.date)
+          .lt('updated_at', new Date(Date.now() - 4 * 60_000).toISOString()).order('updated_at', { ascending: true }).limit(20);
+        const re = (stale || []).map((r: any) => r.symbol).filter((s: string) => !muted.has(s));
+        return re.length ? Object.keys(await volAccum(supa, re)).length : 0;
+      } catch (_) { return 0; }
+    })();
     const syms = (watch || []).map((r: any) => r.symbol).filter((s: string) => !muted.has(s));
-    if (!syms.length) return Response.json({ cmds, on_list: 0 });
+    if (!syms.length) return Response.json({ cmds, on_list: 0, vol_refreshed: await refreshP });
 
     const ys = await yahooSession();
-    if (!ys) throw new Error('Yahoo session failed');
+    if (!ys) { await refreshP; throw new Error('Yahoo session failed'); }
     const fields = 'symbol,regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,marketState,preMarketPrice,preMarketChangePercent,postMarketPrice,postMarketChangePercent';
     const now = new Date(), nowIso = now.toISOString();
     const q: Record<string, { px: number; pct: number | null; vol: number; sess: string; sk: string }> = {};
@@ -298,7 +310,7 @@ Deno.serve(async (req: Request) => {
       const texts = msgs.map((m, k) => { const v = volLine(va[alerts[k].symbol]); return v ? m.replace(/\nSTOP /, v + '\nSTOP ') : m; });
       await supa.from('telegram_outbox').insert(texts.map(text => ({ text }))); await flush();
     }
-    return Response.json({ cmds, on_list: syms.length, priced: got.length, sent: msgs.length, muted: muted.size });
+    return Response.json({ cmds, on_list: syms.length, priced: got.length, sent: msgs.length, muted: muted.size, vol_refreshed: await refreshP });
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });
   }

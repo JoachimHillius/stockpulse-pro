@@ -698,9 +698,10 @@ select option{background:var(--bg2);}
         <button class="fbtn" onclick="setMktRange('1W',this)">1W</button>
         <button class="fbtn" onclick="setMktRange('1M',this)">1M</button>
         <button class="fbtn" onclick="setMktRange('3M',this)">3M</button>
+        <button class="fbtn" onclick="jcOpenFull((_tvMktSym||_mktSym||'SPY').toUpperCase())" title="Open the full chart (zoom, drawings, volume size)" style="margin-left:6px;">⤢ Full chart</button>
       </div>
     </div>
-    <div id="tradingview-market" style="height:calc(100vh - 200px);min-height:600px;margin-top:6px;width:100%;"></div>
+    <div id="tradingview-market" style="height:520px;margin-top:6px;width:100%;"></div>
   </div>
 </div>
 
@@ -8199,7 +8200,25 @@ let _tvMktSym = localStorage.getItem('sp_mkt_sym') || 'SPY'; // TV market symbol
 const _MKT_RANGE_TO_TV = {'1MIN':'1','5MIN':'5','15MIN':'15','1HR':'60','1D':'D','1W':'W','1M':'M','3M':'3M'};
 const _VIX_TF_TO_TV    = {'1':'1','5':'5','15':'15','60':'60','D':'D','W':'W'};
 
+// Morning Brief market chart = the same chart as the stock pop-ups (candles on top, volume below — both always in view).
+const _MKT_TV_TO_JC = { '1': ['1m', 1], '5': ['5m', 1], '15': ['15m', 1], '60': ['1h', 1], 'D': ['D', 1], 'W': ['W', 2], 'M': ['M', 2], '3M': ['D', 1] };
 function _createMktWidget(sym, tvInterval){
+  sym        = (sym||_tvMktSym||'SPY').toUpperCase().trim();
+  tvInterval = tvInterval||_tvMktInterval||'5';
+  _tvMktSym      = sym;
+  _tvMktInterval = tvInterval;
+  const el = document.getElementById('tradingview-market');
+  if(!el) return;
+  if(typeof jcDraw === 'function'){
+    const [tf, yrs] = _MKT_TV_TO_JC[tvInterval] || ['5m', 1];
+    jcDraw(el, sym, tf, yrs, false);
+    const titleEl = document.getElementById('mkt-chart-title');
+    if(titleEl) titleEl.textContent = 'Market Chart — ' + sym;
+    return;
+  }
+  setTimeout(() => _createMktWidget(sym, tvInterval), 400);   // the chart code loads a moment later at startup
+}
+function _createMktWidgetTV(sym, tvInterval){   // old TradingView widget — only if the app's chart is not available
   if(typeof TradingView==='undefined'){console.warn('[TV] TradingView not ready');return;}
   sym        = (sym||_tvMktSym||'SPY').toUpperCase().trim();
   tvInterval = tvInterval||_tvMktInterval||'5';
@@ -20571,6 +20590,7 @@ function tgParse(m) {
   const text = String(m.text || ''), lines = text.split('\n'), first = lines[0] || '', out = [];
   const vol = (s) => { const v = s.match(/Volume today ([\d.,]+[KMB]?)/i) || s.match(/Pre-market volume ([\d.,]+[KMB]?)/i); return v ? tgNum(v[1]) : null; };
   const volPct = (s) => { const v = s.match(/= (\d+)% of yesterday/); return v ? Number(v[1]) : null; };
+  const volPrev = (s) => { const v = s.match(/of yesterday's ([\d.,]+[KMB]?)/i); return v ? tgNum(v[1]) : null; };
   if (/^RSI alerts/.test(first)) {
     lines.forEach(l => { const x = l.match(new RegExp(`^([▲▼])\\s+(${TG_SYM})\\s.*\\(price ([\\d.]+)\\)`)); if (x) out.push({ sym: x[2], price: +x[3], type: x[1] === '▲' ? 'RSI high' : 'RSI low', line: l.trim() }); });
     return out;
@@ -20582,14 +20602,14 @@ function tgParse(m) {
   if (dollar.length) {
     dollar.forEach(sym => {
       const l = lines.find(z => z.includes('$' + sym)) || '', p = l.match(/at \$([\d.,]+)/) || text.match(/Entry \(close\) \$([\d.,]+)/), c = l.match(/([+-][\d.]+)%/);
-      out.push({ sym, price: p ? +p[1].replace(/,/g, '') : null, chg: c ? +c[1] : null, vol: vol(text), volPct: volPct(text), tier, type, line: l.trim() || first });
+      out.push({ sym, price: p ? +p[1].replace(/,/g, '') : null, chg: c ? +c[1] : null, vol: vol(text), volPct: volPct(text), volPrev: volPrev(text), tier, type, line: l.trim() || first });
     });
     return out;
   }
   const x = first.match(new RegExp(`^\\S+\\s+(?:WATCH\\s+)?(${TG_SYM})(?![\\w])`));
   if (!x) return out;
   const p = first.match(/\$([\d.,]+)/), c = first.match(/([+-]\d+(?:\.\d+)?)% (?:today|vs close)/) || first.match(/spiking ([+-]\d+(?:\.\d+)?)%/);
-  out.push({ sym: x[1], price: p ? +p[1].replace(/,/g, '') : null, chg: c ? +c[1] : null, vol: vol(text), volPct: volPct(text), tier, type, line: first });
+  out.push({ sym: x[1], price: p ? +p[1].replace(/,/g, '') : null, chg: c ? +c[1] : null, vol: vol(text), volPct: volPct(text), volPrev: volPrev(text), tier, type, line: first });
   return out;
 }
 
@@ -20637,11 +20657,12 @@ function tgGroups() {
     const vols = dayEv.filter(e => e.vol != null), va = TG.vol[g.sym];
     g.volNow = vols.length ? vols[0].vol : null; g.volFirst = vols.length ? vols[vols.length - 1].vol : null; g.volN = vols.length; g.volAt = vols.length ? vols[0].at : null;
     const vp = dayEv.find(e => e.volPct != null); g.volPct = vp ? vp.volPct : null;
+    const vy = dayEv.find(e => e.volPrev != null); g.volPrev = vy ? vy.volPrev : null;   // yesterday's full-day volume
     if (va && va.d === g.lastDay && va.today_vol != null) {   // fast-scan's running volume is newer than the message text
       g.volNow = Number(va.today_vol); g.volAt = va.updated_at; g.volN = Math.max(g.volN, Number(va.readings) || 1);
       if (va.first_vol != null && (g.volFirst == null || Number(va.first_vol) < g.volFirst)) g.volFirst = Number(va.first_vol);
       if (g.volFirst == null) g.volFirst = g.volNow;
-      if (va.prev_vol) g.volPct = Math.round(g.volNow / Number(va.prev_vol) * 100);
+      if (va.prev_vol) { g.volPct = Math.round(g.volNow / Number(va.prev_vol) * 100); g.volPrev = Number(va.prev_vol); }
       g.volSplit = [['pre', va.pre_vol], ['reg', va.reg_vol], ['after', va.post_vol]].filter(x => Number(x[1]) > 0 && Number(x[1]) !== g.volNow);
     }
     const ch = dayEv.find(e => e.chg != null); g.chg = ch ? ch.chg : null;
@@ -20736,7 +20757,7 @@ function tgRender() {
   const maxN = Math.max(1, ...list.map(g => Math.max(...g.perDay)));
   const body = list.map(g => {
     const bars = g.perDay.map((n, i) => `<td style="padding:6px 4px;text-align:center;border-bottom:1px solid var(--border);"><div title="${dl(days[i])}: ${n} alert${n === 1 ? '' : 's'}" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;"><span style="width:16px;height:${n ? 4 + Math.round(n / maxN * 18) : 2}px;background:${n ? 'var(--cyan)' : 'var(--border2)'};border-radius:2px;"></span><span style="font-size:10px;color:${n ? 'var(--text)' : '#5a708a'};">${n || '·'}</span></div></td>`).join('');
-    const vol = g.volNow == null ? '—' : `${g.volFirst != null && g.volFirst !== g.volNow ? `<span style="color:#8090a0;">${tgVol(g.volFirst)} → </span>` : ''}<b>${tgVol(g.volNow)}</b>${g.volAt ? ` <span style="font-size:10px;color:#8090a0;">at ${tgTime(g.volAt)}</span>` : ''}${g.volPct != null ? `<div style="font-size:10px;color:${g.volPct >= 100 ? 'var(--green)' : g.volPct >= 50 ? 'var(--amber)' : '#8090a0'};">${g.volPct}% of yesterday</div>` : g.volSplit && g.volSplit.length ? `<div style="font-size:10px;color:#8090a0;">${g.volSplit.map(x => `${x[0]} ${tgVol(Number(x[1]))}`).join(' · ')}</div>` : ''}`;
+    const vol = g.volNow == null ? '—' : `<b>${tgVol(g.volNow)}</b>${g.volAt ? ` <span style="font-size:10px;color:#8090a0;">at ${tgTime(g.volAt)}</span>` : ''}${g.volPrev != null ? ` <span style="color:#8090a0;" title="Yesterday's full-day volume">· yesterday ${tgVol(g.volPrev)}</span>` : ''}${g.volPct != null ? `<div style="font-size:10px;color:${g.volPct >= 100 ? 'var(--green)' : g.volPct >= 50 ? 'var(--amber)' : '#8090a0'};">${g.volPct}% of yesterday</div>` : g.volSplit && g.volSplit.length ? `<div style="font-size:10px;color:#8090a0;">${g.volSplit.map(x => `${x[0]} ${tgVol(Number(x[1]))}`).join(' · ')}</div>` : ''}`;
     const types = Object.entries(g.types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span style="font-size:10px;padding:1px 6px;border:1px solid var(--border2);border-radius:9px;margin-right:3px;">${t} ${n}</span>`).join('');
     const open = TG.open === g.sym;
     const tl = open ? `<tr><td colspan="${9 + days.length}" style="padding:4px 10px 12px 30px;border-bottom:1px solid var(--border2);background:rgba(0,212,255,.04);">
