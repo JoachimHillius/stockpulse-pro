@@ -19746,8 +19746,8 @@ function jrWatchHtml() {
         : `<div style="color:var(--text3);padding:8px 0;">Nothing on the ${kind === 'penny' ? 'penny' : 'large-cap'} list for this day yet — type a ticker or use <b>+ Add from Watchlist</b>.</div>`}</div>`;
   };
   return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Your short list for the day — up to <b>20 large caps</b> and <b>10 penny stocks</b>. It starts empty every day (or <b>Copy previous day</b>); lists older than 30 days are deleted automatically. Price, change and volume = the latest daily close; <b>1d–4d ago</b> = the change (green up / red down) and volume of each of the 4 trading days before it. <b>→ Plan</b> puts the ticker on the Plan tab; 📈 opens the chart.</div>
-    <div style="margin:8px 0 2px;"><button class="jr-btn g" onclick="jrEodScan()" title="End-of-day scan: the top 20 candidates for the next trading day from all our signals — runners, volume, close, multi-day runs, float rotation, after-hours">🔎 Tomorrow's scan</button>
-      <span style="font-size:11px;color:var(--text3);margin-left:6px;">runs by itself at 8 PM ET (after-hours done) and goes to Telegram · run it here any time</span></div>
+    <div style="margin:8px 0 2px;"><button class="jr-btn g" onclick="jrEodScan()" title="Scan: 🌅 Live / pre-market (today, right now) or the last close (Penny / Large caps) — the top 20 from all our signals, plus Scan a ticker">🔎 Scan</button>
+      <span style="font-size:11px;color:var(--text3);margin-left:6px;">🌅 Live in the morning · last close in the evening (it also goes to Telegram at 8 PM ET) · Scan a ticker inside</span></div>
     ${sec('large', 'Large caps — watch list (options)', 'var(--cyan)')}${sec('penny', 'Penny stocks — watch list', 'var(--green)')}`;
 }
 let _jrWT = null;
@@ -19830,8 +19830,10 @@ async function jrWatchToPlan(id, kindIn) {
   JR.plans = (JR.plans || []).concat(data || []); JR.tab = 'plan'; jrRender();
   showToast(w.symbol, kind === 'option' ? 'Options plan added — fill in strike, expiry and premium' : 'Stock plan added with the last close as price', 'info');
 }
-// ══ TOMORROW'S SCAN (STEP 91) ══ rpc jr_eod_scan: the day's top candidates scored from all signals; tick → next trading day's list.
-// The panel sits under the full chart (z 9400 < 9500), so 📈 Chart opens on top and closing it comes back to the scan.
+// ══ TOMORROW'S SCAN (STEP 91) + LIVE SCAN + SCAN A TICKER (STEP 93) ══
+//  Penny / Large caps = rpc jr_eod_scan (the last close) · 🌅 Live = rpc jr_live_scan (today's running volume and live %, pre-market on).
+//  Scan a ticker = both for one symbol; fast-scan "vol" first measures today's volume so a ticker the scanner wasn't watching works too.
+//  The panel sits under the full chart (z 9400 < 9500), so 📈 Chart opens on top and closing it comes back to the scan.
 function jrNextTD() {   // before 9:30 AM on a weekday → today; else the next weekday
   const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const wd = et.getDay(), mins = et.getHours() * 60 + et.getMinutes();
@@ -19840,7 +19842,10 @@ function jrNextTD() {   // before 9:30 AM on a weekday → today; else the next 
   return d.toLocaleDateString('en-CA');
 }
 async function jrEodScan(kind) {
-  JR.eod ||= { kind: 'penny', sel: new Set(), data: {} };
+  if (!JR.eod) {   // 4 AM – 4 PM on a weekday opens on the live scan, otherwise on the last close
+    const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })), mn = et.getHours() * 60 + et.getMinutes();
+    JR.eod = { kind: et.getDay() >= 1 && et.getDay() <= 5 && mn >= 240 && mn < 960 ? 'live' : 'penny', sel: new Set(), data: {}, one: null };
+  }
   if (kind && kind !== JR.eod.kind) { JR.eod.kind = kind; JR.eod.sel = new Set(); }
   let m = document.getElementById('jr-eod');
   if (!m) { m = document.createElement('div'); m.id = 'jr-eod';
@@ -19848,66 +19853,113 @@ async function jrEodScan(kind) {
     m.onclick = e => { if (e.target === m) m.remove(); }; document.body.appendChild(m); }
   if (!JR.watch) await jrWatchLoad();
   const k = JR.eod.kind;
-  if (!JR.eod.data[k] || Date.now() - JR.eod.data[k].at > 5 * 60e3) {
-    m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;padding:20px;color:var(--text2);">Scanning today's ${k === 'penny' ? 'penny stocks' : 'large caps'}…</div>`;
-    try { const supa = await getSupabaseAsync(); const { data, error } = await supa.rpc('jr_eod_scan', { p_kind: k, p_n: 20 }); if (error) throw error;
+  if (!JR.eod.data[k] || Date.now() - JR.eod.data[k].at > (k === 'live' ? 60e3 : 5 * 60e3)) {
+    if (!m.firstChild) m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;padding:20px;color:var(--text2);">Scanning…</div>`;
+    else { const t = document.getElementById('jr-eod-tbl'); if (t) t.style.opacity = '.4'; }
+    try { const supa = await getSupabaseAsync();
+      const { data, error } = k === 'live' ? await supa.rpc('jr_live_scan', { p_n: 20 }) : await supa.rpc('jr_eod_scan', { p_kind: k, p_n: 20 });
+      if (error) throw error;
       JR.eod.data[k] = { at: Date.now(), rows: data || [] };
-    } catch (e) { m.remove(); showToast('Tomorrow\'s scan', 'Scan failed: ' + e.message, 'error'); return; }
+    } catch (e) { m.remove(); showToast('Scan', 'Scan failed: ' + e.message, 'error'); return; }
   }
   jrEodRender();
 }
-function jrEodWhy(r) {   // short "why" chips; hover = what it means
+async function jrEodOne() {   // Scan a ticker: live now + last close
+  const inp = document.getElementById('jr-eod-sym'), s = (inp?.value || '').trim().toUpperCase().replace(/^\$/, '');
+  if (!/^[A-Z][A-Z.\-]{0,6}$/.test(s)) { showToast('Scan a ticker', 'Type a ticker, e.g. DKI', 'error'); return; }
+  JR.eod.one = { sym: s, busy: true, rows: [] }; jrEodRender();
+  try {
+    const supa = await getSupabaseAsync();
+    try { await supa.functions.invoke('fast-scan', { body: { mode: 'vol', symbols: [s] } }); } catch (_) { /* volume stays as it was */ }
+    const [lv, ed] = await Promise.all([supa.rpc('jr_live_scan', { p_n: 1, p_syms: [s] }), supa.rpc('jr_eod_scan', { p_kind: 'penny', p_n: 1, p_syms: [s] })]);
+    const rows = [];
+    (lv.data || []).forEach(r => rows.push({ ...r, _one: true, _mode: 'live' }));
+    (ed.data || []).forEach(r => rows.push({ ...r, _one: true, _mode: 'eod' }));
+    if (ed.data && ed.data[0] && ed.data[0].close >= 10) {   // a large cap: score it the large-cap way
+      const lg = await supa.rpc('jr_eod_scan', { p_kind: 'large', p_n: 1, p_syms: [s] }); if (lg.data && lg.data[0]) rows[rows.length - 1] = { ...lg.data[0], _one: true, _mode: 'eod' };
+    }
+    JR.eod.one = { sym: s, rows };
+  } catch (e) { JR.eod.one = { sym: s, rows: [], err: e.message }; }
+  jrEodRender();
+}
+function jrEodWhy(r, live) {   // short "why" chips; hover = what it means
   const c = [], chip = (t, col, tip) => c.push(`<span title="${String(tip || '').replace(/"/g, '&quot;')}" style="display:inline-block;margin:1px 3px 1px 0;padding:0 5px;border-radius:4px;font-size:10px;white-space:nowrap;border:1px solid ${col};color:${col};">${t}</span>`);
-  if (r.runner > 0) chip(`🟩 runner${r.runner > 1 ? ' ×' + r.runner : ''}`, 'var(--green)', 'Got the green 🔥🔥 RUNNER alert today');
+  if (live && r.sess) chip(r.sess, 'var(--text3)', 'The session the live price is from');
+  if (r.runner > 0) chip(`🟩 runner${r.runner > 1 ? ' ×' + r.runner : ''}`, 'var(--green)', 'Got the green 🔥🔥 RUNNER alert ' + (live ? 'today' : 'that day'));
   const ph = r.phase ? phShort(r.phase) : null;
   if (ph && ph.t !== '—') chip(`${ph.e} ${ph.t}${ph.day ? ' · Day ' + ph.day : ''}${ph.r ? ' · ' + ph.r : ''}`, ph.c, String(r.phase).replace(/<[^>]*>/g, ''));
   else if (r.ig_d) chip(`multi-day · since ${jrShowMD(r.ig_d)}`, 'var(--amber)', 'Had an ignition day (+20% on 5× volume) in the last 15 trading days');
-  if (r.cl != null && r.cl >= 0.8) chip('closed at the high', 'var(--green)', '~72% take out this high the next day (top penny stocks, 12 months)');
-  else if (r.cl != null && r.cl <= 0.2) chip('closed at the low', 'var(--red)', 'Only 9–25% take out this high the next day');
-  if (r.rot >= 1) chip(`${r.rot >= 10 ? Math.round(r.rot) : r.rot}× float`, 'var(--green)', 'Today\'s volume ÷ float (counted on the larger of float and shares out)');
-  if (r.spikes >= 5) chip(`${r.spikes} spikes`, 'var(--cyan)', '🚀 / 📈 alerts today');
-  if (r.ah != null && Math.abs(r.ah) >= 5) chip(`${r.ah > 0 ? '+' : ''}${r.ah}% AH`, r.ah > 0 ? 'var(--green)' : 'var(--red)', 'After-hours move vs today\'s close');
-  if (r.split) chip('split?', 'var(--amber)', 'The daily data looks like a reverse split — change taken from the live quote; relative volume left out');
+  if (r.cl != null && r.cl >= 0.8) chip(live ? 'at the high' : 'closed at the high', 'var(--green)', live ? 'Trading in the top 20% of today\'s range so far' : '~72% take out this high the next day (top penny stocks, 12 months)');
+  else if (r.cl != null && r.cl <= 0.2) chip(live ? 'near the low' : 'closed at the low', 'var(--red)', live ? 'Trading in the bottom 20% of today\'s range so far — faded' : 'Only 9–25% take out this high the next day');
+  if (r.rot >= 1) chip(`${r.rot >= 10 ? Math.round(r.rot) : r.rot}× float`, 'var(--green)', (live ? 'Today\'s volume so far' : 'That day\'s volume') + ' ÷ float (counted on the larger of float and shares out)');
+  if (r.spikes >= 5) chip(`${r.spikes} spikes`, 'var(--cyan)', '🚀 / 📈 alerts ' + (live ? 'today' : 'that day'));
+  if (r.ah != null && Math.abs(r.ah) >= 5) chip(`${r.ah > 0 ? '+' : ''}${r.ah}% AH`, r.ah > 0 ? 'var(--green)' : 'var(--red)', 'After-hours move vs the close');
+  if (r.split) chip('split?', 'var(--amber)', 'The daily data looks like a reverse split — the % change is left blank unless the live quote has it; relative volume left out');
   return c.join('');
+}
+function jrEodRowHtml(r, i, opt) {
+  const E = JR.eod, next = jrNextTD(), live = opt.live, px = v => v == null ? '—' : '$' + (v < 1 ? (+v).toFixed(4) : (+v).toFixed(2));
+  const lk = opt.one ? (r.close >= 10 ? 'large' : 'penny') : (E.kind === 'large' ? 'large' : 'penny');
+  const onList = (JR.watch || []).some(w => w.d === next && w.symbol === r.symbol);
+  const room = JR_WCAP[lk] - (JR.watch || []).filter(w => w.d === next && w.kind === lk).length;
+  const on = E.sel.has(r.symbol), dis = onList || (!on && E.sel.size >= room);
+  const pick = opt.one
+    ? `<button class="jr-btn g sm" ${onList || room <= 0 ? 'disabled' : ''} onclick="jrWatchAdd('${lk}',['${r.symbol}'],false,'${next}').then(ok=>ok&&jrEodRender())" title="${onList ? 'Already on the list for ' + jrShowMD(next) : room <= 0 ? 'The ' + lk + ' list is full' : 'Add to the ' + lk + ' list for ' + jrShowMD(next)}">${onList ? '✓ on list' : '+ Add'}</button>`
+    : `<input type="checkbox" ${on || onList ? 'checked' : ''} ${dis ? 'disabled' : ''} title="${onList ? 'Already on the list for ' + jrShowMD(next) : dis ? 'The list is full' : 'Add to the list for ' + jrShowMD(next)}" onchange="jrEodTog('${r.symbol}')">`;
+  return `<tr style="${on ? 'background:rgba(0,230,118,.08);' : ''}">
+    <td>${pick}</td><td style="color:var(--text3);white-space:nowrap;">${opt.one ? (live ? '🌅 now' : 'close ' + jrShowMD(r.d)) : i + 1}</td><td><b style="font-size:13px;">${r.symbol}</b></td><td>${px(r.close)}</td>
+    <td class="${r.chg > 0 ? 'jr-pos' : r.chg < 0 ? 'jr-neg' : ''}"><b>${r.chg == null ? '—' : (r.chg > 0 ? '+' : '') + r.chg + '%'}</b></td>
+    <td title="${live ? 'Volume today so far (incl. pre-market) ÷ yesterday\'s full day' : 'That day\'s volume ÷ the 20-day average'}">${r.rv == null ? '—' : r.rv + '×'}${live && r.vol ? `<div style="font-size:9.5px;color:var(--text3);">${_spFmtVol(r.vol)} sh</div>` : ''}</td>
+    <td>${r.dollars == null ? '—' : '$' + _spFmtVol(r.dollars)}</td>
+    <td style="white-space:normal;max-width:420px;">${jrEodWhy(r, live)}</td><td><b>${Math.round(r.score)}</b></td>
+    <td><button class="jr-btn sm" onclick="jcOpenFull('${r.symbol}')" title="Open the full chart — patterns, phase line, your drawings">📈 Chart</button></td></tr>`;
 }
 function jrEodRender() {
   const m = document.getElementById('jr-eod'); if (!m || !JR.eod) return;
-  const E = JR.eod, k = E.kind, rows = (E.data[k] || {}).rows || [], next = jrNextTD(), lk = k === 'penny' ? 'penny' : 'large';
-  const onList = new Set((JR.watch || []).filter(w => w.d === next).map(w => w.symbol));
+  const E = JR.eod, k = E.kind, live = k === 'live', D = E.data[k] || {}, rows = D.rows || [], next = jrNextTD(), lk = k === 'large' ? 'large' : 'penny';
   const room = JR_WCAP[lk] - (JR.watch || []).filter(w => w.d === next && w.kind === lk).length;
-  const px = v => v == null ? '—' : '$' + (v < 1 ? (+v).toFixed(4) : (+v).toFixed(2));
-  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;max-width:1080px;width:96%;max-height:86vh;display:flex;flex-direction:column;padding:16px 18px;">
-    <h3 style="margin:0 0 4px;color:var(--green);letter-spacing:1px;">🔎 TOMORROW'S SCAN · ${rows[0] ? 'close of ' + jrShowMD(rows[0].d) + ' ' : ''}→ list for ${jrShowMD(next)}</h3>
-    <div style="font-size:11.5px;color:var(--text2);margin-bottom:8px;">Top 20 by score from all our signals: today's gain, relative volume, where it closed, 🟩 runner alerts, spike alerts, multi-day runs, float rotation and the after-hours move. Hover a chip for what it means; <b>📈 Chart</b> opens the chart (close it to come back here). Room on the ${lk === 'penny' ? 'penny' : 'large-cap'} list for ${jrShowMD(next)}: <b>${Math.max(0, room - E.sel.size)}</b> of ${JR_WCAP[lk]} — added tickers also go on your Watchlist page.</div>
-    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
-      <button class="fbtn${k === 'penny' ? ' active' : ''}" onclick="jrEodScan('penny')">Penny ($0.10–$20)</button>
-      <button class="fbtn${k === 'large' ? ' active' : ''}" onclick="jrEodScan('large')">Large caps ($10+)</button>
-      <button class="jr-btn sm" style="margin-left:auto;" onclick="JR.eod.data['${k}']=null;jrEodScan()" title="Run the scan again">↻ Rescan</button></div>
-    <div style="overflow:auto;flex:1;"><table class="jr-tbl" style="width:100%;"><tr><th></th><th>#</th><th>Ticker</th><th>Close</th><th>Change</th><th title="Today's volume ÷ the 20-day average">Rel. vol</th><th>$ traded</th><th>Why</th><th title="Higher = more signals lined up">Score</th><th></th></tr>
-      ${rows.length ? rows.map((r, i) => { const on = E.sel.has(r.symbol), has = onList.has(r.symbol), dis = has || (!on && E.sel.size >= room);
-        return `<tr style="${on ? 'background:rgba(0,230,118,.08);' : ''}">
-          <td><input type="checkbox" ${on || has ? 'checked' : ''} ${dis ? 'disabled' : ''} title="${has ? 'Already on the list for ' + jrShowMD(next) : dis ? 'The list is full' : 'Add to the list for ' + jrShowMD(next)}" onchange="jrEodTog('${r.symbol}')"></td>
-          <td style="color:var(--text3);">${i + 1}</td><td><b style="font-size:13px;">${r.symbol}</b></td><td>${px(r.close)}</td>
-          <td class="${r.chg > 0 ? 'jr-pos' : r.chg < 0 ? 'jr-neg' : ''}"><b>${r.chg == null ? '—' : (r.chg > 0 ? '+' : '') + r.chg + '%'}</b></td>
-          <td>${r.rv == null ? '—' : r.rv + '×'}</td><td>${r.dollars == null ? '—' : '$' + _spFmtVol(r.dollars)}</td>
-          <td style="white-space:normal;max-width:420px;">${jrEodWhy(r)}</td><td><b>${Math.round(r.score)}</b></td>
-          <td><button class="jr-btn sm" onclick="jcOpenFull('${r.symbol}')" title="Open the full chart — patterns, phase line, your drawings">📈 Chart</button></td></tr>`; }).join('')
-        : '<tr><td colspan="10" style="color:var(--text3);padding:14px;">No stocks match today.</td></tr>'}</table></div>
+  const keep = document.getElementById('jr-eod-sym')?.value || (E.one ? E.one.sym : '');
+  const head = `<tr><th></th><th>#</th><th>Ticker</th><th>${live ? 'Price' : 'Close'}</th><th>Change</th><th title="${live ? 'Volume today so far (incl. pre-market) ÷ yesterday\'s full day' : 'That day\'s volume ÷ the 20-day average'}">Rel. vol</th><th>$ traded</th><th>Why</th><th title="Higher = more signals lined up">Score</th><th></th></tr>`;
+  const one = E.one ? `<div style="border:1px solid var(--cyan);border-radius:8px;padding:8px 10px;margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.5px;margin-bottom:4px;">SCANNED · ${E.one.sym}</div>
+      ${E.one.busy ? '<div style="color:var(--text2);font-size:12px;">Scanning ' + E.one.sym + ' — measuring today\'s volume…</div>'
+        : E.one.err ? `<div style="color:var(--red);font-size:12px;">Scan failed: ${jrEsc(E.one.err)}</div>`
+        : !E.one.rows.length ? `<div style="color:var(--text2);font-size:12px;">No data for ${E.one.sym} — not in our price history and no live quote. Check the ticker.</div>`
+        : `<table class="jr-tbl" style="width:100%;">${head}${E.one.rows.map(r => jrEodRowHtml(r, 0, { one: true, live: r._mode === 'live' })).join('')}</table>
+           ${E.one.rows.some(r => r._mode === 'live') ? '' : '<div style="font-size:11px;color:var(--text3);margin-top:4px;">No live row: the scanner has no live quote or volume for it today yet.</div>'}`}</div>` : '';
+  m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;max-width:1120px;width:96%;max-height:88vh;display:flex;flex-direction:column;padding:16px 18px;">
+    <h3 style="margin:0 0 4px;color:var(--green);letter-spacing:1px;">🔎 ${live ? 'LIVE SCAN · ' + (rows[0] && rows[0].sess ? rows[0].sess + ' · ' : '') + 'now' : 'SCAN · close of ' + (rows[0] ? jrShowMD(rows[0].d) : '…')} → list for ${jrShowMD(next)}</h3>
+    <div style="font-size:11.5px;color:var(--text2);margin-bottom:8px;">${live
+      ? 'Today\'s movers right now (from 4 AM): <b>today\'s volume so far vs yesterday\'s full day</b> — the morning tell — plus the live % change, $ traded, float rotation, runner alerts and multi-day runs. Rescan for fresh numbers.'
+      : 'Top 20 from the last close: that day\'s gain, relative volume, where it closed, 🟩 runner alerts, spike alerts, multi-day runs, float rotation and the after-hours move.'}
+      Hover a chip for what it means; <b>📈 Chart</b> opens the chart (close it to come back here). Room on the ${lk} list for ${jrShowMD(next)}: <b>${Math.max(0, room - E.sel.size)}</b> of ${JR_WCAP[lk]} — added tickers also go on your Watchlist page.</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <button class="fbtn${live ? ' active' : ''}" onclick="jrEodScan('live')" title="Today, right now — pre-market from 4 AM">🌅 Live / pre-market</button>
+      <button class="fbtn${k === 'penny' ? ' active' : ''}" onclick="jrEodScan('penny')" title="From the last close">Penny ($0.10–$20) · last close</button>
+      <button class="fbtn${k === 'large' ? ' active' : ''}" onclick="jrEodScan('large')" title="From the last close">Large caps ($10+) · last close</button>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+        <input id="jr-eod-sym" type="text" value="${jrEsc(keep)}" placeholder="Scan a ticker…" style="width:120px;text-transform:uppercase;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" onkeydown="if(event.key==='Enter')jrEodOne()">
+        <button class="jr-btn sm" onclick="jrEodOne()" title="Score one ticker with the same code — live now and the last close (takes a few seconds)">Scan</button>
+        <button class="jr-btn sm" onclick="JR.eod.data['${k}']=null;jrEodScan()" title="Run the scan again">↻ Rescan</button></span></div>
+    <div style="overflow:auto;flex:1;">${one}<table id="jr-eod-tbl" class="jr-tbl" style="width:100%;">${head}
+      ${rows.length ? rows.map((r, i) => jrEodRowHtml(r, i, { live })).join('')
+        : `<tr><td colspan="10" style="color:var(--text3);padding:14px;">${live ? 'No live movers yet (5%+ with $500K+ traded) — the scanner starts at 4 AM.' : 'No stocks match.'}</td></tr>`}</table></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
       <button class="jr-btn" onclick="document.getElementById('jr-eod').remove()">Close</button>
-      <button class="jr-btn g" ${E.sel.size ? '' : 'disabled'} onclick="jrEodAdd()">Add ${E.sel.size || ''} to the ${lk === 'penny' ? 'penny' : 'large-cap'} list for ${jrShowMD(next)}</button></div></div>`;
+      <button class="jr-btn g" ${E.sel.size ? '' : 'disabled'} onclick="jrEodAdd()">Add ${E.sel.size || ''} to the ${lk} list for ${jrShowMD(next)}</button></div></div>`;
 }
 function jrEodTog(s) {
-  const E = JR.eod, lk = E.kind === 'penny' ? 'penny' : 'large', next = jrNextTD();
+  const E = JR.eod, lk = E.kind === 'large' ? 'large' : 'penny', next = jrNextTD();
   const room = JR_WCAP[lk] - (JR.watch || []).filter(w => w.d === next && w.kind === lk).length;
   if (E.sel.has(s)) E.sel.delete(s); else if (E.sel.size < room) E.sel.add(s);
   jrEodRender();
 }
 async function jrEodAdd() {
-  const E = JR.eod, lk = E.kind === 'penny' ? 'penny' : 'large';
+  const E = JR.eod, lk = E.kind === 'large' ? 'large' : 'penny';
   const ok = await jrWatchAdd(lk, [...E.sel], false, jrNextTD());
   if (ok) { E.sel = new Set(); document.getElementById('jr-eod')?.remove(); }
 }
+
 // ---- pick from the Watchlist page: movers and volume on top, split by price ----
 async function jrWatchPick(kind) {
   document.getElementById('jr-wpick')?.remove();
