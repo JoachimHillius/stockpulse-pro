@@ -19888,24 +19888,32 @@ async function jrEodScan(kind) {
   }
   jrEodRender();
 }
-async function jrEodOne() {   // Scan a ticker: live now + last close
-  const inp = document.getElementById('jr-eod-sym'), s = (inp?.value || '').trim().toUpperCase().replace(/^\$/, '');
-  if (!/^[A-Z][A-Z.\-]{0,6}$/.test(s)) { showToast('Scan a ticker', 'Type a ticker, e.g. DKI', 'error'); return; }
-  JR.eod.one = { sym: s, busy: true, rows: [] }; jrEodRender();
+// Scan tickers (STEP 96): one or more, e.g. "DKI, WHLR RAYA" — each keeps its rows (live now + last close) until you remove it.
+async function jrEodOne() {
+  const inp = document.getElementById('jr-eod-sym');
+  const syms = [...new Set((inp?.value || '').toUpperCase().split(/[\s,;]+/).map(x => x.replace(/^\$/, '')).filter(x => /^[A-Z][A-Z.\-]{0,6}$/.test(x)))].slice(0, 10);
+  if (!syms.length) { showToast('Scan tickers', 'Type one or more tickers, e.g. DKI, WHLR', 'error'); return; }
+  const S = (JR.eod.scanned ||= []);   // [{ sym, busy, rows, err }], newest first
+  syms.slice().reverse().forEach(sym => { const k = S.findIndex(x => x.sym === sym); if (k >= 0) S.splice(k, 1); S.unshift({ sym, busy: true, rows: [] }); });
+  if (inp) inp.value = '';
+  jrEodRender();
   try {
     const supa = await getSupabaseAsync();
-    try { await supa.functions.invoke('fast-scan', { body: { mode: 'vol', symbols: [s] } }); } catch (_) { /* volume stays as it was */ }
-    const [lv, ed] = await Promise.all([supa.rpc('jr_live_scan', { p_n: 1, p_syms: [s] }), supa.rpc('jr_eod_scan', { p_kind: 'penny', p_n: 1, p_syms: [s] })]);
-    const rows = [];
-    (lv.data || []).forEach(r => rows.push({ ...r, _one: true, _mode: 'live' }));
-    (ed.data || []).forEach(r => rows.push({ ...r, _one: true, _mode: 'eod' }));
-    if (ed.data && ed.data[0] && ed.data[0].close >= 10) {   // a large cap: score it the large-cap way
-      const lg = await supa.rpc('jr_eod_scan', { p_kind: 'large', p_n: 1, p_syms: [s] }); if (lg.data && lg.data[0]) rows[rows.length - 1] = { ...lg.data[0], _one: true, _mode: 'eod' };
-    }
-    JR.eod.one = { sym: s, rows };
-  } catch (e) { JR.eod.one = { sym: s, rows: [], err: e.message }; }
+    try { await supa.functions.invoke('fast-scan', { body: { mode: 'vol', symbols: syms } }); } catch (_) { /* volume stays as it was */ }
+    const [lv, ed, lg] = await Promise.all([supa.rpc('jr_live_scan', { p_n: syms.length, p_syms: syms }),
+      supa.rpc('jr_eod_scan', { p_kind: 'penny', p_n: syms.length, p_syms: syms }), supa.rpc('jr_eod_scan', { p_kind: 'large', p_n: syms.length, p_syms: syms })]);
+    if (lv.error || ed.error) throw (lv.error || ed.error);
+    syms.forEach(sym => {
+      const rows = [], L = (lv.data || []).find(r => r.symbol === sym), P = (ed.data || []).find(r => r.symbol === sym), G = (lg.data || []).find(r => r.symbol === sym);
+      if (L) rows.push({ ...L, _one: true, _mode: 'live' });
+      const C = P && P.close >= 10 && G ? G : P;   // a large cap is scored the large-cap way
+      if (C) rows.push({ ...C, _one: true, _mode: 'eod' });
+      const it = S.find(x => x.sym === sym); if (it) Object.assign(it, { busy: false, rows, err: null });
+    });
+  } catch (e) { syms.forEach(sym => { const it = S.find(x => x.sym === sym); if (it) Object.assign(it, { busy: false, rows: [], err: e.message }); }); }
   jrEodRender();
 }
+function jrEodUnscan(sym) { const S = JR.eod.scanned || []; const k = sym ? S.findIndex(x => x.sym === sym) : -1; if (sym) { if (k >= 0) S.splice(k, 1); } else S.length = 0; jrEodRender(); }
 function jrEodWhy(r, live) {   // short "why" chips; hover = what it means
   const c = [], chip = (t, col, tip) => c.push(`<span title="${String(tip || '').replace(/"/g, '&quot;')}" style="display:inline-block;margin:1px 3px 1px 0;padding:0 5px;border-radius:4px;font-size:10px;white-space:nowrap;border:1px solid ${col};color:${col};">${t}</span>`);
   if (live && r.sess) chip(r.sess, 'var(--text3)', 'The session the live price is from');
@@ -19942,15 +19950,20 @@ function jrEodRender() {
   const m = document.getElementById('jr-eod'); if (!m || !JR.eod) return;
   const E = JR.eod, k = E.kind, live = k === 'live', D = E.data[k] || {}, rows = D.rows || [], next = jrNextTD(), lk = k === 'large' ? 'large' : 'penny';
   const room = JR_WCAP[lk] - (JR.watch || []).filter(w => w.d === next && w.kind === lk).length;
-  const keep = document.getElementById('jr-eod-sym')?.value || (E.one ? E.one.sym : '');
+  const keep = document.getElementById('jr-eod-sym')?.value || '';
   const head = `<tr><th></th><th>#</th><th>Ticker</th><th>${live ? 'Price' : 'Close'}</th><th>Change</th><th title="${live ? 'Volume today so far (incl. pre-market) ÷ yesterday\'s full day' : 'That day\'s volume ÷ the 20-day average'}">Rel. vol</th><th>$ traded</th><th>Why</th><th title="Higher = more signals lined up">Score</th><th></th></tr>`;
-  const one = E.one ? `<div style="border:1px solid var(--cyan);border-radius:8px;padding:8px 10px;margin-bottom:10px;">
-      <div style="font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.5px;margin-bottom:4px;">SCANNED · ${E.one.sym}</div>
-      ${E.one.busy ? '<div style="color:var(--text2);font-size:12px;">Scanning ' + E.one.sym + ' — measuring today\'s volume…</div>'
-        : E.one.err ? `<div style="color:var(--red);font-size:12px;">Scan failed: ${jrEsc(E.one.err)}</div>`
-        : !E.one.rows.length ? `<div style="color:var(--text2);font-size:12px;">No data for ${E.one.sym} — not in our price history and no live quote. Check the ticker.</div>`
-        : `<table class="jr-tbl" style="width:100%;">${head}${E.one.rows.map(r => jrEodRowHtml(r, 0, { one: true, live: r._mode === 'live' })).join('')}</table>
-           ${E.one.rows.some(r => r._mode === 'live') ? '' : '<div style="font-size:11px;color:var(--text3);margin-top:4px;">No live row: the scanner has no live quote or volume for it today yet.</div>'}`}</div>` : '';
+  const SC = E.scanned || [];
+  const one = SC.length ? `<div style="border:1px solid var(--cyan);border-radius:8px;padding:8px 10px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.5px;margin-bottom:4px;">SCANNED · ${SC.length} ticker${SC.length > 1 ? 's' : ''}
+        <button class="jr-btn sm" style="margin-left:auto;" onclick="jrEodUnscan()" title="Remove all scanned tickers from this box (not from your lists)">Clear</button></div>
+      <table class="jr-tbl" style="width:100%;">${head}${SC.map(it => {
+        const x = `<button class="jr-btn sm" onclick="jrEodUnscan('${it.sym}')" title="Remove ${it.sym} from this box" style="padding:0 6px;">×</button>`;
+        if (it.busy) return `<tr><td>${x}</td><td></td><td><b>${it.sym}</b></td><td colspan="7" style="color:var(--text2);">Scanning — measuring today's volume…</td></tr>`;
+        if (it.err) return `<tr><td>${x}</td><td></td><td><b>${it.sym}</b></td><td colspan="7" style="color:var(--red);">Scan failed: ${jrEsc(it.err)}</td></tr>`;
+        if (!it.rows.length) return `<tr><td>${x}</td><td></td><td><b>${it.sym}</b></td><td colspan="7" style="color:var(--text2);">No data — not in our price history and no live quote. Check the ticker.</td></tr>`;
+        return it.rows.map((r, k) => jrEodRowHtml(r, 0, { one: true, live: r._mode === 'live' }).replace('<td>', k === 0 ? `<td style="white-space:nowrap;">${x} ` : '<td>')).join('')
+          + (it.rows.some(r => r._mode === 'live') ? '' : `<tr><td></td><td colspan="9" style="font-size:10.5px;color:var(--text3);padding-top:0;">${it.sym}: no live row — no live quote or volume for it today yet.</td></tr>`);
+      }).join('')}</table></div>` : '';
   m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;max-width:1120px;width:96%;max-height:88vh;display:flex;flex-direction:column;padding:16px 18px;">
     <h3 style="margin:0 0 4px;color:var(--green);letter-spacing:1px;">🔎 ${live ? 'LIVE SCAN · ' + (rows[0] && rows[0].sess ? rows[0].sess + ' · ' : '') + 'now' : 'SCAN · close of ' + (rows[0] ? jrShowMD(rows[0].d) : '…')} → list for ${jrShowMD(next)}</h3>
     <div style="font-size:11.5px;color:var(--text2);margin-bottom:8px;">${live
@@ -19962,8 +19975,8 @@ function jrEodRender() {
       <button class="fbtn${k === 'penny' ? ' active' : ''}" onclick="jrEodScan('penny')" title="From the last close">Penny ($0.10–$20) · last close</button>
       <button class="fbtn${k === 'large' ? ' active' : ''}" onclick="jrEodScan('large')" title="From the last close">Large caps ($10+) · last close</button>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-        <input id="jr-eod-sym" type="text" value="${jrEsc(keep)}" placeholder="Scan a ticker…" style="width:120px;text-transform:uppercase;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" onkeydown="if(event.key==='Enter')jrEodOne()">
-        <button class="jr-btn sm" onclick="jrEodOne()" title="Score one ticker with the same code — live now and the last close (takes a few seconds)">Scan</button>
+        <input id="jr-eod-sym" type="text" value="${jrEsc(keep)}" placeholder="Scan tickers… DKI, WHLR" title="One or more tickers (up to 10 at a time), separated by a comma or space — each stays in the box until you remove it" style="width:170px;text-transform:uppercase;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" onkeydown="if(event.key==='Enter')jrEodOne()">
+        <button class="jr-btn sm" onclick="jrEodOne()" title="Score the tickers with the same code — live now and the last close (takes a few seconds)">Scan</button>
         <button class="jr-btn sm" onclick="JR.eod.data['${k}']=null;jrEodScan()" title="Run the scan again">↻ Rescan</button></span></div>
     ${live ? jrLiveFBar() : ''}
     <div style="overflow:auto;flex:1;">${one}<table id="jr-eod-tbl" class="jr-tbl" style="width:100%;">${head}
