@@ -1,0 +1,17 @@
+-- STEP 93 (source copy — already applied live; do not run)
+-- (1) jr_live_scan(p_n, p_syms): LIVE / pre-market scan — today's running volume (vol_accum, pre-market on) vs yesterday's full day,
+--     live % change, $ traded, place in today's range (fast_session), runner alerts, spikes, multi-day runs, float rotation.
+--     Movers: $0.10–$20, +5% or more, $500K+ traded today. p_syms = score just these tickers (Scan a ticker).
+-- (2) jr_eod_scan gets p_syms too, and catches reverse splits without the same-day live quote
+--     (previous close 2.5× outside the day's range) — their % is left blank instead of +5,000%.
+-- Full definitions are live in the database (see the STEP 93 migration "jr_scan_live_and_ticker"); summary of the changes:
+--   drop function if exists public.jr_eod_scan(text, int);
+--   create function public.jr_eod_scan(p_kind text default 'penny', p_n int default 20, p_syms text[] default null) ...
+--     filter:  case when p_syms is not null then p.symbol = any(p_syms) when p_kind = 'large' then ... else ... end
+--     split:   (same-day live % 50+ points off) or x.pc > x.high * 2.5 or x.pc < x.low / 2.5
+--     change:  case when not split then daily % when same-day live quote then live % end (else blank)
+--   create function public.jr_live_scan(p_n int default 20, p_syms text[] default null)
+--     returns the jr_eod_scan columns + sess ('pre-market' / 'regular' / 'after-hours') + pre_vol
+--     score = min(max(live %, 0), 100) × 0.4 + min(today vol ÷ yesterday vol, 50) + top 20% of range +15 / bottom 20% −10
+--             + 8 × runner alerts (max 3) + spikes (max 10) + 10 if multi-day + 2 × float rotation (max 10)
+--   grant execute on both to authenticated.
