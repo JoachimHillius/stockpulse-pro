@@ -19841,6 +19841,28 @@ function jrNextTD() {   // before 9:30 AM on a weekday → today; else the next 
   const d = new Date(jrToday() + 'T12:00:00'); do d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6);
   return d.toLocaleDateString('en-CA');
 }
+// Live-scan filters (STEP 94) — the 🌅 Live tab only; kept on this computer
+const JR_LIVEF0 = { min: 0.10, max: 20, mode: 'up', chg: 5, dol: 500000 };
+function jrLiveF() { let f = null; try { f = JSON.parse(localStorage.getItem('sp_live_filters') || 'null'); } catch (_) { /**/ } return { ...JR_LIVEF0, ...(f || {}) }; }
+function jrLiveFSet(key, val) {
+  const f = jrLiveF();
+  if (key === 'min' || key === 'max' || key === 'chg') { const n = parseFloat(val); f[key] = isFinite(n) && n >= 0 ? n : JR_LIVEF0[key]; }
+  else if (key === 'dol') f.dol = Number(val) || 0; else if (key === 'mode') f.mode = val; else if (key === 'reset') Object.assign(f, JR_LIVEF0);
+  try { localStorage.setItem('sp_live_filters', JSON.stringify(f)); } catch (_) { /**/ }
+  JR.eod.data.live = null; jrEodScan('live');
+}
+function jrLiveFBar() {
+  const f = jrLiveF(), inp = (key, w, tip) => `<input type="number" step="any" min="0" value="${f[key]}" title="${tip}" style="width:${w}px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 6px;border-radius:4px;font-family:inherit;" onchange="jrLiveFSet('${key}',this.value)">`;
+  const seg = (opts, cur, key) => `<div class="jr-seg">${opts.map(([v, l, t]) => `<button class="${String(cur) === String(v) ? 'on' : ''}" title="${t || ''}" onclick="jrLiveFSet('${key}','${v}')">${l}</button>`).join('')}</div>`;
+  const dflt = JSON.stringify(f) === JSON.stringify(JR_LIVEF0);
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-bottom:8px;padding:6px 8px;border:1px dashed var(--border);border-radius:6px;">
+    <span><b>Price</b> $${inp('min', 64, 'Lowest price')} – $${inp('max', 64, 'Highest price')}</span>
+    <span><b>Change</b> ${seg([['up', 'Up', 'Up at least the % on the right'], ['down', 'Down', 'Down at least the %'], ['both', 'Both ±', 'Up or down at least the %'], ['any', 'Any', 'No % limit — every measured stock']], f.mode, 'mode')}
+      ${f.mode === 'any' ? '' : inp('chg', 50, 'Minimum move in %') + '%'}</span>
+    <span><b>$ traded</b> ${seg([[0, 'Off'], [200000, '$200K'], [500000, '$500K'], [1000000, '$1M']], f.dol, 'dol')}</span>
+    ${dflt ? '' : `<button class="jr-btn sm" onclick="jrLiveFSet('reset')" title="Back to $0.10–$20 · Up 5% · $500K">Reset</button>`}
+  </div>`;
+}
 async function jrEodScan(kind) {
   if (!JR.eod) {   // 4 AM – 4 PM on a weekday opens on the live scan, otherwise on the last close
     const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })), mn = et.getHours() * 60 + et.getMinutes();
@@ -19857,7 +19879,9 @@ async function jrEodScan(kind) {
     if (!m.firstChild) m.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;padding:20px;color:var(--text2);">Scanning…</div>`;
     else { const t = document.getElementById('jr-eod-tbl'); if (t) t.style.opacity = '.4'; }
     try { const supa = await getSupabaseAsync();
-      const { data, error } = k === 'live' ? await supa.rpc('jr_live_scan', { p_n: 20 }) : await supa.rpc('jr_eod_scan', { p_kind: k, p_n: 20 });
+      const F = jrLiveF();
+      const { data, error } = k === 'live' ? await supa.rpc('jr_live_scan', { p_n: 20, p_min_px: F.min, p_max_px: F.max, p_chg_mode: F.mode, p_chg: F.chg, p_min_dollars: F.dol })
+        : await supa.rpc('jr_eod_scan', { p_kind: k, p_n: 20 });
       if (error) throw error;
       JR.eod.data[k] = { at: Date.now(), rows: data || [] };
     } catch (e) { m.remove(); showToast('Scan', 'Scan failed: ' + e.message, 'error'); return; }
@@ -19941,9 +19965,10 @@ function jrEodRender() {
         <input id="jr-eod-sym" type="text" value="${jrEsc(keep)}" placeholder="Scan a ticker…" style="width:120px;text-transform:uppercase;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;" onkeydown="if(event.key==='Enter')jrEodOne()">
         <button class="jr-btn sm" onclick="jrEodOne()" title="Score one ticker with the same code — live now and the last close (takes a few seconds)">Scan</button>
         <button class="jr-btn sm" onclick="JR.eod.data['${k}']=null;jrEodScan()" title="Run the scan again">↻ Rescan</button></span></div>
+    ${live ? jrLiveFBar() : ''}
     <div style="overflow:auto;flex:1;">${one}<table id="jr-eod-tbl" class="jr-tbl" style="width:100%;">${head}
       ${rows.length ? rows.map((r, i) => jrEodRowHtml(r, i, { live })).join('')
-        : `<tr><td colspan="10" style="color:var(--text3);padding:14px;">${live ? 'No live movers yet (5%+ with $500K+ traded) — the scanner starts at 4 AM.' : 'No stocks match.'}</td></tr>`}</table></div>
+        : `<tr><td colspan="10" style="color:var(--text3);padding:14px;">${live ? 'No stocks match these filters yet — volume is measured for the biggest movers every 2 minutes from 4 AM; try a lower $ traded or Any.' : 'No stocks match.'}</td></tr>`}</table></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
       <button class="jr-btn" onclick="document.getElementById('jr-eod').remove()">Close</button>
       <button class="jr-btn g" ${E.sel.size ? '' : 'disabled'} onclick="jrEodAdd()">Add ${E.sel.size || ''} to the ${lk} list for ${jrShowMD(next)}</button></div></div>`;
@@ -19956,6 +19981,15 @@ function jrEodTog(s) {
 }
 async function jrEodAdd() {
   const E = JR.eod, lk = E.kind === 'large' ? 'large' : 'penny';
+  if (E.kind === 'live') {   // live rows can be $20+ (filters) → those go on the large-cap list
+    const rows = (E.data.live || {}).rows || [], px = s => (rows.find(r => r.symbol === s) || {}).close || 0;
+    const big = [...E.sel].filter(s => px(s) >= 20), small = [...E.sel].filter(s => px(s) < 20);
+    let ok = true;
+    if (big.length) ok = await jrWatchAdd('large', big, false, jrNextTD()) && ok;
+    if (small.length) ok = await jrWatchAdd('penny', small, false, jrNextTD()) && ok;
+    if (ok) { E.sel = new Set(); document.getElementById('jr-eod')?.remove(); }
+    return;
+  }
   const ok = await jrWatchAdd(lk, [...E.sel], false, jrNextTD());
   if (ok) { E.sel = new Set(); document.getElementById('jr-eod')?.remove(); }
 }

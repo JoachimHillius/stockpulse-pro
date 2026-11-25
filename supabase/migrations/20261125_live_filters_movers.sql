@@ -1,0 +1,13 @@
+-- STEP 94 (source copy — already applied live; do not run)
+-- (1) jr_live_scan gets filters: p_min_px / p_max_px (default $0.10–$20), p_chg_mode 'up' | 'down' | 'both' | 'any' with p_chg % (default up 5%),
+--     p_min_dollars (default $500K; 0 = off). Down mode ranks by the size of the drop. Range position is clamped to 0–1.
+-- (2) vol_movers_list(p_n): the 60 biggest movers ($0.10–$100, up or down 5%+) whose volume wasn't measured in the last 5 minutes.
+-- (3) vol_movers_kick(): calls fast-scan {"mode":"movers"} (measures them; no trades reported → a 0 reading so the next run moves on).
+-- Cron (UTC): vol-movers-a '*/2 9-23 * * 1-5' · vol-movers-b '*/2 0 * * 2-6' → select public.vol_movers_kick()
+-- Full definitions are live in the database (migration "jr_live_scan_filters_movers_vol").
+--   drop function if exists public.jr_live_scan(int, text[]);
+--   create function public.jr_live_scan(p_n int default 20, p_syms text[] default null, p_min_px numeric default 0.10,
+--     p_max_px numeric default 20, p_chg_mode text default 'up', p_chg numeric default 5, p_min_dollars numeric default 500000) ...
+--   grant execute on function public.jr_live_scan(int, text[], numeric, numeric, text, numeric, numeric) to authenticated;
+--   create function public.vol_movers_list(p_n int default 60) returns table(symbol text) ...  -- grant to service_role only
+--   create function public.vol_movers_kick() returns void ...                                   -- pg_cron only
