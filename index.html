@@ -19685,9 +19685,9 @@ function jrPlanCalc(d) {
   return out;
 }
 // ══ DAILY WATCH LIST (Journal → Watchlist) ══════════════════════════════
-// public.jr_watch: one short list per day — up to 20 large caps and 10 penny stocks (a DB trigger enforces it; lists older than 30 days are deleted nightly).
+// public.jr_watch: one short list per day — up to 20 large caps and 20 penny stocks (a DB trigger enforces it; lists older than 30 days are deleted nightly).
 // Source: the main Watchlist page (user_watchlist). Prices: rpc jr_quotes (latest daily close, change, volume from price_history).
-const JR_WCAP = { large: 20, penny: 10 };
+const JR_WCAP = { large: 20, penny: 20 };
 async function jrWatchLoad(force) {
   if (JR.watch && !force) return;
   try { const supa = await getSupabaseAsync(); const { data, error } = await supa.from('jr_watch').select('*').order('d').order('id').limit(2000); if (error) throw error; JR.watch = data || []; }
@@ -19745,7 +19745,7 @@ function jrWatchHtml() {
       ${list.length ? `<table class="jr-tbl jr-plan" style="width:100%;"><tr><th>#</th><th>Ticker</th><th>Last close</th><th>Change</th><th>Volume</th>${[1, 2, 3, 4].map(k => { const d = dOf(k); return `<th style="text-align:right;" title="Change and volume ${k} trading day${k > 1 ? 's' : ''} before the last close">${k}d ago${d ? `<div style="font-weight:400;color:var(--text3);letter-spacing:0;">${jrShowMD(d)}</div>` : ''}</th>`; }).join('')}<th>Note</th><th></th></tr>${body}</table>`
         : `<div style="color:var(--text3);padding:8px 0;">Nothing on the ${kind === 'penny' ? 'penny' : 'large-cap'} list for this day yet — type a ticker or use <b>+ Add from Watchlist</b>.</div>`}</div>`;
   };
-  return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Your short list for the day — up to <b>20 large caps</b> and <b>10 penny stocks</b>. It starts empty every day (or <b>Copy previous day</b>); lists older than 30 days are deleted automatically. Price, change and volume = the latest daily close; <b>1d–4d ago</b> = the change (green up / red down) and volume of each of the 4 trading days before it. <b>→ Plan</b> puts the ticker on the Plan tab; 📈 opens the chart.</div>
+  return `<div style="color:var(--text2);font-size:11px;margin-bottom:4px;">Your short list for the day — up to <b>20 large caps</b> and <b>20 penny stocks</b>. It starts empty every day (or <b>Copy previous day</b>); lists older than 30 days are deleted automatically. Price, change and volume = the latest daily close; <b>1d–4d ago</b> = the change (green up / red down) and volume of each of the 4 trading days before it. <b>→ Plan</b> puts the ticker on the Plan tab; 📈 opens the chart.</div>
     <div style="margin:8px 0 2px;"><button class="jr-btn g" onclick="jrEodScan()" title="Scan: 🌅 Live / pre-market (today, right now) or the last close (Penny / Large caps) — the top 20 from all our signals, plus Scan a ticker">🔎 Scan</button>
       <span style="font-size:11px;color:var(--text3);margin-left:6px;">🌅 Live in the morning · last close in the evening (it also goes to Telegram at 8 PM ET) · Scan a ticker inside</span></div>
     ${sec('large', 'Large caps — watch list (options)', 'var(--cyan)')}${sec('penny', 'Penny stocks — watch list', 'var(--green)')}`;
@@ -21849,7 +21849,7 @@ const SPA_GUIDE = [
     <p><b>Export</b> saves the chart as PNG or PDF. The <b>ⓘ How it works</b> button on the chart explains every control.</p>`],
   ['journal', 'Journal', 'journal', `
     <p>Your trading routine, in the order you use it:</p>
-    <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>10 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
+    <ol><li><b>Watchlist</b> — the day's short list: up to <b>20 large caps</b> and <b>20 penny stocks</b>, picked from your main Watchlist (or typed). It starts empty every day; <b>Copy previous day</b> carries yesterday's over. Columns show the last close, change, volume and the 4 days before; notes open full width. Lists older than 30 days are deleted.</li>
       <li><b>Plan</b> — <b>→ Plan</b> on a watch-list row creates a penny or options plan: entry price, stop %, size from your daily budget (budget left is shown), the trading rules (fold them with ▸) and notes. Bought more? Fill in the <b>Add-on</b> line under the plan (price + shares / contracts); each filled line opens the next one, and the <b>Total</b> line shows the whole position, the average price and the stop on that average. Each plan shows one line (plus filled add-ons and the Total); <b>▸</b> opens the empty add-on line, rules and notes, <b>▸ Expand all / ▾ Collapse all</b> do every plan, and <b>⇄</b> moves a plan between Penny and Options. <b>✓ Taken → Today</b> puts the trade on Today as soon as you're in; from then on the plan and Today stay the same — edit either one (Today has the same add-on lines). A plan section only shows for kinds on that day's watch list.</li>
       <li><b>Today</b> — your trades for the day, market open/close (SPY, VIX) and your daily risk limits. Each trade is one line — ticker, session, shares, entry, exit — so you can log several quickly; <b>▸ Expand</b> shows dates, plan levels, add-ons, rules and notes (a trade saved before any rule is ticked shows NOT REVIEWED), <b>Expand all / Collapse all</b> do every trade, <b>⇄ Penny / Options</b> switches a trade that went into the wrong kind (everything typed stays), options <b>+ Round</b> (on the trade line, or <b>Type → Scalping</b> on ▸ Expand) turns the card into round lines — Call / Put, contracts, in, out (times from the clock) — with <b>+ Next round</b> for the next one on the same ticker; every round is saved as its own trade, with the same rules and notes, and has its own stock price; an options loss of 10% or less of what you paid, or $50 or less, is tagged <b>✂ CUT EARLY</b> — it doesn't count toward 2 losses in a row (6 in a row shows a slow-down warning), but the dollars still count against the day limit; and <b>IBKR | Schwab | Webull | Sage</b> records the broker (click again to clear). The entry / exit time fills in from your computer's clock when you type the price — click it to change it. Filling a plan's <b>Exit</b> sends it to Today as a trade.</li>
       <li><b>Calendar</b> — every day's result at a glance; click a day to open it.</li>
@@ -21909,7 +21909,7 @@ function spaWelcome() {
     <h2 style="margin:0 0 4px;font-size:18px;">Welcome to StockPulse Pro, ${spaEsc(SPA.me.first_name || '')}!</h2>
     <div style="font-size:12px;color:var(--text2);margin-bottom:6px;">Here's how it works, in four steps:</div>
     ${step(1, 'Your Watchlist is ready', 'It already has the penny stocks list. <b>+ Add tickers</b> adds your own: type them or upload a CSV, Excel file or screenshot. Large caps: ask the admin.')}
-    ${step(2, 'Pick the day\'s short list', 'Journal → <b>Watchlist</b>: up to 20 large caps and 10 penny stocks you want to watch today.')}
+    ${step(2, 'Pick the day\'s short list', 'Journal → <b>Watchlist</b>: up to 20 large caps and 20 penny stocks you want to watch today.')}
     ${step(3, 'Plan your trades', 'Journal → <b>Plan</b>: entry, stop and size for each pick, with your trading rules.')}
     ${step(4, 'Log and review', 'Journal → <b>Today</b> for your trades, then <b>Calendar</b>, <b>Weekly Audit</b> and <b>Analytics</b> to see what works.')}
     <div style="font-size:12px;color:var(--text2);margin-top:8px;">You can open the full guide any time from the name menu (👤, top right) → <b>User guide</b>.</div>
