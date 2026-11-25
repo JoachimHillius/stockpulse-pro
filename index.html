@@ -21428,7 +21428,7 @@ function jcDrawInit(H) {
     const ts = H.ch.timeScale(), l0 = ts.coordinateToLogical(Math.min(z.x0, z.x1)), l1 = ts.coordinateToLogical(Math.max(z.x0, z.x1));
     const p0 = H.cs.coordinateToPrice(Math.max(z.y0, z.y1)), p1 = H.cs.coordinateToPrice(Math.min(z.y0, z.y1));
     if (l0 == null || l1 == null || p0 == null || p1 == null) return;
-    JC.pbox = { min: Math.max(0, p0), max: p1 }; JC.pz = 1;
+    JC.pbox = { min: Math.max(0, p0), max: p1 }; JC.pz = 1; JC.pman = false;
     ts.setVisibleLogicalRange({ from: l0, to: l1 });
     H.cs.applyOptions({ autoscaleInfoProvider: jcPriceZoom });
     Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pbox || (JC.pz && JC.pz !== 1) ? null : orig() }));
@@ -21615,7 +21615,7 @@ async function jcPop(sym, tf, yrs) {
 }
 // ---- full view: covers the page below the top banner ----
 async function jcOpenFull(sym) {
-  await jcDrawLoad(sym); JC.vmax = 0; JC.pz = 1; JC.pbox = null;
+  await jcDrawLoad(sym); JC.vmax = 0; JC.pz = 1; JC.pbox = null; JC.pman = false;
   JC.sym = sym; JC.tf = _jcPopTf || 'D'; JC.yrs = _jcPopY || 1; JC.help = false;
   let ov = document.getElementById('jc-full');
   if (!ov) { ov = document.createElement('div'); ov.id = 'jc-full'; document.body.appendChild(ov);
@@ -21648,6 +21648,7 @@ function jcFullRender() {
         <span style="font-size:10px;letter-spacing:1px;color:#8090a0;" title="Price scale: zoom in / out on the candles (0 never goes off the bottom) · Default = price and volume back to Auto (also after dragging the price scale)">PRICE</span>
         <button class="fbtn" onclick="jcPz(1.4)" title="Zoom in on the price" style="padding:3px 8px;">＋</button><button class="fbtn" onclick="jcPz(1/1.4)" title="Zoom out on the price" style="padding:3px 8px;">−</button>
         <button class="fbtn jc-tool" data-t="zoom" onclick="jcTool('zoom')" title="Zoom box: press and drag a rectangle over the area you want to see bigger — Default goes back" style="padding:3px 8px;">🔍 Zoom box</button>
+        <span title="Set the price scale yourself, e.g. $0 to $5 — stays while you change the time frame; Default goes back to Auto" style="display:inline-flex;gap:3px;align-items:center;font-size:11px;color:#8090a0;">$<input id="jc-pmin" type="number" step="any" min="0" placeholder="from" value="${JC.pman && JC.pbox ? +JC.pbox.min.toPrecision(6) : ''}" onkeydown="if(event.key==='Enter')jcPset()" style="width:62px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:inherit;">–<input id="jc-pmax" type="number" step="any" min="0" placeholder="to" value="${JC.pman && JC.pbox ? +JC.pbox.max.toPrecision(6) : ''}" onkeydown="if(event.key==='Enter')jcPset()" style="width:62px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:inherit;"><button class="fbtn" onclick="jcPset()" style="padding:3px 8px;">Set</button></span>
         <button class="fbtn" onclick="jcPz(0)" title="Back to the view you get when you open the chart: full time range, price and volume on Auto" style="padding:3px 8px;">Default</button>
         <span style="width:6px"></span>
         <span style="font-size:10px;letter-spacing:1px;color:#8090a0;">MA</span>
@@ -21694,16 +21695,26 @@ function jcPriceZoom(orig) {
   let a = mid - half, b = mid + half; if (a < 0) { b -= a; a = 0; }
   return { priceRange: { minValue: a, maxValue: b }, margins: o.margins };
 }
+// your own price scale (STEP 95): $from – $to on the right axis; kept while you change time frame / years, cleared by Default or another ticker
+function jcPset() {
+  const H = JC.full; if (!H) return;
+  const a = parseFloat(document.getElementById('jc-pmin')?.value), b = parseFloat(document.getElementById('jc-pmax')?.value);
+  if (!(isFinite(a) && isFinite(b) && b > a && a >= 0)) { showToast('Price scale', 'Type a from and a to price, e.g. 0 and 5', 'error'); return; }
+  JC.pbox = { min: a, max: b }; JC.pz = 1; JC.pman = true;
+  H.cs.applyOptions({ autoscaleInfoProvider: jcPriceZoom });
+  Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pbox || (JC.pz && JC.pz !== 1) ? null : orig() }));
+  H.ch.priceScale('right').applyOptions({ autoScale: true });
+}
 function jcPz(f) {
   const H = JC.full; if (!H) return;
-  if (!f) { JC.pz = 1; JC.vmax = 0; JC.pbox = null; jcFullRender(); return; }
-  JC.pbox = null;   // Default = exactly the view you get when you open the chart (time range, price and volume on Auto)
+  if (!f) { JC.pz = 1; JC.vmax = 0; JC.pbox = null; JC.pman = false; jcFullRender(); return; }
+  JC.pbox = null; JC.pman = false;   // Default = exactly the view you get when you open the chart (time range, price and volume on Auto)
   JC.pz = Math.min(20, Math.max(0.25, (JC.pz || 1) * f));
   H.cs.applyOptions({ autoscaleInfoProvider: jcPriceZoom });
   Object.values(H.ma).forEach(s => s.applyOptions({ autoscaleInfoProvider: orig => JC.pbox || (JC.pz && JC.pz !== 1) ? null : orig() }));
   H.ch.priceScale('right').applyOptions({ autoScale: true });
 }
-function jcSet(tf) { JC.tf = tf; JC.vmax = 0; JC.pz = 1; JC.pbox = null; jcFullRender(); }
+function jcSet(tf) { JC.tf = tf; JC.vmax = 0; JC.pz = 1; if (!JC.pman) JC.pbox = null; jcFullRender(); }
 // volume scale: Auto (highest bar in view) or a fixed max; ▲ halves the max, ▼ doubles it
 function jcVmax(v) { JC.vmax = +v || 0; const H = JC.full; if (!H) return;
   H.vs.applyOptions({ autoscaleInfoProvider: orig => JC.vmax ? { priceRange: { minValue: 0, maxValue: JC.vmax } } : orig() });
@@ -21715,7 +21726,7 @@ function jcVstep(f) {
   const v = Math.max(1000, cur * f), mag = Math.pow(10, Math.floor(Math.log10(v)) - 1);   // round to 2 significant digits
   jcVmax(Math.round(v / mag) * mag);
 }
-function jcSetY(y) { JC.yrs = y; JC.vmax = 0; JC.pz = 1; JC.pbox = null; jcFullRender(); }
+function jcSetY(y) { JC.yrs = y; JC.vmax = 0; JC.pz = 1; if (!JC.pman) JC.pbox = null; jcFullRender(); }
 function jcZoom(f) {
   const ts = JC.full && JC.full.timeScale(); if (!ts) return;
   if (!f) { ts.fitContent(); return; }
@@ -21724,7 +21735,7 @@ function jcZoom(f) {
   ts.setVisibleLogicalRange({ from: mid - half, to: mid + half });
 }
 function jcCloseFull() {
-  JC.tool = null; JC.pz = 1; JC.vmax = 0; JC.pbox = null;
+  JC.tool = null; JC.pz = 1; JC.vmax = 0; JC.pbox = null; JC.pman = false;
   if (JC.full) { try { JC.full.remove(); } catch (_) {} JC.full = null; }
   const ov = document.getElementById('jc-full'); if (ov) { ov.style.display = 'none'; ov.innerHTML = ''; }
 }
