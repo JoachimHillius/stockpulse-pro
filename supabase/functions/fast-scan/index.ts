@@ -23,6 +23,7 @@
 //  v9 (STEP 88): fewer messages — $1M+ traded; 🚀/🔻 same ticker once per 15 min unless 5% further; 📈/📉 only ±20% movers, re-sent every +5%
 //      + a failed session read no longer resets today's high / low (that caused false "new high" alerts below the real high)
 //  v11 (STEP 89): 🚀 / 📈 for a stock that had a RUNNER alert today start with the green bar + 🔥🔥 RUNNER (e.g. the 4 PM spike)
+//  v12 (STEP 94): mode "movers" (pg_cron every 2 min, 4 AM – 8 PM): measures today's volume for the 60 biggest movers not measured in 5 min.
 //  mode "vol" { symbols: [...] }: the same numbers for the app pop-up.
 //  mode "diag": checks the bot (webhook / another program already reading its messages) without reading any message.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -193,6 +194,23 @@ Deno.serve(async (req: Request) => {
     if (body.mode === 'vol') {   // the app pop-up
       const syms = (Array.isArray(body.symbols) ? body.symbols : []).map((x: any) => String(x).toUpperCase()).filter((x: string) => /^[A-Z][A-Z.\-]{0,6}$/.test(x)).slice(0, 10);
       return Response.json(await volAccum(supa, syms));
+    }
+
+    if (body.mode === 'movers') {   // STEP 94: today's volume for the biggest movers (up / down 5%+, $0.10–$100) — feeds the 🌅 Live scan
+      const { data: mv, error: mvErr } = await supa.rpc('vol_movers_list', { p_n: 60 });
+      if (mvErr) throw new Error(mvErr.message);
+      const ms = (mv || []).map((r: any) => r.symbol);
+      const got = ms.length ? await volAccum(supa, ms) : {};
+      // no trades reported (often OTC / foreign) → a 0 reading for today, so the next run moves on to other movers
+      const none = ms.filter((s: string) => !got[s]);
+      if (none.length) {
+        const today = etParts().date;
+        const { data: have } = await supa.from('vol_accum').select('symbol').in('symbol', none).eq('d', today);
+        const h = new Set((have || []).map((r: any) => r.symbol));
+        const zero = none.filter((s: string) => !h.has(s)).map((s: string) => ({ symbol: s, d: today, pre_vol: 0, reg_vol: 0, post_vol: 0, today_vol: 0, prev_vol: null, prev_date: null, updated_at: new Date().toISOString() }));
+        if (zero.length) await supa.from('vol_accum').upsert(zero, { onConflict: 'symbol' });
+      }
+      return Response.json({ asked: ms.length, measured: Object.keys(got).length, none: none.length });
     }
 
     const cmds = await commands(supa);
